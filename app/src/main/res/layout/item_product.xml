@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginEnd="8dp"
+    android:layout_marginBottom="4dp"
+    app:cardElevation="2dp">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/textViewProductName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
+            app:layout_constraintEnd_toStartOf="@+id/imageViewLowStockIndicator"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:text="Nombre Producto" />
+
+        <ImageView
+            android:id="@+id/imageViewLowStockIndicator"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_dialog_alert"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="@android:color/holo_orange_dark"
+            tools:visibility="visible"/>
+
+        <TextView
+            android:id="@+id/textViewProductUnit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewProductName"
+            tools:text="Kg" />
+
+        <TextView
+            android:id="@+id/textViewMinStockLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="StockMin:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewProductUnit"
+            app:layout_constraintStart_toEndOf="@+id/textViewProductUnit" />
+
+        <TextView
+            android:id="@+id/textViewMinStockValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            android:textStyle="bold"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewMinStockLabel"
+            app:layout_constraintStart_toEndOf="@+id/textViewMinStockLabel"
+            tools:text="50" />
+
+        <TextView
+            android:id="@+id/textViewStockMatrizLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Matriz:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit" />
+
+        <TextView
+            android:id="@+id/textViewStockMatrizValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+            android:textStyle="bold"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizLabel"
+            app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizLabel"
+            tools:text="150" />
+
+        <TextView
+            android:id="@+id/textViewStockC04Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="C-04:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizValue"
+            app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizValue" />
+
+        <TextView
+            android:id="@+id/textViewStockC04Value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+            android:textStyle="bold"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Label"
+            app:layout_constraintStart_toEndOf="@+id/textViewStockC04Label"
+            tools:text="50" />
+
+        <TextView
+            android:id="@+id/textViewStockTotalLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="StockTotal:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Value"
+            app:layout_constraintStart_toEndOf="@+id/textViewStockC04Value" />
+
+        <TextView
+            android:id="@+id/textViewStockTotalValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            android:textColor="@color/total_stock_green" android:textStyle="bold"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockTotalLabel"
+            app:layout_constraintStart_toEndOf="@+id/textViewStockTotalLabel"
+            tools:text="200" />
+
+        <LinearLayout
+            android:id="@+id/layoutActionButtons"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewStockMatrizLabel" >
+
+            <ImageButton
+            android:id="@+id/buttonAddCompra"
+            android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@android:drawable/ic_input_add"
+            app:tint="#195200"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Registrar Compra" />
+
+            <ImageButton
+                android:id="@+id/buttonAddSalida"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="16dp"
+                android:src="@drawable/remove_24"
+                app:tint="@android:color/holo_red_dark"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Registrar Salida" />
+            <ImageButton
+                android:id="@+id/buttonAddTraspaso"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="16dp"
+                android:src="@drawable/traspaso"
+                app:tint="#0085B1"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Traspasar a C04" />
+            <ImageButton
+                android:id="@+id/buttonEditC04"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="16dp"
+                android:src="@drawable/editar"
+                app:tint="#930195"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Ajustar Stock C04" />
+
+            <ImageButton
+                android:id="@+id/buttonTraspasoC04M"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="16dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Regresar Traspaso a Matriz"
+                android:src="@drawable/traspaso"
+                app:layout_constraintBottom_toBottomOf="@+id/buttonEditC04"
+                app:layout_constraintStart_toEndOf="@+id/buttonEditC04"
+                app:layout_constraintTop_toTopOf="@+id/buttonEditC04"
+                app:tint="@color/teal_200" />
+        </LinearLayout>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+</com.google.android.material.card.MaterialCardView>

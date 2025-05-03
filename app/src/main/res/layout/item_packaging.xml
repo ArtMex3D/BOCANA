@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/packagingCardView"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginEnd="8dp"
+    android:layout_marginBottom="4dp"
+    app:cardElevation="2dp"
+    app:cardBackgroundColor="#E3F2FD">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/textViewPackProductName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toStartOf="@+id/buttonMarkPackaged"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:text="Nombre Producto a Empacar" />
+
+        <TextView
+            android:id="@+id/textViewPackQuantityLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Cantidad Recibida:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewPackProductName" />
+
+        <TextView
+            android:id="@+id/textViewPackQuantityValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+            android:textStyle="bold"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewPackQuantityLabel"
+            app:layout_constraintStart_toEndOf="@+id/textViewPackQuantityLabel"
+            tools:text="3000 Kg" />
+
+        <TextView
+            android:id="@+id/textViewPackDateLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Recibido:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewPackQuantityLabel" />
+
+
+        <TextView
+            android:id="@+id/textViewPackDateValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewPackDateLabel"
+            app:layout_constraintStart_toEndOf="@+id/textViewPackDateLabel"
+            tools:text="25/04/2025 09:00" />
+
+        <TextView
+            android:id="@+id/textViewPackTimeElapsed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+            android:textStyle="bold"
+            android:textColor="@color/design_default_color_error"
+            app:layout_constraintBaseline_toBaselineOf="@+id/textViewPackDateValue"
+            app:layout_constraintStart_toEndOf="@+id/textViewPackDateValue"
+            app:layout_constraintEnd_toStartOf="@+id/buttonMarkPackaged"
+            app:layout_constraintHorizontal_bias="0.0"
+            tools:text="¡3 DÍAS RETRASO!" />
+
+
+        <Button
+            android:id="@+id/buttonMarkPackaged"
+            style="@style/Widget.MaterialComponents.Button.TextButton.Icon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Empacado"
+            android:textSize="11sp"
+            app:icon="@drawable/verificado"
+            app:iconTint="#782D01"
+            app:layout_constraintBottom_toBottomOf="@+id/textViewPackTimeElapsed"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/textViewPackProductName" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</com.google.android.material.card.MaterialCardView>
