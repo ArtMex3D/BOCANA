@@ -1,6 +1,6 @@
 package com.cesar.bocana.ui.main
 
-import android.Manifest
+import android.Manifest // Asegúrate que esté
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -19,26 +19,27 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment // Import Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.User
-import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ActivityMainBinding
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.packaging.PackagingFragment
 import com.cesar.bocana.ui.products.ProductListFragment
-import com.cesar.bocana.ui.suppliers.SupplierListFragment // Import añadido
+import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.material.navigation.NavigationBarView // Import para el listener
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
-import com.google.firebase.firestore.SetOptions // Import añadido
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
@@ -47,12 +48,14 @@ import kotlinx.coroutines.tasks.await
 import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
 
-class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedListener {
+// Ya no implementa OnBackStackChangedListener aquí directamente,
+// la lógica de toolbar se simplifica.
+class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var auth: FirebaseAuth
     private val db = Firebase.firestore
-    private var currentUserName: String? = null // Ya no necesitamos currentUserRole aquí
+    private var currentUserName: String? = null
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
     private val LOCAL_NOTIFICATION_ID = 1001
@@ -73,11 +76,17 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         auth = Firebase.auth
-        setSupportActionBar(binding.toolbar)
+        setSupportActionBar(binding.toolbar) // Seguimos usando la Toolbar superior
+
         createNotificationChannel()
-        if (auth.currentUser == null) { goToLogin(); return }
-        supportFragmentManager.addOnBackStackChangedListener(this)
-        fetchUserInfoAndLoadFragment(savedInstanceState)
+
+        if (auth.currentUser == null) {
+            goToLogin()
+            return
+        }
+
+        setupBottomNavigation() // Configurar la navegación inferior
+        fetchUserInfoAndLoadInitialFragment(savedInstanceState) // Carga datos y el primer fragmento
         askNotificationPermission()
     }
 
@@ -85,10 +94,63 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         super.onResume()
         if (auth.currentUser != null) {
             lifecycleScope.launch { checkConditionsAndNotifyLocally() }
-            fetchUserInfoOnly()
+            fetchUserInfoOnly() // Solo para actualizar nombre si cambia
         }
     }
 
+    private fun setupBottomNavigation() {
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            var selectedFragment: Fragment? = null
+            when (item.itemId) {
+                R.id.navigation_productos -> {
+                    selectedFragment = ProductListFragment()
+                    supportActionBar?.title = getString(R.string.app_name) // O "Inventario"
+                }
+                R.id.navigation_empaque -> {
+                    selectedFragment = PackagingFragment()
+                    supportActionBar?.title = "Pendiente Empacar"
+                }
+                R.id.navigation_devoluciones -> {
+                    selectedFragment = DevolucionesFragment()
+                    supportActionBar?.title = "Devoluciones"
+                }
+                R.id.navigation_proveedores -> {
+                    selectedFragment = SupplierListFragment()
+                    supportActionBar?.title = "Proveedores"
+                }
+                R.id.navigation_ajustes -> {
+                    selectedFragment = AjustesFragment()
+                    supportActionBar?.title = "Ajustes Manuales"
+                }
+            }
+
+            if (selectedFragment != null) {
+                // Reemplaza el fragmento actual sin añadir a back stack
+                // para que el botón atrás del sistema cierre la app desde estas pantallas
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.nav_host_fragment_content_main, selectedFragment)
+                    .commit() // Commit normal aquí está bien
+                updateToolbarSubtitle() // Asegura que el subtítulo (nombre user) se muestre
+                true // Indicar que el evento fue manejado
+            } else {
+                false // No manejado si el item no coincide
+            }
+        }
+        // Seleccionar el item inicial por defecto (Productos)
+        binding.bottomNavigation.selectedItemId = R.id.navigation_productos
+    }
+
+    private fun loadFragment(fragment: Fragment) {
+        // Función auxiliar para cargar fragmentos (usada por el listener de abajo)
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, fragment)
+            // No añadimos a backstack para navegación inferior principal
+            .commit()
+        updateToolbarSubtitle() // Mantener subtítulo actualizado
+    }
+
+
+    // --- Código de Notificaciones y Permisos (sin cambios respecto a respuesta #49) ---
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = getString(R.string.app_name) + " Alertas"
@@ -242,29 +304,39 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             Log.e(TAG, "SecurityException showing notification.", e)
         }
     }
+    // --- Fin Código Notificaciones ---
 
 
-    private fun fetchUserInfoAndLoadFragment(savedInstanceState: Bundle?) {
+    // Modificado para cargar solo el fragmento inicial si es necesario
+    private fun fetchUserInfoAndLoadInitialFragment(savedInstanceState: Bundle?) {
         val user = auth.currentUser ?: run { goToLogin(); return }
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { document ->
                 if (!isDestroyed && !isFinishing) {
                     if (document != null && document.exists()) {
                         val userData = document.toObject(User::class.java)
-                        // Simplificado: Solo verificamos si está activo
                         if (userData?.isAccountActive != true) {
                             showErrorAndLogout("Cuenta inactiva.")
                             return@addOnSuccessListener
                         }
-                        currentUserName = userData?.name ?: "Usuario" // Guardamos nombre
-                        updateToolbarSubtitle() // Muestra el nombre
-                        invalidateOptionsMenu()
-                        if (savedInstanceState == null) {
-                            loadInitialFragment()
+                        currentUserName = userData.name ?: "Usuario"
+                        updateToolbarSubtitle()
+
+                        // Solo carga el fragmento inicial si savedInstanceState es null
+                        // y si no hay ya un fragmento en el contenedor
+                        if (savedInstanceState == null && supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main) == null) {
+                            Log.d(TAG, "Loading initial fragment (ProductListFragment).")
+                            supportFragmentManager.beginTransaction()
+                                .replace(R.id.nav_host_fragment_content_main, ProductListFragment())
+                                .commitNow() // Usar commitNow si es en onCreate
+                            // Asegurar que el item correcto esté seleccionado en la barra inferior
+                            binding.bottomNavigation.selectedItemId = R.id.navigation_productos
                         }
+                        invalidateOptionsMenu() // Redibuja menú superior (solo Logout)
+
                     } else {
                         Log.w(TAG,"User document not found for UID: ${user.uid}")
-                        showErrorAndLogout("Error: Usuario no registrado.") // Asumimos que debería existir
+                        showErrorAndLogout("Error: Usuario no registrado.")
                     }
                 }
             }
@@ -294,7 +366,7 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
                         if (currentUserName != fetchedName) {
                             currentUserName = fetchedName
                             updateToolbarSubtitle()
-                            invalidateOptionsMenu() // Actualizar si el nombre cambia (poco probable pero posible)
+                            // No es necesario invalidar menú aquí usualmente, ya que solo tiene logout
                         }
 
                     } else {
@@ -310,112 +382,49 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
     }
 
     private fun updateToolbarSubtitle() {
-        // Muestra solo el nombre del usuario
         supportActionBar?.subtitle = currentUserName ?: ""
     }
 
-    private fun loadInitialFragment() {
-        if (supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main) == null) {
-            try {
-                supportFragmentManager.beginTransaction()
-                    .replace(R.id.nav_host_fragment_content_main, ProductListFragment())
-                    .commitAllowingStateLoss()
-            } catch (e: IllegalStateException) {
-                Log.e(TAG, "Error loading initial fragment, activity state invalid?", e)
-            }
-        }
-    }
+    // onBackStackChanged ya no es necesaria porque no usamos addToBackStack para bottom nav
 
-    override fun onBackStackChanged() {
-        val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-        val isAtHome = currentFragment is ProductListFragment || supportFragmentManager.backStackEntryCount == 0
-
-        supportActionBar?.setDisplayHomeAsUpEnabled(!isAtHome)
-        supportActionBar?.setDisplayShowHomeEnabled(!isAtHome)
-
-        if (isAtHome) {
-            updateToolbarSubtitle() // Restaura el nombre de usuario en el subtítulo
-        }
-        invalidateOptionsMenu() // Siempre actualiza el menú al cambiar pantalla
-    }
-
-
+    // --- Manejo Menú Superior (Toolbar) ---
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.main_menu, menu)
+        // Infla el menú; esto añade items a la action bar si está presente.
+        menuInflater.inflate(R.menu.main_menu, menu) // Usa el menú simplificado
         return true
     }
 
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
-        if (menu != null) {
-            val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-            // Mostrar opciones solo si estamos en la pantalla principal (ProductListFragment)
-            val showMenuItems = currentFragment is ProductListFragment
-
-            menu.findItem(R.id.action_ajustes)?.isVisible = showMenuItems
-            menu.findItem(R.id.action_devoluciones)?.isVisible = showMenuItems
-            menu.findItem(R.id.action_packaging)?.isVisible = showMenuItems
-            menu.findItem(R.id.action_suppliers)?.isVisible = showMenuItems // Item añadido en Fase 2
-        }
+        // Aquí podríamos ocultar/mostrar Logout si fuera necesario, pero usualmente siempre está
         return super.onPrepareOptionsMenu(menu)
     }
 
-
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == android.R.id.home) {
-            supportFragmentManager.popBackStack()
-            return true
-        }
-
-        // Logout siempre disponible
-        if (item.itemId == R.id.action_logout) {
-            signOut()
-            return true
-        }
-
-        // Otras acciones solo disponibles desde la lista de productos
-        val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-        if (currentFragment is ProductListFragment) {
-            return when (item.itemId) {
-                R.id.action_ajustes -> { navigateToAjustes(); true }
-                R.id.action_devoluciones -> { navigateToDevoluciones(); true }
-                R.id.action_packaging -> { navigateToPackaging(); true }
-                R.id.action_suppliers -> { navigateToSuppliers(); true } // Navegación añadida
-                else -> super.onOptionsItemSelected(item)
+        // Manejar clics en items de la action bar
+        return when (item.itemId) {
+            R.id.action_logout -> {
+                signOut()
+                true
             }
+            // El botón Home/Up (flecha atrás en toolbar) ya NO se maneja aquí
+            // porque no estamos usando addToBackStack normalmente con BottomNav.
+            // Se maneja por el sistema o el Navigation Component si se usara.
+            else -> super.onOptionsItemSelected(item)
         }
+    }
+    // --- Fin Manejo Menú Superior ---
 
-        return super.onOptionsItemSelected(item) // Dejar que el sistema maneje otros casos
-    }
+    // Las funciones navigateTo... ya no se usan desde el menú superior
+    // private fun navigateToAjustes() { ... }
+    // private fun navigateToDevoluciones() { ... }
+    // private fun navigateToPackaging() { ... }
+    // private fun navigateToSuppliers() { ... }
 
-    // Función auxiliar eliminada isAdmin() ya que no se usa
-
-    private fun navigateToAjustes() {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, AjustesFragment())
-            .addToBackStack("AjustesFragment").commit()
-    }
-    private fun navigateToDevoluciones() {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, DevolucionesFragment())
-            .addToBackStack("DevolucionesFragment").commit()
-    }
-    private fun navigateToPackaging() {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, PackagingFragment())
-            .addToBackStack("PackagingFragment").commit()
-    }
-    // Nueva función para navegar a proveedores
-    private fun navigateToSuppliers() {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, SupplierListFragment())
-            .addToBackStack("SupplierListFragment").commit()
-    }
 
     private fun signOut() {
         Log.d(TAG, "signOut: Initiating sign out...")
-        currentUserName = null // Limpiar nombre local
-        invalidateOptionsMenu()
-        updateToolbarSubtitle()
+        currentUserName = null
+        updateToolbarSubtitle() // Limpiar subtítulo
 
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))

@@ -4,37 +4,9 @@
 
 
     <item
-        android:id="@+id/action_ajustes"
-        android:title="Ajustes Manuales"
-        android:icon="@drawable/ic_settings"
-        app:showAsAction="ifRoom"
-        android:visible="false" />
-
-
-    <item
-        android:id="@+id/action_devoluciones"
-        android:title="Devoluciones Pendientes"
-        android:icon="@drawable/devolucion"
-        app:showAsAction="ifRoom"
-        android:visible="false" />
-
-    <item
         android:id="@+id/action_logout"
         android:title="Cerrar Sesión"
         app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_packaging"
-        android:title="Pendiente Empacar"
-        android:icon="@drawable/pendiente"
-        app:showAsAction="ifRoom"
-        android:visible="false" />
-    <item
-        android:id="@+id/action_suppliers"
-        android:title="Proveedores"
-        android:icon="@drawable/delivery"
-        app:showAsAction="ifRoom"
-        android:visible="false" />
 
 
 </menu>

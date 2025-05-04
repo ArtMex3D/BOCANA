@@ -19,7 +19,6 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 
-// Asegura que implementa SupplierActionListener
 class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
     private var _binding: FragmentSupplierListBinding? = null
@@ -37,8 +36,7 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
     ): View {
         _binding = FragmentSupplierListBinding.inflate(inflater, container, false)
         firestore = Firebase.firestore
-        // Pasar 'this' que ahora implementa la interfaz completa
-        supplierAdapter = SupplierAdapter(this)
+        supplierAdapter = SupplierAdapter(this) // Inicializar aquí
         setupRecyclerView()
         setupFab()
         return binding.root
@@ -55,14 +53,14 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
         super.onDestroyView()
         restoreToolbar()
         suppliersListener?.remove()
-        suppliersListener = null // Liberar referencia
+        suppliersListener = null
         _binding = null
     }
 
     private fun setupToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
             originalActivityTitle = title
-            title = "Proveedores"
+            title = "Proveedores" // Asegurar título correcto
             subtitle = null
             setDisplayHomeAsUpEnabled(true)
             setDisplayShowHomeEnabled(true)
@@ -71,16 +69,16 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
     private fun restoreToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
-            title = originalActivityTitle ?: getString(R.string.app_name)
-            subtitle = null
             setDisplayHomeAsUpEnabled(false)
             setDisplayShowHomeEnabled(false)
+            // MainActivity se encargará de restaurar su título/subtítulo
         }
-        originalActivityTitle = null // Limpiar referencia
+        originalActivityTitle = null
     }
 
 
     private fun setupRecyclerView() {
+        // Adapter ya inicializado en onCreateView
         binding.recyclerViewSuppliers.apply {
             adapter = supplierAdapter
             layoutManager = LinearLayoutManager(requireContext())
@@ -103,7 +101,7 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
     private fun observeSuppliers() {
         if (suppliersListener != null) {
-            Log.w(TAG, "Supplier listener already attached.")
+            Log.w(TAG, "Supplier listener ya activo.")
             return
         }
         showLoading(true)
@@ -114,15 +112,14 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
         suppliersListener = query.addSnapshotListener { snapshots, error ->
             if (_binding == null || !isAdded) {
-                Log.w(TAG, "Snapshot received but binding is null or fragment not attached.")
-                suppliersListener?.remove() // Intentar remover si ya no es válido
-                suppliersListener = null
+                Log.w(TAG, "Snapshot suppliers pero binding/fragment no válido")
+                suppliersListener?.remove(); suppliersListener = null
                 return@addSnapshotListener
             }
             showLoading(false)
 
             if (error != null) {
-                Log.e(TAG, "Error listening for suppliers", error)
+                Log.e(TAG, "Error escuchando proveedores", error)
                 binding.textViewEmptySupplierList.text = "Error al cargar proveedores."
                 binding.textViewEmptySupplierList.visibility = View.VISIBLE
                 return@addSnapshotListener
@@ -130,12 +127,12 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
             if (snapshots != null) {
                 val suppliers = snapshots.toObjects(Supplier::class.java)
-                suppliers.firstOrNull()?.let { Log.d(TAG, "Primer proveedor leído: ${it.name}, isActive=${it.isActive}") }
+                Log.d(TAG, "Proveedores actualizados: ${suppliers.size}. Primer item isActive=${suppliers.firstOrNull()?.isActive}")
                 supplierAdapter.submitList(suppliers)
+                binding.textViewEmptySupplierList.text = "No hay proveedores registrados."
                 binding.textViewEmptySupplierList.visibility = if (suppliers.isEmpty()) View.VISIBLE else View.GONE
-                Log.d(TAG, "Proveedores actualizados: ${suppliers.size}")
             } else {
-                Log.w(TAG, "Received null snapshot for suppliers query.")
+                Log.w(TAG, "Snapshot suppliers es null")
                 binding.textViewEmptySupplierList.text = "No se encontraron proveedores."
                 binding.textViewEmptySupplierList.visibility = View.VISIBLE
             }
@@ -153,20 +150,21 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
         navigateToEditSupplier(supplier.id)
     }
 
-    // Implementación del NUEVO método del listener
     override fun onSupplierStatusChanged(supplierId: String, newStatus: Boolean) {
         Log.d(TAG, "Listener: Actualizando estado para $supplierId a $newStatus")
         updateSupplierStatusFromList(supplierId, newStatus)
     }
     // ------------------------------------------
 
-    // Función que realiza la actualización en Firestore
     private fun updateSupplierStatusFromList(supplierId: String, newStatus: Boolean) {
         if (supplierId.isEmpty()) {
-            Log.e(TAG, "Supplier ID vacío, no se puede actualizar estado.")
+            Log.e(TAG, "Supplier ID vacío.")
             return
         }
-        // Aquí NO mostramos ProgressBar para que el cambio sea rápido en la lista
+        // Considerar deshabilitar el chip mientras se guarda para evitar doble click rápido
+        // val position = supplierAdapter.currentList.indexOfFirst { it.id == supplierId }
+        // val viewHolder = binding.recyclerViewSuppliers.findViewHolderForAdapterPosition(position) as? SupplierAdapter.SupplierViewHolder
+        // viewHolder?.binding?.chipSupplierStatus?.isEnabled = false // Ejemplo
 
         val supplierRef = firestore.collection("suppliers").document(supplierId)
         val statusUpdate = mapOf(
@@ -176,34 +174,33 @@ class SupplierListFragment : Fragment(), SupplierActionListener, MenuProvider {
 
         supplierRef.update(statusUpdate)
             .addOnSuccessListener {
-                Log.i(TAG, "Estado del proveedor $supplierId actualizado a $newStatus desde la lista.")
-                // La lista se actualizará sola por el listener 'observeSuppliers'
+                Log.i(TAG, "Estado del proveedor $supplierId actualizado a $newStatus desde lista.")
+                // No es necesario Toast, el listener 'observeSuppliers' actualizará la UI.
             }
             .addOnFailureListener { e ->
-                Log.e(TAG, "Error al actualizar estado del proveedor $supplierId desde la lista", e)
-                // Mostrar Toast de error si el contexto aún es válido
-                context?.let {
-                    Toast.makeText(it, "Error al actualizar estado", Toast.LENGTH_SHORT).show()
+                Log.e(TAG, "Error al actualizar estado del proveedor $supplierId desde lista", e)
+                context?.let { ctx ->
+                    Toast.makeText(ctx, "Error al actualizar estado", Toast.LENGTH_SHORT).show()
                 }
-                // Nota: La UI del chip podría quedar desincronizada momentáneamente hasta
-                // que el listener principal (observeSuppliers) la corrija.
+                // El listener 'observeSuppliers' eventualmente corregirá la UI al estado de Firestore.
             }
+        // .addOnCompleteListener {
+        //    viewHolder?.binding?.chipSupplierStatus?.isEnabled = true // Rehabilitar chip
+        // }
     }
-
 
     // --- MenuProvider ---
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {}
 
     override fun onPrepareMenu(menu: Menu) {
-        menu.findItem(R.id.action_ajustes)?.isVisible = false
-        menu.findItem(R.id.action_devoluciones)?.isVisible = false
-        menu.findItem(R.id.action_packaging)?.isVisible = false
-        menu.findItem(R.id.action_suppliers)?.isVisible = false
+        Log.d(TAG, "onPrepareMenu (SupplierListFragment)")
+        // No necesitamos ocultar nada del menú superior (que solo tiene Logout)
     }
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
         return false
     }
+    // --- Fin MenuProvider ---
 
     companion object {
         private const val TAG = "SupplierListFragment"

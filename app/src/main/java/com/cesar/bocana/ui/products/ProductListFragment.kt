@@ -58,29 +58,16 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
     private var currentUserRole: UserRole? = null
 
 
-    // --- Implementación de MenuProvider ---
-
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
-        // No necesitamos añadir items nuevos desde este fragmento.
-        // MainActivity ya infla R.menu.main_menu
         Log.d(TAG, "onCreateMenu (ProductListFragment)")
-        // Si quisiéramos un menú específico SÓLO para esta pantalla, haríamos:
-        // menuInflater.inflate(R.menu.product_list_menu, menu)
     }
 
     override fun onPrepareMenu(menu: Menu) {
-        Log.d(TAG, "onPrepareMenu (ProductListFragment), Rol: $currentUserRole")
-        val isAdmin = (currentUserRole == UserRole.ADMIN)
-        menu.findItem(R.id.action_ajustes)?.isVisible = isAdmin
-        menu.findItem(R.id.action_devoluciones)?.isVisible = isAdmin
-        Log.d(TAG, "Visibilidad menú ajustada: Ajustes=${isAdmin}, Devoluciones=${isAdmin}, Usuarios=${isAdmin}")
+        Log.d(TAG, "onPrepareMenu (ProductListFragment) - Menú superior simplificado.")
     }
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-        // Este fragmento NO maneja directamente los clics en los items del menú de opciones
-        // principal (como Ajustes, Devoluciones, Logout). Eso lo hace MainActivity.
-        // Devolvemos 'false' para indicar que NO hemos manejado el clic aquí.
-        Log.d(TAG, "onMenuItemSelected (ProductListFragment) para ${menuItem.title}")
+        Log.d(TAG, "onMenuItemSelected (ProductListFragment) para ${menuItem.title} - No manejado aquí.")
         return false
     }
 

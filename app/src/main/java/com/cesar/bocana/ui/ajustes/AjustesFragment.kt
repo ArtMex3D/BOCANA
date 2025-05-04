@@ -26,7 +26,6 @@ import com.cesar.bocana.helpers.NotificationTriggerHelper
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-
 class AjustesFragment : Fragment(), MenuProvider {
 
     private var _binding: FragmentAjustesBinding? = null
@@ -38,6 +37,7 @@ class AjustesFragment : Fragment(), MenuProvider {
     private var allProducts: List<Product> = emptyList()
     private var productNames: List<String> = emptyList()
     private var selectedProduct: Product? = null
+    private var originalActivityTitle: CharSequence? = null // Guardar titulo original
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -46,12 +46,13 @@ class AjustesFragment : Fragment(), MenuProvider {
         _binding = FragmentAjustesBinding.inflate(inflater, container, false)
         firestore = Firebase.firestore
         auth = Firebase.auth
-        setupToolbar()
+        // No configurar toolbar aquí, sino en onViewCreated
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setupToolbar() // Configurar toolbar aquí
         requireActivity().addMenuProvider(this, viewLifecycleOwner, Lifecycle.State.RESUMED)
         loadProductsForSelection()
         setupProductSelectionListener()
@@ -60,40 +61,53 @@ class AjustesFragment : Fragment(), MenuProvider {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        restoreToolbar()
+        restoreToolbar() // Restaurar toolbar aquí
         _binding = null
     }
 
     private fun setupToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
-            title = "Ajustes Manuales"; subtitle = null
-            setDisplayHomeAsUpEnabled(true); setDisplayShowHomeEnabled(true)
+            originalActivityTitle = title // Guardar el título que puso MainActivity
+            // MainActivity ya debería haber puesto "Ajustes Manuales" basado en BottomNav
+            // title = "Ajustes Manuales" // Opcional: re-asegurar título
+            subtitle = null
+            setDisplayHomeAsUpEnabled(true) // Mostrar flecha atrás
+            setDisplayShowHomeEnabled(true)
         }
     }
     private fun restoreToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
-            setDisplayHomeAsUpEnabled(false); setDisplayShowHomeEnabled(false)
-            title = getString(R.string.app_name); subtitle = null
+            // Al salir, MainActivity (o el fragment al que volvamos) pondrá su título/subtítulo
+            setDisplayHomeAsUpEnabled(false) // Ocultar flecha atrás
+            setDisplayShowHomeEnabled(false)
+            // No restauramos título/subtítulo aquí, dejamos que el fragment destino lo haga
         }
+        originalActivityTitle = null
     }
+
 
     private fun loadProductsForSelection() {
         showLoading(true)
-        firestore.collection("products").orderBy("name").get()
+        firestore.collection("products")
+            .whereEqualTo("isActive", true) // Filtro añadido en Fase 1
+            .orderBy("name").get()
             .addOnSuccessListener { result ->
-                if (_binding == null) return@addOnSuccessListener
+                if (_binding == null || !isAdded) return@addOnSuccessListener
                 allProducts = result.toObjects(Product::class.java)
                 productNames = allProducts.mapNotNull { it.name }
-                val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, productNames)
-                (binding.textFieldLayoutAjusteProduct.editText as? AutoCompleteTextView)?.setAdapter(adapter)
+                context?.let { ctx -> // Usar context seguro
+                    val adapter = ArrayAdapter(ctx, android.R.layout.simple_dropdown_item_1line, productNames)
+                    (binding.textFieldLayoutAjusteProduct.editText as? AutoCompleteTextView)?.setAdapter(adapter)
+                }
                 showLoading(false)
             }
             .addOnFailureListener { e ->
-                if (_binding == null) return@addOnFailureListener
-                Log.e(TAG, "Error cargando productos", e)
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                if (_binding == null || !isAdded) return@addOnFailureListener
+                Log.e(TAG, "Error cargando productos activos", e)
+                context?.let { ctx ->
+                    Toast.makeText(ctx, "Error cargando productos: ${e.message}", Toast.LENGTH_LONG).show()
+                }
                 showLoading(false)
-                parentFragmentManager.popBackStack()
             }
     }
 
@@ -136,6 +150,7 @@ class AjustesFragment : Fragment(), MenuProvider {
             binding.progressBarAjuste.visibility = if (isLoading) View.VISIBLE else View.GONE
             binding.buttonPerformAjuste.isEnabled = !isLoading
             binding.textFieldLayoutAjusteProduct.isEnabled = !isLoading
+            // Usar view?.findViewById es más seguro
             view?.findViewById<RadioButton>(R.id.radioButtonMatriz)?.isEnabled = !isLoading
             view?.findViewById<RadioButton>(R.id.radioButtonC04)?.isEnabled = !isLoading
             binding.textFieldLayoutAjusteNewQuantity.isEnabled = !isLoading
@@ -244,31 +259,36 @@ class AjustesFragment : Fragment(), MenuProvider {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
                 }
             }
-            if(_binding != null) showLoading(false); parentFragmentManager.popBackStack()
+            // Regresar a la pantalla anterior
+            if(isAdded) { parentFragmentManager.popBackStack() }
+            if(_binding != null) showLoading(false) // Ocultar loading después de volver
 
         }.addOnFailureListener { e ->
             if(_binding != null) showLoading(false)
-            val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) { e.message } else { "Error: ${e.message}" }
+            val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) { e.message } else { "Error al ajustar: ${e.message}" }
             Toast.makeText(context, msg ?: "Error al ajustar", Toast.LENGTH_LONG).show()
         }
     }
 
+    // --- Implementación MenuProvider ---
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+        // No añadir nada al menú superior desde aquí
     }
 
     override fun onPrepareMenu(menu: Menu) {
-        Log.d(TAG, "onPrepareMenu (AjustesFragment): Ocultando items...")
-        menu.findItem(R.id.action_ajustes)?.isVisible = false
-        menu.findItem(R.id.action_devoluciones)?.isVisible = false
-        menu.findItem(R.id.action_packaging)?.isVisible = false
+        // Ocultar el único item del menú superior (Logout) si se desea
+        // o dejarlo visible siempre. Por ahora, lo dejamos visible.
+        Log.d(TAG, "onPrepareMenu (AjustesFragment)")
+        // Las líneas que buscaban action_ajustes, action_devoluciones, etc. SE HAN ELIMINADO
     }
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+        // MainActivity maneja R.id.home (flecha atrás) y R.id.action_logout
         return false
     }
+    // --- Fin MenuProvider ---
 
     companion object {
         private const val TAG = "AjustesFragment"
     }
-
 }

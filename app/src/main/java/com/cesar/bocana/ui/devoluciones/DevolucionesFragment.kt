@@ -12,19 +12,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.DevolucionPendiente
-import com.cesar.bocana.data.model.DevolucionStatus // <--- IMPORT NECESARIO
+import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.databinding.FragmentDevolucionesBinding
 import com.cesar.bocana.ui.adapters.DevolucionActionListener
 import com.cesar.bocana.ui.adapters.DevolucionAdapter
-import com.google.firebase.firestore.FieldValue // <--- IMPORT NECESARIO
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-
-
 
 class DevolucionesFragment : Fragment(), DevolucionActionListener, MenuProvider {
 
@@ -35,9 +33,7 @@ class DevolucionesFragment : Fragment(), DevolucionActionListener, MenuProvider 
     private lateinit var firestore: FirebaseFirestore
     private var devolucionesListener: ListenerRegistration? = null
     private var originalActivityTitle: CharSequence? = null
-    private var originalActivitySubtitle: CharSequence? = null
 
-    // --- Ciclo de Vida y Configuración ---
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -57,92 +53,108 @@ class DevolucionesFragment : Fragment(), DevolucionActionListener, MenuProvider 
     }
 
     private fun setupToolbar() {
-        // ... (código sin cambios) ...
-        val activity = requireActivity() as? AppCompatActivity; activity?.supportActionBar?.let { ab -> originalActivityTitle = ab.title; originalActivitySubtitle = ab.subtitle; ab.title = "Devoluciones Pendientes"; ab.subtitle = null; ab.setDisplayHomeAsUpEnabled(true); ab.setDisplayShowHomeEnabled(true); Log.d(TAG,"Toolbar OK") }
+        (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
+            originalActivityTitle = title
+            // MainActivity ya debería haber puesto "Devoluciones"
+            // title = "Devoluciones Pendientes" // Opcional
+            subtitle = null
+            setDisplayHomeAsUpEnabled(true)
+            setDisplayShowHomeEnabled(true)
+        }
     }
 
     private fun restoreToolbar() {
-        // ... (código sin cambios) ...
-        val activity = requireActivity() as? AppCompatActivity; activity?.supportActionBar?.let { ab -> ab.title = originalActivityTitle ?: getString(R.string.app_name); ab.subtitle = originalActivitySubtitle; ab.setDisplayHomeAsUpEnabled(false); ab.setDisplayShowHomeEnabled(false); Log.d(TAG,"Toolbar Restaurada") }; originalActivityTitle = null; originalActivitySubtitle = null
+        (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
+            // MainActivity restaurará título/subtítulo al volver a ProductListFragment
+            setDisplayHomeAsUpEnabled(false)
+            setDisplayShowHomeEnabled(false)
+        }
+        originalActivityTitle = null
     }
 
     override fun onDestroyView() {
-        // ... (código sin cambios) ...
-        super.onDestroyView(); Log.d(TAG, "onDestroyView"); restoreToolbar(); devolucionesListener?.remove(); _binding = null
+        super.onDestroyView()
+        Log.d(TAG, "onDestroyView")
+        restoreToolbar()
+        devolucionesListener?.remove()
+        devolucionesListener = null
+        _binding = null
     }
 
     private fun setupRecyclerView() {
-        // ... (código sin cambios) ...
-        devolucionAdapter = DevolucionAdapter(this); binding.recyclerViewDevoluciones.apply { adapter = devolucionAdapter; layoutManager = LinearLayoutManager(requireContext()) }
+        devolucionAdapter = DevolucionAdapter(this)
+        binding.recyclerViewDevoluciones.apply {
+            adapter = devolucionAdapter
+            layoutManager = LinearLayoutManager(requireContext())
+        }
     }
 
     private fun observeDevoluciones() {
-        if (devolucionesListener != null) { // Evitar listeners duplicados
+        if (devolucionesListener != null) {
             Log.w(TAG, "Listener de devoluciones ya activo.")
-            showLoading(false)
-            return
+            return // Ya está escuchando
         }
-        Log.d(TAG, "Iniciando escucha de devoluciones con orden CORRECTO...")
-        showLoading(true); binding.textViewEmptyDevoluciones.visibility = View.GONE
+        Log.d(TAG, "Iniciando escucha de devoluciones...")
+        showLoading(true)
+        binding.textViewEmptyDevoluciones.visibility = View.GONE
 
-        // --- Consulta CORREGIDA ---
         val query = firestore.collection("pendingDevoluciones")
-            .orderBy("status", Query.Direction.DESCENDING) // <-- DESCENDING para PENDIENTE primero
-            .orderBy("registeredAt", Query.Direction.DESCENDING) // Más recientes primero dentro de cada estado
+            .orderBy("status", Query.Direction.DESCENDING) // PENDIENTE primero
+            .orderBy("registeredAt", Query.Direction.DESCENDING) // Más recientes primero
 
         devolucionesListener = query.addSnapshotListener { snapshots, error ->
-            if (_binding == null) { Log.w(TAG, "Snapshot recibido pero binding es null."); return@addSnapshotListener }
+            if (_binding == null || !isAdded) {
+                Log.w(TAG, "Snapshot recibido pero binding es null o fragment no attached.")
+                devolucionesListener?.remove()
+                devolucionesListener = null
+                return@addSnapshotListener
+            }
             showLoading(false)
 
             if (error != null) {
-                // Manejo del error del índice debería estar resuelto, pero dejamos el log por si acaso
                 Log.e(TAG, "Error escuchando devoluciones", error)
-                if (error.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
-                    binding.textViewEmptyDevoluciones.text = "Error: Índice de Firestore requerido. Contacta al desarrollador."
+                binding.textViewEmptyDevoluciones.text = if (error.code == FirebaseFirestoreException.Code.FAILED_PRECONDITION) {
+                    "Error: Índice Firestore requerido."
                 } else {
-                    binding.textViewEmptyDevoluciones.text = "Error al cargar devoluciones."
+                    "Error al cargar devoluciones."
                 }
                 binding.textViewEmptyDevoluciones.visibility = View.VISIBLE
-                binding.recyclerViewDevoluciones.visibility = View.GONE // Ocultar lista si hay error
+                binding.recyclerViewDevoluciones.visibility = View.GONE
                 return@addSnapshotListener
             }
 
             if (snapshots != null) {
                 val devoluciones = snapshots.toObjects(DevolucionPendiente::class.java)
-                // Log para verificar el orden recibido de Firestore
-                if (devoluciones.isNotEmpty()) {
-                    Log.d(TAG, "Firestore data order check (después de corregir query):")
-                    devoluciones.take(5).forEachIndexed { index, dev ->
-                        Log.d(TAG, "Item $index: ID=${dev.id}, Status=${dev.status}, Date=${dev.registeredAt}")
-                    }
-                }
-                // Enviar lista al adaptador
+                devoluciones.firstOrNull()?.let { Log.d(TAG, "Primer item: ID=${it.id}, Status=${it.status}, Date=${it.registeredAt}")}
                 devolucionAdapter.submitList(devoluciones)
 
-                // Mostrar/ocultar mensaje de lista vacía
-                binding.textViewEmptyDevoluciones.text = "No hay devoluciones pendientes." // Mensaje por defecto
+                binding.textViewEmptyDevoluciones.text = "No hay devoluciones." // Ajustar mensaje si necesario
                 binding.textViewEmptyDevoluciones.visibility = if (devoluciones.isEmpty()) View.VISIBLE else View.GONE
                 binding.recyclerViewDevoluciones.visibility = if (devoluciones.isEmpty()) View.GONE else View.VISIBLE
                 Log.d(TAG, "Devoluciones actualizadas: ${devoluciones.size}")
+            } else {
+                Log.w(TAG, "Received null snapshot for devoluciones query.")
+                binding.textViewEmptyDevoluciones.text = "No se encontraron devoluciones."
+                binding.textViewEmptyDevoluciones.visibility = View.VISIBLE
+                binding.recyclerViewDevoluciones.visibility = View.GONE
             }
         }
     }
+
     private fun showLoading(isLoading: Boolean) {
-        // ... (código sin cambios) ...
-        if (_binding != null) { binding.progressBarDevoluciones.visibility = if (isLoading) View.VISIBLE else View.GONE }
+        if (_binding != null) {
+            binding.progressBarDevoluciones.visibility = if (isLoading) View.VISIBLE else View.GONE
+        }
     }
 
-    // --- Implementación de DevolucionActionListener (CORREGIDA) ---
     override fun onCompletarClicked(devolucion: DevolucionPendiente) {
-        // Log para ver el status actual ANTES del if
         Log.d(TAG, "onCompletarClicked - ID: ${devolucion.id}, Status Actual: ${devolucion.status}")
 
-        // ---> Comprobación CORREGIDA <---
         if (devolucion.status == DevolucionStatus.PENDIENTE) {
             Log.d(TAG, "Status es PENDIENTE. Mostrando diálogo para ID: ${devolucion.id}")
             AlertDialog.Builder(requireContext())
                 .setTitle("Confirmar Completar")
-                .setMessage("¿Marcar esta devolución como completada?\n(${devolucion.quantity} - ${devolucion.productName} a ${devolucion.provider})")
+                .setMessage("¿Marcar esta devolución como completada?\n(${String.format("%.2f", devolucion.quantity)} ${devolucion.unit} - ${devolucion.productName} a ${devolucion.provider})")
                 .setPositiveButton("Sí, Completar") { _, _ ->
                     updateDevolucionStatusToCompleted(devolucion.id)
                 }
@@ -154,19 +166,15 @@ class DevolucionesFragment : Fragment(), DevolucionActionListener, MenuProvider 
         }
     }
 
-    // Función para ACTUALIZAR estado (CORREGIDA con imports correctos)
     private fun updateDevolucionStatusToCompleted(devolucionId: String) {
         if (devolucionId.isEmpty()) { Log.e(TAG, "ID vacío"); Toast.makeText(context, "Error ID", Toast.LENGTH_SHORT).show(); return }
         Log.d(TAG, "Actualizando a COMPLETADO: $devolucionId")
 
         val devolucionRef = firestore.collection("pendingDevoluciones").document(devolucionId)
 
-        // Mapa con los campos a actualizar
         val updates = mapOf(
-            // ---> Usa DevolucionStatus aquí <---
-            "status" to DevolucionStatus.COMPLETADO.name, // Guarda String "COMPLETADO"
-            // ---> Usa FieldValue aquí <---
-            "completedAt" to FieldValue.serverTimestamp() // Importado correctamente
+            "status" to DevolucionStatus.COMPLETADO.name,
+            "completedAt" to FieldValue.serverTimestamp()
         )
 
         devolucionRef.update(updates)
@@ -174,16 +182,20 @@ class DevolucionesFragment : Fragment(), DevolucionActionListener, MenuProvider 
             .addOnFailureListener { e -> Log.e(TAG, "Error completando $devolucionId", e); Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // --- Implementación de MenuProvider (sin cambios) ---
-    override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) { /* Vacío */ }
-    override fun onPrepareMenu(menu: Menu) {
-        // ... (código para ocultar items como estaba) ...
-        Log.d(TAG, "onPrepareMenu: Ocultando items nav")
-        menu.findItem(R.id.action_ajustes)?.isVisible = false
-        menu.findItem(R.id.action_devoluciones)?.isVisible = false
-    }
-    override fun onMenuItemSelected(menuItem: MenuItem): Boolean { return false } // No maneja items aquí
+    // --- Implementación MenuProvider ---
+    override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) { }
 
-    // --- Companion Object ---
+    override fun onPrepareMenu(menu: Menu) {
+        // Ocultar el único item del menú superior (Logout) si se desea
+        Log.d(TAG, "onPrepareMenu (DevolucionesFragment)")
+        // Las líneas que buscaban action_ajustes, action_devoluciones SE HAN ELIMINADO
+    }
+
+    override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+        // MainActivity maneja R.id.home (flecha atrás) y R.id.action_logout
+        return false
+    }
+    // --- Fin MenuProvider ---
+
     companion object { private const val TAG = "DevolucionesFragment" }
 }
