@@ -50,7 +50,7 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteProduct"
-            tools:text="Actual: Matriz=100, C04=50, Total=150"
+            tools:text="Actual: Matriz=100.00 Kg, C04=50.00 Kg, Total=150.00 Kg"
             tools:visibility="visible" />
 
 
@@ -104,7 +104,8 @@
                 android:id="@+id/editTextAjusteNewQuantity"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="number" /> </com.google.android.material.textfield.TextInputLayout>
+                android:inputType="numberDecimal" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutAjusteReason"

@@ -12,7 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.Product
-import com.cesar.bocana.data.model.UserRole // Necesario para verificar rol si haces más estricto
+import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.FragmentAddEditProductBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.firebase.auth.FirebaseAuth
@@ -22,6 +22,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import java.util.Locale
 
 class AddEditProductFragment : Fragment() {
 
@@ -59,11 +60,10 @@ class AddEditProductFragment : Fragment() {
         } else {
             configureUiForAddMode()
         }
-        setupListeners() // Mover setupListeners aquí
+        setupListeners()
         return binding.root
     }
 
-    // onViewCreated ya no es necesario para listeners si se ponen en onCreateView después del binding
 
     override fun onDestroyView() {
         super.onDestroyView()
@@ -79,27 +79,22 @@ class AddEditProductFragment : Fragment() {
         val activity = requireActivity() as? AppCompatActivity
         binding.buttonSaveProduct.text = "Guardar Producto Nuevo"
         activity?.supportActionBar?.title = "Añadir Producto"
-        // Ocultar acciones de editar/borrar
         binding.dividerActions.visibility = View.GONE
         binding.switchActive.visibility = View.GONE
         binding.buttonDeleteProduct.visibility = View.GONE
-        showLoading(false) // Asegurar que no haya loading
+        showLoading(false)
     }
 
     private fun configureUiForEditMode() {
         val activity = requireActivity() as? AppCompatActivity
-        binding.buttonSaveProduct.text = "Actualizar Datos" // Cambiar texto
+        binding.buttonSaveProduct.text = "Actualizar Datos"
         activity?.supportActionBar?.title = "Editar Producto"
-        // Mostrar acciones de editar/borrar
         binding.dividerActions.visibility = View.VISIBLE
         binding.switchActive.visibility = View.VISIBLE
         binding.buttonDeleteProduct.visibility = View.VISIBLE
-        // Configurar texto del Switch basado en el estado actual
         binding.switchActive.text = if (currentProductData?.isActive == true) "Producto Activo (Visible)" else "Producto Archivado (Oculto)"
-
     }
 
-    // Reemplaza esta función en AddEditProductFragment.kt
     private fun loadProductData(productId: String) {
         showLoading(true)
         binding.buttonSaveProduct.isEnabled = false
@@ -109,37 +104,43 @@ class AddEditProductFragment : Fragment() {
         firestore.collection("products").document(productId).get()
             .addOnSuccessListener { document ->
                 if (_binding == null) return@addOnSuccessListener
+                showLoading(false) // Mover aquí para habilitar botones incluso si algo falla después
+                binding.buttonSaveProduct.isEnabled = true
+                binding.switchActive.isEnabled = true
+                binding.buttonDeleteProduct.isEnabled = true
+
                 if (document != null && document.exists()) {
                     currentProductData = document.toObject(Product::class.java)
                     if (currentProductData != null) {
                         binding.editTextProductName.setText(currentProductData?.name)
                         binding.autoCompleteTextViewUnit.setText(currentProductData?.unit, false)
-                        binding.editTextMinStock.setText(currentProductData?.minStock.toString())
+                        // Mostrar minStock formateado
+                        binding.editTextMinStock.setText(String.format(Locale.getDefault(), "%.2f", currentProductData?.minStock ?: 0.0))
                         binding.editTextProviderDetails.setText(currentProductData?.providerDetails)
 
-                        // --- LOG AÑADIDO para depurar Switch ---
                         val isActiveValue = currentProductData?.isActive
-                        Log.d(TAG, "loadProductData - Leyendo para producto ${currentProductData?.name}: isActive = $isActiveValue (Tipo: ${isActiveValue?.javaClass?.simpleName})")
-                        // ---------------------------------------
+                        Log.d(TAG, "loadProductData - Leyendo para producto ${currentProductData?.name}: isActive = $isActiveValue")
 
-                        // Establecer estado inicial del Switch (usando el valor leído)
-                        binding.switchActive.isChecked = isActiveValue ?: true // Default a true si es null
+                        binding.switchActive.isChecked = isActiveValue ?: true
 
                         configureUiForEditMode()
                     } else {
-                        handleLoadError("Error al procesar datos.")
+                        handleLoadError("Error al procesar datos del producto.")
                     }
                 } else {
                     handleLoadError("Error: Producto no encontrado.")
                 }
-                showLoading(false)
             }
             .addOnFailureListener { e ->
                 if (_binding == null) return@addOnFailureListener
+                binding.buttonSaveProduct.isEnabled = true // Habilitar en caso de error también
+                binding.switchActive.isEnabled = true
+                binding.buttonDeleteProduct.isEnabled = true
                 handleLoadError("Error de conexión al cargar: ${e.message}")
                 showLoading(false)
             }
     }
+
     private fun handleLoadError(errorMessage: String) {
         Log.e(TAG, errorMessage)
         Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
@@ -147,25 +148,20 @@ class AddEditProductFragment : Fragment() {
     }
 
     private fun setupListeners() {
-        // Listener Botón Guardar/Actualizar
         binding.buttonSaveProduct.setOnClickListener {
             if (isEditing) {
-                updateProductData() // Solo actualiza datos, no estado activo
+                updateProductData()
             } else {
                 saveNewProduct()
             }
         }
 
-        // Listener Switch Activo/Archivado
         binding.switchActive.setOnCheckedChangeListener { _, isChecked ->
-            // Actualizar estado en Firestore inmediatamente al cambiar switch
-            // Solo si estamos editando y el producto actual existe
             if (isEditing && currentProductData != null && currentProductData?.isActive != isChecked) {
                 updateProductStatus(isChecked)
             }
         }
 
-        // Listener Botón Borrar Permanente
         binding.buttonDeleteProduct.setOnClickListener {
             if (isEditing && currentProductData != null) {
                 showDeleteConfirmationDialog()
@@ -186,22 +182,28 @@ class AddEditProductFragment : Fragment() {
             isValid = false
         } else { binding.textFieldLayoutProductUnit.error = null }
 
+        // Validar minStock como Double
         try {
-            val minStock = binding.editTextMinStock.text.toString().toLongOrNull() ?: 0L
-            if (minStock < 0) {
+            val minStockString = binding.editTextMinStock.text.toString()
+            val minStock = minStockString.toDoubleOrNull() // Convertir a Double
+            if (minStock == null) {
+                binding.textFieldLayoutMinStock.error = "Número inválido"; isValid = false
+            } else if (minStock < 0.0) { // Comparar con 0.0
                 binding.textFieldLayoutMinStock.error = "No negativo"; isValid = false
-            } else { binding.textFieldLayoutMinStock.error = null }
-        } catch (e: NumberFormatException) {
+            } else {
+                binding.textFieldLayoutMinStock.error = null
+            }
+        } catch (e: NumberFormatException) { // Aunque toDoubleOrNull maneja esto, por si acaso
             binding.textFieldLayoutMinStock.error = "Número inválido"; isValid = false
         }
         return isValid
     }
 
+
     private fun showLoading(isLoading: Boolean) {
         if(_binding != null){
             binding.progressBarSave.visibility = if (isLoading) View.VISIBLE else View.GONE
             binding.buttonSaveProduct.isEnabled = !isLoading
-            // Habilitar/deshabilitar botones de acción solo si estamos editando
             if(isEditing){
                 binding.switchActive.isEnabled = !isLoading
                 binding.buttonDeleteProduct.isEnabled = !isLoading
@@ -218,15 +220,16 @@ class AddEditProductFragment : Fragment() {
         val newProduct = Product(
             name = binding.editTextProductName.text.toString().trim(),
             unit = binding.autoCompleteTextViewUnit.text.toString(),
-            minStock = binding.editTextMinStock.text.toString().toLongOrNull() ?: 0L,
+            minStock = binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0, // Guardar como Double
             providerDetails = binding.editTextProviderDetails.text.toString().trim(),
-            stockMatriz = 0L, stockCongelador04 = 0L, totalStock = 0L,
-            isActive = true, // Siempre activo al crear
+            stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
+            isActive = true,
             lastUpdatedByName = currentUserName
         )
 
         firestore.collection("products").add(newProduct)
             .addOnSuccessListener {
+                if(_binding != null) showLoading(false) // Ocultar loading
                 Toast.makeText(context, "Producto añadido", Toast.LENGTH_SHORT).show()
                 parentFragmentManager.popBackStack()
             }
@@ -236,7 +239,6 @@ class AddEditProductFragment : Fragment() {
             }
     }
 
-    // Actualiza SOLO los datos editables, NO el estado 'isActive'
     private fun updateProductData() {
         val productId = editingProductId ?: return
         if (!validateInputFields()) { return }
@@ -247,18 +249,18 @@ class AddEditProductFragment : Fragment() {
         val updatedData = mapOf(
             "name" to binding.editTextProductName.text.toString().trim(),
             "unit" to binding.autoCompleteTextViewUnit.text.toString(),
-            "minStock" to (binding.editTextMinStock.text.toString().toLongOrNull() ?: 0L),
+            "minStock" to (binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0), // Guardar como Double
             "providerDetails" to binding.editTextProviderDetails.text.toString().trim(),
             "updatedAt" to FieldValue.serverTimestamp(),
             "lastUpdatedByName" to currentUserName
-            // NO incluimos 'isActive' aquí, se maneja por el Switch
         )
 
         firestore.collection("products").document(productId)
             .update(updatedData)
             .addOnSuccessListener {
+                if(_binding != null) showLoading(false) // Ocultar loading
                 Toast.makeText(context, "Datos actualizados", Toast.LENGTH_SHORT).show()
-                parentFragmentManager.popBackStack() // Volver atrás después de guardar
+                parentFragmentManager.popBackStack()
             }
             .addOnFailureListener { e ->
                 if(_binding != null) showLoading(false)
@@ -266,10 +268,9 @@ class AddEditProductFragment : Fragment() {
             }
     }
 
-    // Actualiza SOLO el estado Activo/Inactivo
     private fun updateProductStatus(newActiveState: Boolean) {
         val productId = editingProductId ?: return
-        showLoading(true) // Mostrar carga mientras se actualiza estado
+        showLoading(true)
         val currentUser = auth.currentUser
         val currentUserName = currentUser?.displayName ?: currentUser?.email ?: "Unknown"
         val actionText = if (newActiveState) "activado" else "archivado"
@@ -285,17 +286,15 @@ class AddEditProductFragment : Fragment() {
             .addOnSuccessListener {
                 Log.i(TAG, "Producto $actionText ID: $productId")
                 Toast.makeText(context, "Producto $actionText", Toast.LENGTH_SHORT).show()
-                currentProductData = currentProductData?.copy(isActive = newActiveState) // Actualizar estado local
+                currentProductData = currentProductData?.copy(isActive = newActiveState)
                 if(_binding != null) {
                     binding.switchActive.text = if (newActiveState) "Producto Activo (Visible)" else "Producto Archivado (Oculto)"
                     showLoading(false)
                 }
-                // No navegamos atrás, solo actualizamos estado
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error al $actionText producto $productId", e)
                 Toast.makeText(context, "Error al $actionText: ${e.message}", Toast.LENGTH_LONG).show()
-                // Revertir visualmente el switch si falla
                 if(_binding != null) {
                     binding.switchActive.isChecked = !newActiveState
                     showLoading(false)
@@ -317,19 +316,20 @@ class AddEditProductFragment : Fragment() {
 
     private fun deleteProductPermanently() {
         val productId = editingProductId ?: return
-        showLoading(true) // Mostrar carga durante borrado
+        showLoading(true)
         Log.w(TAG, "BORRANDO PERMANENTEMENTE producto ID: $productId")
 
         firestore.collection("products").document(productId)
             .delete()
             .addOnSuccessListener {
                 Log.i(TAG, "Producto BORRADO ID: $productId")
+                if(_binding != null) showLoading(false) // Ocultar loading
                 Toast.makeText(context, "Producto borrado permanentemente.", Toast.LENGTH_SHORT).show()
-                parentFragmentManager.popBackStack() // Volver a la lista anterior
+                parentFragmentManager.popBackStack()
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Error al BORRAR producto $productId", e)
-                if(_binding != null) showLoading(false) // Ocultar si falla
+                if(_binding != null) showLoading(false)
                 Toast.makeText(context, "Error al borrar: ${e.message}", Toast.LENGTH_LONG).show()
             }
     }

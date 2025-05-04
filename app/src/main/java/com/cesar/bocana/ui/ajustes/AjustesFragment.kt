@@ -22,8 +22,9 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import androidx.lifecycle.lifecycleScope
+import com.cesar.bocana.helpers.NotificationTriggerHelper
 import kotlinx.coroutines.launch
-import com.cesar.bocana.helpers.NotificationTriggerHelper // Importar el helper
+import java.util.Locale
 
 
 class AjustesFragment : Fragment(), MenuProvider {
@@ -72,7 +73,7 @@ class AjustesFragment : Fragment(), MenuProvider {
     private fun restoreToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
             setDisplayHomeAsUpEnabled(false); setDisplayShowHomeEnabled(false)
-            title = getString(R.string.app_name); subtitle = null // Let MainActivity restore actual subtitle
+            title = getString(R.string.app_name); subtitle = null
         }
     }
 
@@ -116,10 +117,15 @@ class AjustesFragment : Fragment(), MenuProvider {
 
     private fun updateCurrentStockDisplay() {
         binding.textViewAjusteCurrentStocks.text = selectedProduct?.let {
-            "Stock Actual: Matriz=${it.stockMatriz}, C04=${it.stockCongelador04}, Total=${it.totalStock}"
+            val format = Locale.getDefault()
+            val matriz = String.format(format, "%.2f ${it.unit}", it.stockMatriz)
+            val c04 = String.format(format, "%.2f ${it.unit}", it.stockCongelador04)
+            val total = String.format(format, "%.2f ${it.unit}", it.totalStock)
+            "Stock Actual: Matriz=$matriz, C04=$c04, Total=$total"
         } ?: ""
         binding.textViewAjusteCurrentStocks.visibility = if (selectedProduct != null) View.VISIBLE else View.GONE
     }
+
 
     private fun setupPerformAjusteButton() {
         binding.buttonPerformAjuste.setOnClickListener { performAjusteManual() }
@@ -137,22 +143,25 @@ class AjustesFragment : Fragment(), MenuProvider {
         }
     }
 
-    private fun validateInputs(): Triple<Product, String, Long>? {
+    private fun validateInputs(): Triple<Product, String, Double>? {
         var isValid = true
         val product = selectedProduct
         if (product == null) { binding.textFieldLayoutAjusteProduct.error = "Selecciona"; isValid = false } else { binding.textFieldLayoutAjusteProduct.error = null }
+
         val selectedLocationId = binding.radioGroupAjusteLocation.checkedRadioButtonId
         val location: String? = when (selectedLocationId) { R.id.radioButtonMatriz -> Location.MATRIZ; R.id.radioButtonC04 -> Location.CONGELADOR_04; else -> null }
         if (location == null) { Toast.makeText(context, "Selecciona ubicación", Toast.LENGTH_SHORT).show(); isValid = false }
+
         val quantityString = binding.editTextAjusteNewQuantity.text.toString().trim()
-        var newQuantity: Long? = null
+        var newQuantity: Double? = null
         if (quantityString.isEmpty()) { binding.textFieldLayoutAjusteNewQuantity.error = "Introduce cantidad"; isValid = false }
         else {
-            newQuantity = quantityString.toLongOrNull()
+            newQuantity = quantityString.toDoubleOrNull()
             if (newQuantity == null) { binding.textFieldLayoutAjusteNewQuantity.error = "Inválido"; isValid = false }
-            else if (newQuantity < 0) { binding.textFieldLayoutAjusteNewQuantity.error = "No negativo"; isValid = false }
+            else if (newQuantity < 0.0) { binding.textFieldLayoutAjusteNewQuantity.error = "No negativo"; isValid = false }
             else { binding.textFieldLayoutAjusteNewQuantity.error = null }
         }
+
         val reason = binding.editTextAjusteReason.text.toString().trim()
         if (reason.isEmpty()) { binding.textFieldLayoutAjusteReason.error = "Obligatorio"; isValid = false } else { binding.textFieldLayoutAjusteReason.error = null }
 
@@ -184,15 +193,17 @@ class AjustesFragment : Fragment(), MenuProvider {
             val currentProduct = snapshot.toObject(Product::class.java)
                 ?: throw FirebaseFirestoreException("Producto no encontrado: ${product.name}", FirebaseFirestoreException.Code.ABORTED)
 
-            var currentStockLocation: Long; var quantityDifference: Long
-            var newStockMatriz: Long; var newStockCongelador04: Long
+            var currentStockLocation: Double
+            var quantityDifference: Double
+            var newStockMatriz: Double
+            var newStockCongelador04: Double
 
             if (location == Location.MATRIZ) {
                 currentStockLocation = currentProduct.stockMatriz
                 quantityDifference = newQuantity - currentStockLocation
                 newStockMatriz = newQuantity
                 newStockCongelador04 = currentProduct.stockCongelador04
-            } else {
+            } else { // Location.CONGELADOR_04
                 currentStockLocation = currentProduct.stockCongelador04
                 quantityDifference = newQuantity - currentStockLocation
                 newStockMatriz = currentProduct.stockMatriz
@@ -203,16 +214,22 @@ class AjustesFragment : Fragment(), MenuProvider {
             val movement = StockMovement(
                 userId = currentUser.uid, userName = currentUserName,
                 productId = productId, productName = currentProduct.name,
-                type = MovementType.AJUSTE_MANUAL, quantity = kotlin.math.abs(quantityDifference),
+                type = MovementType.AJUSTE_MANUAL,
+                quantity = kotlin.math.abs(quantityDifference),
                 locationFrom = if (quantityDifference < 0) location else Location.AJUSTE,
                 locationTo = if (quantityDifference > 0) location else Location.AJUSTE,
-                reason = reason, stockAfterMatriz = newStockMatriz,
-                stockAfterCongelador04 = newStockCongelador04, stockAfterTotal = newTotalStock
+                reason = reason,
+                stockAfterMatriz = newStockMatriz,
+                stockAfterCongelador04 = newStockCongelador04,
+                stockAfterTotal = newTotalStock
             )
+
             transaction.update(productRef, mapOf(
-                "stockMatriz" to newStockMatriz, "stockCongelador04" to newStockCongelador04,
-                "totalStock" to newTotalStock, "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
+                "stockMatriz" to newStockMatriz,
+                "stockCongelador04" to newStockCongelador04,
+                "totalStock" to newTotalStock,
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "lastUpdatedByName" to currentUserName
             ))
             transaction.set(newMovementRef, movement)
 
@@ -230,31 +247,28 @@ class AjustesFragment : Fragment(), MenuProvider {
             if(_binding != null) showLoading(false); parentFragmentManager.popBackStack()
 
         }.addOnFailureListener { e ->
-            if(_binding != null) showLoading(false);
+            if(_binding != null) showLoading(false)
             val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) { e.message } else { "Error: ${e.message}" }
             Toast.makeText(context, msg ?: "Error al ajustar", Toast.LENGTH_LONG).show()
         }
     }
 
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
-        // No action needed here, menu is inflated by MainActivity
     }
 
     override fun onPrepareMenu(menu: Menu) {
-        // Hide items not relevant for this screen
         Log.d(TAG, "onPrepareMenu (AjustesFragment): Ocultando items...")
         menu.findItem(R.id.action_ajustes)?.isVisible = false
         menu.findItem(R.id.action_devoluciones)?.isVisible = false
+        menu.findItem(R.id.action_packaging)?.isVisible = false
     }
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-        // Let MainActivity handle Up navigation (android.R.id.home) and other items (Logout)
         return false
     }
 
-    // --- Companion Object (for TAG) ---
     companion object {
-        private const val TAG = "AjustesFragment" // TAG defined here
+        private const val TAG = "AjustesFragment"
     }
 
-} // ---> Fin de la clase AjustesFragment <---
+}

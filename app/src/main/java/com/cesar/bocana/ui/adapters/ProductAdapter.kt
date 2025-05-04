@@ -13,6 +13,7 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
+import java.util.Locale
 
 interface ProductActionListener {
     fun onAddCompraClicked(product: Product)
@@ -59,15 +60,22 @@ class ProductAdapter(
         fun bind(item: Product, listener: ProductActionListener, contextLocation: String) {
             binding.textViewProductName.text = item.name
             binding.textViewProductUnit.text = item.unit
-            binding.textViewMinStockValue.text = item.minStock.toString()
-            binding.textViewStockMatrizValue.text = item.stockMatriz.toString()
-            binding.textViewStockC04Value.text = item.stockCongelador04.toString()
-            binding.textViewStockTotalValue.text = item.totalStock.toString()
 
-            val isLowStock = item.totalStock <= item.minStock && item.minStock > 0
+            val format = Locale.getDefault()
+            val formattedMinStock = String.format(format, "%.2f", item.minStock)
+            val formattedStockMatriz = String.format(format, "%.2f", item.stockMatriz)
+            val formattedStockC04 = String.format(format, "%.2f", item.stockCongelador04)
+            val formattedTotalStock = String.format(format, "%.2f", item.totalStock)
+
+            binding.textViewMinStockValue.text = formattedMinStock
+            binding.textViewStockMatrizValue.text = formattedStockMatriz
+            binding.textViewStockC04Value.text = formattedStockC04
+            binding.textViewStockTotalValue.text = formattedTotalStock
+
+            val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
             val context = binding.root.context
             val lowStockColor = ContextCompat.getColor(context, R.color.low_stock_red)
-            val defaultTextColor = ContextCompat.getColor(context, android.R.color.tab_indicator_text)
+            val defaultTextColor = ContextCompat.getColor(context, android.R.color.tab_indicator_text) // O usa un color de tu tema
 
             binding.textViewMinStockValue.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
             binding.textViewMinStockLabel.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
@@ -91,11 +99,11 @@ class ProductAdapter(
                 binding.buttonAddSalida.alpha = if (canModify) 1.0f else 0.5f
                 binding.buttonAddTraspaso.alpha = if (canModify) 1.0f else 0.5f
 
-            } else {
+            } else { // CONGELADOR_04 Context
                 binding.buttonAddCompra.visibility = View.GONE
                 binding.buttonAddSalida.visibility = View.GONE
                 binding.buttonAddTraspaso.visibility = View.GONE
-                binding.buttonEditC04.visibility = View.VISIBLE
+                binding.buttonEditC04.visibility = View.VISIBLE // Este se eliminará en Fase 3
                 binding.buttonTraspasoC04M.visibility = View.VISIBLE
 
                 binding.buttonEditC04.isEnabled = canModify
@@ -127,6 +135,6 @@ class ProductDiffCallback : DiffUtil.ItemCallback<Product>() {
         return oldItem.id == newItem.id
     }
     override fun areContentsTheSame(oldItem: Product, newItem: Product): Boolean {
-        return oldItem == newItem
+        return oldItem == newItem // Comparación basada en data class
     }
 }

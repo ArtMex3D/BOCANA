@@ -4,7 +4,6 @@ import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
-// Enum para el estado
 enum class DevolucionStatus {
     PENDIENTE, COMPLETADO
 }
@@ -13,15 +12,14 @@ data class DevolucionPendiente(
     @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",
-    val quantity: Long = 0L,
+    val quantity: Double = 0.0,
     val provider: String = "",
     val unit: String = "",
     val reason: String = "",
     @ServerTimestamp val registeredAt: Date? = null,
     val userId: String = "",
-    // --- CAMPOS IMPORTANTES ---
-    val status: DevolucionStatus = DevolucionStatus.PENDIENTE, // <-- CAMPO CLAVE
+    val status: DevolucionStatus = DevolucionStatus.PENDIENTE,
     @ServerTimestamp var completedAt: Date? = null
 ) {
-    constructor() : this( status = DevolucionStatus.PENDIENTE, completedAt = null) // Asegurar valores por defecto
+    constructor() : this(id="", productId="", productName="", quantity=0.0, provider="", unit="", reason="", registeredAt=null, userId="", status = DevolucionStatus.PENDIENTE, completedAt = null)
 }

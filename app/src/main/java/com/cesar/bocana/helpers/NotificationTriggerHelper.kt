@@ -2,92 +2,104 @@ package com.cesar.bocana.helpers
 
 import android.util.Log
 import com.cesar.bocana.data.model.Product
-import com.cesar.bocana.data.model.User // Necesario para leer usuarios
+import com.cesar.bocana.data.model.User
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.tasks.await
 import java.util.Date
+import java.util.Locale
+import kotlin.coroutines.cancellation.CancellationException
 
 object NotificationTriggerHelper {
 
     private const val TAG = "NotificationTrigger"
     private val db = Firebase.firestore
-    private const val QUEUE_COLLECTION = "sendNotificationQueue"
+    private const val QUEUE_COLLECTION = "sendNotificationQueue" // Make sure this matches your Trigger Email extension config
 
-    // Obtiene la lista de correos de los administradores
     private suspend fun getAdminEmails(): List<String> {
         return try {
             val adminSnapshot = db.collection("users")
-                .whereEqualTo("role", "ADMIN") // Busca por el rol ADMIN
+                .whereEqualTo("role", "ADMIN")
+                .whereEqualTo("isAccountActive", true) // Also check if admin is active
                 .get()
-                .await() // Espera el resultado
+                .await()
 
             val emails = adminSnapshot.documents.mapNotNull { it.getString("email") }
             Log.d(TAG, "Admin emails found: $emails")
             emails
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Error getting admin emails", e)
-            emptyList() // Devuelve lista vacía en caso de error
+            emptyList()
         }
     }
 
-    // Crea el documento en Firestore para disparar el email de stock bajo
     suspend fun triggerLowStockNotification(product: Product) {
-        if (product.minStock <= 0) return // No notificar si no hay mínimo definido
-        if (product.totalStock > product.minStock) return // Doble check: No notificar si el stock ya no está bajo
+        // Compare Doubles, check minStock > 0.0
+        if (product.minStock <= 0.0) {
+            Log.d(TAG, "No low stock notification needed for ${product.name}, minStock not set > 0.0")
+            return
+        }
+        if (product.totalStock > product.minStock) {
+            Log.d(TAG, "No low stock notification needed for ${product.name}, stock (${product.totalStock}) > minStock (${product.minStock})")
+            return
+        }
 
         Log.d(TAG, "Triggering low stock notification for ${product.name}")
         val adminEmails = getAdminEmails()
         if (adminEmails.isEmpty()) {
-            Log.w(TAG, "No admin emails found to send low stock notification.")
+            Log.w(TAG, "No active admin emails found to send low stock notification.")
             return
         }
+
+        // Format quantities for the email body
+        val format = Locale.getDefault()
+        val currentStockStr = String.format(format, "%.2f", product.totalStock)
+        val minStockStr = String.format(format, "%.2f", product.minStock)
+        val unitStr = product.unit ?: ""
 
         val subject = "🚨 Alerta Stock Bajo: ${product.name}"
         val messageText = """
             ¡Alerta de Stock Bajo!
-            Producto: ${product.name} (${product.id})
-            Stock Actual: ${product.totalStock} ${product.unit ?: ""}
-            Stock Mínimo: ${product.minStock} ${product.unit ?: ""}
-            Fecha: ${Date()}
-        """.trimIndent() // trimIndent quita espacios iniciales comunes
 
+            Producto: ${product.name} (ID: ${product.id})
+            Stock Actual: $currentStockStr $unitStr
+            Stock Mínimo: $minStockStr $unitStr
+
+            Fecha de Alerta: ${Date()}
+        """.trimIndent()
+
+        // Structure for Firebase Trigger Email Extension
         val notificationRequest = hashMapOf(
-            "to" to adminEmails, // Campo 'to' para la extensión Trigger Email
-            "message" to hashMapOf( // Campo 'message' estándar de la extensión
+            "to" to adminEmails,
+            "message" to hashMapOf(
                 "subject" to subject,
                 "text" to messageText
-                // Podrías añadir 'html' aquí si quieres formato más avanzado
+                // "html" key could be added here for formatted emails
             ),
-            "triggerTimestamp" to FieldValue.serverTimestamp() // Hora del servidor
+            // Add a timestamp for potential debugging or tracking in Firestore
+            "createdAt" to FieldValue.serverTimestamp(),
+            "type" to "lowStockAlert", // Optional: categorize notifications
+            "productId" to product.id // Optional: link back to product
         )
 
         try {
             db.collection(QUEUE_COLLECTION).add(notificationRequest).await()
             Log.i(TAG, "Low stock notification request added to queue for ${product.name}.")
         } catch (e: Exception) {
-            Log.e(TAG, "Error adding low stock notification request to queue", e)
+            if (e is CancellationException) throw e
+            Log.e(TAG, "Error adding low stock notification request to queue for ${product.name}", e)
         }
     }
 
-    // --- Funciones Placeholder para otros tipos de notificación ---
-    // (Implementaremos la lógica de detección y llamada a estas más adelante si es necesario)
-
-    suspend fun triggerOverduePackagingNotification(/* Lista de tareas atrasadas */) {
-        // Similar a triggerLowStockNotification:
-        // 1. getAdminEmails()
-        // 2. Construir subject y message sobre tareas atrasadas
-        // 3. Crear el 'notificationRequest' map
-        // 4. Añadir a db.collection(QUEUE_COLLECTION)
+    // Placeholder functions remain unchanged for now
+    suspend fun triggerOverduePackagingNotification(/* ... */) {
         Log.d(TAG, "Placeholder: Triggering overdue packaging notification...")
-        // Por ahora no hace nada
     }
 
-    suspend fun triggerPendingReturnsNotification(/* Lista de devoluciones */) {
-        // Similar a triggerLowStockNotification
+    suspend fun triggerPendingReturnsNotification(/* ... */) {
         Log.d(TAG, "Placeholder: Triggering pending returns notification...")
-        // Por ahora no hace nada
     }
 
 }

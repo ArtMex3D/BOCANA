@@ -8,8 +8,10 @@ data class PendingPackagingTask(
     @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",
-    val quantityReceived: Long = 0L,
+    val quantityReceived: Double = 0.0,
     val unit: String = "",
     @ServerTimestamp val receivedAt: Date? = null,
     val purchaseMovementId: String? = null
-)
+){
+    constructor() : this("", "", "", 0.0, "", null, null)
+}

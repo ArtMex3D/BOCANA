@@ -1,12 +1,12 @@
 package com.cesar.bocana.ui.products
 
-
+import android.text.InputType
+import java.util.Locale
 import android.widget.LinearLayout
 import android.widget.RadioGroup
 import android.widget.RadioButton
 import com.cesar.bocana.data.model.PendingPackagingTask // El nuevo modelo
 import android.os.Bundle
-import android.text.InputType
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -165,8 +165,9 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
     private fun showTraspasoC04MDialog(product: Product) {
         val builder = AlertDialog.Builder(requireContext())
+        val currentStockFormatted = String.format(Locale.getDefault(), "%.2f", product.stockCongelador04)
         builder.setTitle("Traspaso ===> Matriz: ${product.name}")
-        builder.setMessage("Stock actual en 04: ${product.stockCongelador04} ${product.unit}")
+        builder.setMessage("Stock actual en 04: $currentStockFormatted ${product.unit}")
 
         val container = FrameLayout(requireContext())
         val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -174,7 +175,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         params.leftMargin = margin; params.rightMargin = margin
 
         val inputQuantity = EditText(requireContext())
-        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER
+        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         inputQuantity.hint = "Cantidad a regresar a Matriz (${product.unit})"
         inputQuantity.layoutParams = params
         container.addView(inputQuantity)
@@ -184,24 +185,22 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         builder.setPositiveButton("Regresar a Matriz") { _, _ ->
             val quantityString = inputQuantity.text.toString()
             try {
-                val quantity = quantityString.toLongOrNull()
+                val quantity = quantityString.toDoubleOrNull()
 
-                if (quantity == null || quantity <= 0) {
-                    Toast.makeText(context, "Cantidad inválida (> 0)", Toast.LENGTH_SHORT).show()
+                if (quantity == null || quantity <= 0.0) {
+                    Toast.makeText(context, "Cantidad inválida (> 0.0)", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                // Validar stock suficiente en C04
                 if (quantity > product.stockCongelador04) {
-                    Toast.makeText(context, "Error: Stock insuficiente en C04 (${product.stockCongelador04})", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Error: Stock insuficiente en C04 (${String.format("%.2f", product.stockCongelador04)} ${product.unit})", Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
 
-                // Confirmación cantidad grande (respecto a C04)
-                val limiteGrande = (product.stockCongelador04 * 0.40).toLong()
-                if (quantity > limiteGrande && product.stockCongelador04 > 0) {
+                val limit = (product.stockCongelador04 * 0.40)
+                if (quantity > limit && product.stockCongelador04 > 0.0) {
                     AlertDialog.Builder(requireContext())
                         .setTitle("Confirmar Traspaso")
-                        .setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Regresar a Matriz?")
+                        .setMessage("Cantidad grande (${String.format("%.2f", quantity)} ${product.unit}). ¿Regresar a Matriz?")
                         .setPositiveButton("Sí") { _, _ -> performTraspasoC04ToMatriz(product, quantity) }
                         .setNegativeButton("No", null)
                         .show()
@@ -216,9 +215,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         builder.setNegativeButton("Cancelar", null)
         builder.show()
     }
-    // Dentro de ProductListFragment.kt
 
-    private fun performTraspasoC04ToMatriz(product: Product, quantity: Long) {
+    private fun performTraspasoC04ToMatriz(product: Product, quantity: Double) {
         if (product.id.isEmpty()) { Log.e(TAG,"Error ID"); Toast.makeText(context, "Error ID", Toast.LENGTH_LONG).show(); return }
         val currentUser = auth.currentUser; if (currentUser == null) { Toast.makeText(context,"Error user", Toast.LENGTH_SHORT).show(); return }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
@@ -226,7 +224,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
-        var productAfterUpdate: Product? = null // Para pasar al helper
+        var productAfterUpdate: Product? = null
 
         firestore.runTransaction { transaction ->
             val snapshot = transaction.get(productRef)
@@ -235,10 +233,10 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
             val newStockCongelador04 = currentProduct.stockCongelador04 - quantity
             val newStockMatriz = currentProduct.stockMatriz + quantity
-            val newTotalStock = currentProduct.totalStock // Total no cambia
+            val newTotalStock = currentProduct.totalStock // No cambia en traspaso
 
-            if (newStockCongelador04 < 0) {
-                throw FirebaseFirestoreException("Stock insuficiente en C04 (${currentProduct.stockCongelador04})", FirebaseFirestoreException.Code.ABORTED)
+            if (newStockCongelador04 < 0.0) {
+                throw FirebaseFirestoreException("Stock insuficiente en C04 (${String.format(Locale.getDefault(), "%.2f", currentProduct.stockCongelador04)} ${currentProduct.unit})", FirebaseFirestoreException.Code.ABORTED)
             }
 
             val movement = StockMovement(
@@ -257,16 +255,15 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             transaction.update(productRef, mapOf(
                 "stockCongelador04" to newStockCongelador04,
                 "stockMatriz" to newStockMatriz,
-                // totalStock no cambia
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
+                "lastUpdatedByName" to currentUserName
             ))
             transaction.set(newMovementRef, movement)
 
-            productAfterUpdate = currentProduct.copy(stockMatriz = newStockMatriz, stockCongelador04 = newStockCongelador04) // Guardar estado
+            productAfterUpdate = currentProduct.copy(stockMatriz = newStockMatriz, stockCongelador04 = newStockCongelador04)
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Traspaso a Matriz registrado: ${quantity} ${product.unit}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Traspaso a Matriz registrado: +${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
             productAfterUpdate?.let { updatedProd ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
@@ -275,16 +272,16 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         }.addOnFailureListener { e ->
             val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
                 e.message ?: "Error datos."
-            } else { "Error: ${e.message}" }
+            } else { "Error al registrar traspaso a Matriz: ${e.message}" }
             Toast.makeText(context, msg ?: "Error desconocido", Toast.LENGTH_LONG).show()
         }
     }
 
-
     private fun showEditC04Dialog(product: Product) {
         val builder = AlertDialog.Builder(requireContext())
+        val currentStockFormatted = String.format(Locale.getDefault(), "%.2f", product.stockCongelador04)
         builder.setTitle("Ajustar Stock 04: ${product.name}")
-        builder.setMessage("Stock actual en 04: ${product.stockCongelador04} ${product.unit}\n.")
+        builder.setMessage("Stock actual en 04: $currentStockFormatted ${product.unit}\nNOTA: Esto registra una SALIDA por la diferencia.")
 
         val container = FrameLayout(requireContext())
         val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -292,7 +289,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         params.leftMargin = margin; params.rightMargin = margin
 
         val inputNewQuantity = EditText(requireContext())
-        inputNewQuantity.inputType = InputType.TYPE_CLASS_NUMBER // Asumimos entero
+        inputNewQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         inputNewQuantity.hint = "Nueva cantidad en C04"
         inputNewQuantity.layoutParams = params
         container.addView(inputNewQuantity)
@@ -302,35 +299,30 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         builder.setPositiveButton("Ajustar Stock") { _, _ ->
             val quantityString = inputNewQuantity.text.toString()
             try {
-                val newQuantity = quantityString.toLongOrNull()
+                val newQuantity = quantityString.toDoubleOrNull()
 
-                // --- Validaciones ---
-                if (newQuantity == null || newQuantity < 0) {
-                    Toast.makeText(context, "Cantidad inválida. Debe ser 0 o mayor.", Toast.LENGTH_SHORT).show()
+                if (newQuantity == null || newQuantity < 0.0) {
+                    Toast.makeText(context, "Cantidad inválida. Debe ser 0.0 o mayor.", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                // No permitir ajustar a MÁS de lo que hay
+
                 if (newQuantity > product.stockCongelador04) {
-                    Toast.makeText(context, "Error: La nueva cantidad (${newQuantity}) no puede ser mayor al stock actual (${product.stockCongelador04}).", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Error: La nueva cantidad (${String.format("%.2f", newQuantity)}) no puede ser mayor al stock actual (${String.format("%.2f", product.stockCongelador04)}).", Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
 
-                // Calcular la diferencia (lo que salió)
                 val quantityDifference = product.stockCongelador04 - newQuantity
-                Log.d(TAG, "Ajuste C04: Stock actual=${product.stockCongelador04}, Nuevo=${newQuantity}, Diferencia=${quantityDifference}")
 
-                // Si la diferencia es 0, no hacer nada
-                if (quantityDifference <= 0) {
+                if (quantityDifference <= 0.0) {
                     Toast.makeText(context, "No se realizó ningún ajuste (cantidad igual o mayor).", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
 
-                // --- Confirmación si la diferencia es grande (40% del stock C04) ---
-                val limiteGrande = (product.stockCongelador04 * 0.40).toLong()
-                if (quantityDifference > limiteGrande && product.stockCongelador04 > 0) {
+                val limit = (product.stockCongelador04 * 0.40)
+                if (quantityDifference > limit && product.stockCongelador04 > 0.0) {
                     AlertDialog.Builder(requireContext())
                         .setTitle("Confirmar Ajuste Grande")
-                        .setMessage("Esto registrará una salida de ${quantityDifference} ${product.unit} de C04 (ajuste a ${newQuantity}). ¿Continuar?")
+                        .setMessage("Esto registrará una salida de ${String.format("%.2f", quantityDifference)} ${product.unit} de C04 (ajuste a ${String.format("%.2f", newQuantity)}). ¿Continuar?")
                         .setPositiveButton("Sí") { _, _ -> performEditC04(product, newQuantity, quantityDifference) }
                         .setNegativeButton("No", null)
                         .show()
@@ -346,7 +338,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         builder.show()
     }
 
-    private fun performEditC04(product: Product, newQuantityC04: Long, quantityDifference: Long) {
+    private fun performEditC04(product: Product, newQuantityC04: Double, quantityDifference: Double) {
         if (product.id.isEmpty()) { Log.e(TAG,"Error ID"); Toast.makeText(context, "Error ID", Toast.LENGTH_LONG).show(); return }
         val currentUser = auth.currentUser; if (currentUser == null) { Toast.makeText(context,"Error user", Toast.LENGTH_SHORT).show(); return }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
@@ -354,19 +346,19 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
-        var productAfterUpdate: Product? = null // Para pasar al helper
+        var productAfterUpdate: Product? = null
 
         firestore.runTransaction { transaction ->
             val snapshot = transaction.get(productRef)
             val currentProduct = snapshot.toObject(Product::class.java)
                 ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
 
-            if (newQuantityC04 < 0 || newQuantityC04 > currentProduct.stockCongelador04) {
-                throw FirebaseFirestoreException("Ajuste inválido. Stock C04: ${currentProduct.stockCongelador04}, ajuste a: ${newQuantityC04}", FirebaseFirestoreException.Code.ABORTED)
+            if (newQuantityC04 < 0.0 || newQuantityC04 > currentProduct.stockCongelador04) {
+                throw FirebaseFirestoreException("Ajuste inválido. Stock C04: ${String.format(Locale.getDefault(), "%.2f", currentProduct.stockCongelador04)}, ajuste a: ${String.format(Locale.getDefault(), "%.2f", newQuantityC04)}", FirebaseFirestoreException.Code.ABORTED)
             }
             val actualDifference = currentProduct.stockCongelador04 - newQuantityC04
-            if (actualDifference <= 0) {
-                throw FirebaseFirestoreException("No se requiere ajuste.", FirebaseFirestoreException.Code.CANCELLED)
+            if (actualDifference <= 0.0) {
+                throw FirebaseFirestoreException("No se requiere ajuste.", FirebaseFirestoreException.Code.CANCELLED) // Usar CANCELLED para evitar mensaje de error genérico
             }
 
             val newTotalStock = currentProduct.stockMatriz + newQuantityC04
@@ -388,14 +380,14 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 "stockCongelador04" to newQuantityC04,
                 "totalStock" to newTotalStock,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
+                "lastUpdatedByName" to currentUserName
             ))
             transaction.set(newMovementRef, movement)
 
-            productAfterUpdate = currentProduct.copy(stockCongelador04 = newQuantityC04, totalStock = newTotalStock) // Guardar estado
+            productAfterUpdate = currentProduct.copy(stockCongelador04 = newQuantityC04, totalStock = newTotalStock)
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Stock C04 ajustado a ${newQuantityC04} (-${quantityDifference})", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Stock C04 ajustado a ${String.format("%.2f",newQuantityC04)} (-${String.format("%.2f",quantityDifference)} ${product.unit})", Toast.LENGTH_SHORT).show()
             productAfterUpdate?.let { updatedProd ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
@@ -403,11 +395,12 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             }
         }.addOnFailureListener { e ->
             val msg = if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.ABORTED || e.code == FirebaseFirestoreException.Code.CANCELLED) ) {
-                e.message
+                e.message // Muestra el mensaje específico de la transacción (ej. "Stock insuficiente", "No se requiere ajuste")
             } else { "Error al ajustar stock C04: ${e.message}" }
             Toast.makeText(context, msg ?: "Error desconocido", Toast.LENGTH_LONG).show()
         }
     }
+
     private fun fetchCurrentUserRole(callback: (Boolean) -> Unit) {
         val userId = auth.currentUser?.uid
         if (userId == null) { callback(false); return }
@@ -563,38 +556,32 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         val builder = AlertDialog.Builder(requireContext())
         builder.setTitle("Registrar Compra: ${product.name}")
 
-        // Layout vertical para poner Cantidad y Tipo Recepción
         val containerLayout = android.widget.LinearLayout(requireContext())
         containerLayout.orientation = android.widget.LinearLayout.VERTICAL
         val padding = resources.getDimensionPixelSize(R.dimen.dialog_margin)
         containerLayout.setPadding(padding, padding / 2, padding, padding / 2)
 
-        // 1. Campo Cantidad
         val inputQuantity = EditText(requireContext())
-        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER
+        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         inputQuantity.hint = "Cantidad comprada (${product.unit})"
         containerLayout.addView(inputQuantity)
 
-        // 2. Selector Tipo Recepción (A Granel / Empacado) - OBLIGATORIO
         val typeLabel = android.widget.TextView(requireContext())
-        typeLabel.text = "Tipo de Recepción: *" // Asterisco indica obligatorio
-        typeLabel.setPadding(0, padding, 0, padding / 4) // Añadir espacio arriba
+        typeLabel.text = "Tipo de Recepción: *"
+        typeLabel.setPadding(0, padding, 0, padding / 4)
         containerLayout.addView(typeLabel)
 
         val radioGroupType = android.widget.RadioGroup(requireContext())
         radioGroupType.orientation = android.widget.LinearLayout.HORIZONTAL
-        radioGroupType.id = View.generateViewId() // ID necesario para el RadioGroup
+        radioGroupType.id = View.generateViewId()
 
-        // RadioButton Empacado
         val radioButtonEmpacado = android.widget.RadioButton(requireContext())
-        radioButtonEmpacado.id = View.generateViewId() // Usar IDs generados
+        radioButtonEmpacado.id = View.generateViewId()
         radioButtonEmpacado.text = "Empacado"
-        // No preseleccionar para forzar elección radioButtonEmpacado.isChecked = true
         radioGroupType.addView(radioButtonEmpacado)
 
-        // RadioButton A Granel
         val radioButtonAGranel = android.widget.RadioButton(requireContext())
-        radioButtonAGranel.id = View.generateViewId() // Usar IDs generados
+        radioButtonAGranel.id = View.generateViewId()
         radioButtonAGranel.text = "A Granel"
         val paramsRadio = android.widget.LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -603,56 +590,46 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         radioGroupType.addView(radioButtonAGranel)
 
         containerLayout.addView(radioGroupType)
-        // --- Fin Selector ---
 
-        builder.setView(containerLayout) // Añadir layout al diálogo
+        builder.setView(containerLayout)
 
-        // Botones del diálogo
         builder.setPositiveButton("Aceptar") { _, _ ->
             val quantityString = inputQuantity.text.toString()
-            val quantity = quantityString.toLongOrNull()
-            // Determinar si se seleccionó "A Granel"
+            val quantity = quantityString.toDoubleOrNull()
             val selectedRadioId = radioGroupType.checkedRadioButtonId
             var isBulk: Boolean? = null
             if (selectedRadioId == radioButtonAGranel.id) { isBulk = true }
             else if (selectedRadioId == radioButtonEmpacado.id) { isBulk = false }
 
-            Log.d(TAG, "Compra - Cantidad: $quantity, A Granel: $isBulk")
-
-            // Validación de cantidad y selección de tipo
             var validationError = false
-            if (quantity == null || quantity <= 0) {
-                Toast.makeText(context, "Cantidad inválida (> 0)", Toast.LENGTH_SHORT).show()
+            if (quantity == null || quantity <= 0.0) {
+                Toast.makeText(context, "Cantidad inválida (> 0.0)", Toast.LENGTH_SHORT).show()
                 validationError = true
             }
-            if (isBulk == null) { // Validar que se seleccionó una opción
+            if (isBulk == null) {
                 Toast.makeText(context, "Selecciona el Tipo de Recepción", Toast.LENGTH_SHORT).show()
                 validationError = true
             }
             if (validationError) return@setPositiveButton
 
-            // Confirmación Cantidad Grande (usamos !! porque ya validamos)
-            val limit = if(product.stockMatriz <= 0) quantity!! + 1 else (product.stockMatriz * 0.40).toLong()
+            // Usamos !! porque ya validamos que no sea null
+            val limit = if(product.stockMatriz <= 0.0) quantity!! + 1.0 else (product.stockMatriz * 0.40)
             if (quantity!! > limit) {
                 AlertDialog.Builder(requireContext())
                     .setTitle("Confirmar Compra")
                     .setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Continuar?")
-                    .setPositiveButton("Sí") { _, _ -> performCompra(product, quantity, isBulk!!) } // Pasar isBulk!!
+                    .setPositiveButton("Sí") { _, _ -> performCompra(product, quantity, isBulk!!) }
                     .setNegativeButton("No", null)
                     .show()
             } else {
-                performCompra(product, quantity, isBulk!!) // Pasar isBulk!!
+                performCompra(product, quantity, isBulk!!)
             }
         }
         builder.setNegativeButton("Cancelar", null)
         builder.show()
     }
 
-
-    // Dentro de ProductListFragment.kt
-
-    // Firma modificada para aceptar isBulk
-    private fun performCompra(product: Product, quantity: Long, isBulk: Boolean) {
+    private fun performCompra(product: Product, quantity: Double, isBulk: Boolean) {
         if (product.id.isEmpty()) { Log.e(TAG,"Error ID"); Toast.makeText(context, "Error ID", Toast.LENGTH_LONG).show(); return }
         val currentUser = auth.currentUser; if (currentUser == null) { Toast.makeText(context,"Error user", Toast.LENGTH_SHORT).show(); return }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
@@ -684,7 +661,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 "stockMatriz" to newStockMatriz,
                 "totalStock" to newTotalStock,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
+                "lastUpdatedByName" to currentUserName
             ))
             transaction.set(newMovementRef, movement)
 
@@ -700,54 +677,83 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             }
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Compra registrada", Toast.LENGTH_SHORT).show()
-            // Considerar llamar a NotificationTriggerHelper si es necesario
+            Toast.makeText(context, "Compra registrada: +${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
         }.addOnFailureListener { e ->
             val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) e.message else "Error: ${e.message}"; Toast.makeText(context, msg ?: "Error", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun showSalidaDialog(product: Product) {
-val builder = AlertDialog.Builder(requireContext())
+        val builder = AlertDialog.Builder(requireContext())
+        val currentStockFormatted = String.format(Locale.getDefault(), "%.2f", product.stockMatriz)
         builder.setTitle("Registrar Salida: ${product.name}")
-        builder.setMessage("Stock actual en Matriz: ${product.stockMatriz} ${product.unit}")
+        builder.setMessage("Stock actual en Matriz: $currentStockFormatted ${product.unit}")
+
         val containerLayout = android.widget.LinearLayout(requireContext())
         containerLayout.orientation = android.widget.LinearLayout.VERTICAL
         val padding = resources.getDimensionPixelSize(R.dimen.dialog_margin)
         containerLayout.setPadding(padding, padding / 2, padding, padding / 2)
+
         val inputQuantity = EditText(requireContext())
-        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER
+        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         inputQuantity.hint = "Cantidad (${product.unit})"
         containerLayout.addView(inputQuantity)
+
         val inputProvider = EditText(requireContext())
         inputProvider.hint = "Proveedor (Obligatorio para Devolución)"
         containerLayout.addView(inputProvider)
+
         val inputReason = EditText(requireContext())
         inputReason.hint = "Motivo (Obligatorio para Devolución)"
         containerLayout.addView(inputReason)
+
         builder.setView(containerLayout)
+
         builder.setPositiveButton("Consumo") { _, _ ->
             try {
-                val quantity = inputQuantity.text.toString().toLongOrNull()
-                if (quantity == null || quantity <= 0) { Toast.makeText(context, "Cantidad inválida", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                if (quantity > product.stockMatriz) { Toast.makeText(context,"Stock insuficiente",Toast.LENGTH_LONG).show(); return@setPositiveButton }
-                val limiteGrande = (product.stockMatriz * 0.40).toLong(); if (quantity > limiteGrande && product.stockMatriz > 0) {
-                   AlertDialog.Builder(requireContext()).setTitle("Confirmar Consumo").setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Registrar?").setPositiveButton("Sí") { _, _ -> performSalidaConsumo(product, quantity) }.setNegativeButton("No", null).show() } else { performSalidaConsumo(product, quantity) }
-            } catch (e: Exception) { Log.e(TAG, "Error procesando consumo", e); Toast.makeText(context, "Error procesando cantidad.", Toast.LENGTH_SHORT).show() }
+                val quantityString = inputQuantity.text.toString()
+                val quantity = quantityString.toDoubleOrNull()
+
+                if (quantity == null || quantity <= 0.0) {
+                    Toast.makeText(context, "Cantidad inválida (> 0.0)", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (quantity > product.stockMatriz) {
+                    Toast.makeText(context,"Stock insuficiente (${String.format("%.2f",product.stockMatriz)} ${product.unit})",Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+
+                val limit = (product.stockMatriz * 0.40)
+                if (quantity > limit && product.stockMatriz > 0.0) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Confirmar Consumo")
+                        .setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Registrar?")
+                        .setPositiveButton("Sí") { _, _ -> performSalidaConsumo(product, quantity) }
+                        .setNegativeButton("No", null)
+                        .show()
+                } else {
+                    performSalidaConsumo(product, quantity)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error procesando consumo", e)
+                Toast.makeText(context, "Error procesando cantidad.", Toast.LENGTH_SHORT).show()
+            }
         }
+
         builder.setNeutralButton("Devolución") { _, _ ->
             try {
                 val quantityString = inputQuantity.text.toString()
-                val quantity = quantityString.toLongOrNull()
-                val provider = inputProvider.text.toString().trim() // Lee siempre
-                val reason = inputReason.text.toString().trim()   // Lee siempre
+                val quantity = quantityString.toDoubleOrNull()
+                val provider = inputProvider.text.toString().trim()
+                val reason = inputReason.text.toString().trim()
                 var hasError = false
-                if (quantity == null || quantity <= 0) {
-                    inputQuantity.error = "Cantidad > 0"; hasError = true
+
+                if (quantity == null || quantity <= 0.0) {
+                    inputQuantity.error = "Cantidad > 0.0"; hasError = true
                 } else {
                     inputQuantity.error = null
                     if (quantity > product.stockMatriz) {
-                        inputQuantity.error = "Stock insuficiente (${product.stockMatriz})" ; hasError = true
+                        inputQuantity.error = "Stock insuficiente (${String.format("%.2f",product.stockMatriz)})" ; hasError = true
                     } else {
                         inputQuantity.error = null
                     }
@@ -762,54 +768,71 @@ val builder = AlertDialog.Builder(requireContext())
                 } else {
                     inputReason.error = null
                 }
+
                 if (hasError) {
                     Toast.makeText(context, "Revisa los campos marcados.", Toast.LENGTH_SHORT).show()
-                    return@setNeutralButton // No continuar si hay errores
+                    return@setNeutralButton
                 }
-                val limiteGrande = (product.stockMatriz * 0.40).toLong(); if (quantity!! > limiteGrande && product.stockMatriz > 0) { // Usar quantity!! o quantity aquí es seguro
-                    AlertDialog.Builder(requireContext()).setTitle("Confirmar Devolución").setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Registrar?").setPositiveButton("Sí") { _, _ -> performSalidaDevolucion(product, quantity, provider, reason) }.setNegativeButton("No", null).show()
+
+                // Usamos !! porque ya validamos que quantity no sea null si hasError es false
+                val limit = (product.stockMatriz * 0.40)
+                if (quantity!! > limit && product.stockMatriz > 0.0) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Confirmar Devolución")
+                        .setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Registrar?")
+                        .setPositiveButton("Sí") { _, _ -> performSalidaDevolucion(product, quantity, provider, reason) }
+                        .setNegativeButton("No", null)
+                        .show()
                 } else {
                     performSalidaDevolucion(product, quantity, provider, reason)
                 }
-            } catch (e: Exception) { // Captura genérica
+            } catch (e: Exception) {
                 Log.e(TAG, "Error procesando devolución", e)
                 Toast.makeText(context, "Error inesperado al procesar devolución.", Toast.LENGTH_SHORT).show()
             }
         }
         builder.setNegativeButton("Cancelar", null)
         builder.show()
-    } // Fin showSalidaDialog
+    }
 
-    private fun performSalidaConsumo(product: Product, quantity: Long) {
-        if (product.id.isEmpty()) return;
-        val user = auth.currentUser ?: return
+    private fun performSalidaConsumo(product: Product, quantity: Double) {
+        if (product.id.isEmpty()){ Log.e(TAG,"ID vacío"); return }
+        val user = auth.currentUser ?: run { Log.e(TAG,"Usuario null"); return }
         val currentUserName = user.displayName ?: user.email ?: "Unknown"
-        val pRef = firestore.collection("products").document(product.id);
+        val pRef = firestore.collection("products").document(product.id)
         val mRef = firestore.collection("stockMovements").document()
 
-        var productAfterUpdate: Product? = null // Para pasar al helper
+        var productAfterUpdate: Product? = null
 
         firestore.runTransaction { t ->
             val snap = t.get(pRef)
-            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("NF.", FirebaseFirestoreException.Code.ABORTED)
-            val nSM = curP.stockMatriz - quantity;
-            val nTS = curP.totalStock - quantity
-            if (nSM < 0) throw FirebaseFirestoreException("Insuf ${curP.stockMatriz}", FirebaseFirestoreException.Code.ABORTED)
+            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
 
-            val mov = StockMovement(userId = user.uid, userName = currentUserName, productId = product.id, productName = curP.name, type = MovementType.SALIDA_CONSUMO, quantity = quantity, locationFrom = Location.MATRIZ, locationTo = Location.EXTERNO, stockAfterMatriz = nSM, stockAfterCongelador04 = curP.stockCongelador04, stockAfterTotal = nTS)
+            val nSM = curP.stockMatriz - quantity
+            val nTS = curP.totalStock - quantity
+
+            if (nSM < 0.0) throw FirebaseFirestoreException("Stock insuficiente: ${String.format(Locale.getDefault(), "%.2f", curP.stockMatriz)} ${curP.unit}", FirebaseFirestoreException.Code.ABORTED)
+
+            val mov = StockMovement(
+                userId = user.uid, userName = currentUserName,
+                productId = product.id, productName = curP.name,
+                type = MovementType.SALIDA_CONSUMO, quantity = quantity,
+                locationFrom = Location.MATRIZ, locationTo = Location.EXTERNO,
+                stockAfterMatriz = nSM, stockAfterCongelador04 = curP.stockCongelador04, stockAfterTotal = nTS
+            )
 
             t.update(pRef, mapOf(
                 "stockMatriz" to nSM,
                 "totalStock" to nTS,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
-            ));
-            t.set(mRef, mov);
+                "lastUpdatedByName" to currentUserName
+            ))
+            t.set(mRef, mov)
 
-            productAfterUpdate = curP.copy(stockMatriz = nSM, totalStock = nTS) // Guardar estado actualizado
-            null // Devolver null para éxito
+            productAfterUpdate = curP.copy(stockMatriz = nSM, totalStock = nTS)
+            null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Salida: -${quantity}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Salida registrada: -${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
             productAfterUpdate?.let { updatedProd ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
@@ -821,39 +844,50 @@ val builder = AlertDialog.Builder(requireContext())
         }
     }
 
-    private fun performSalidaDevolucion(product: Product, quantity: Long, provider: String, reason: String) {
-        if (product.id.isEmpty()) return;
-        val user = auth.currentUser ?: return
+    private fun performSalidaDevolucion(product: Product, quantity: Double, provider: String, reason: String) {
+        if (product.id.isEmpty()) { Log.e(TAG,"ID vacío"); return }
+        val user = auth.currentUser ?: run { Log.e(TAG,"Usuario null"); return }
         val currentUserName = user.displayName ?: user.email ?: "Unknown"
-        val pRef = firestore.collection("products").document(product.id);
-        val mRef = firestore.collection("stockMovements").document();
+        val pRef = firestore.collection("products").document(product.id)
+        val mRef = firestore.collection("stockMovements").document()
         val dRef = firestore.collection("pendingDevoluciones").document()
 
-        var productAfterUpdate: Product? = null // Para pasar al helper
+        var productAfterUpdate: Product? = null
 
         firestore.runTransaction { t ->
             val snap = t.get(pRef)
-            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("NF.", FirebaseFirestoreException.Code.ABORTED)
-            val nSM = curP.stockMatriz - quantity;
-            val nTS = curP.totalStock - quantity
-            if (nSM < 0) throw FirebaseFirestoreException("Insuf ${curP.stockMatriz}", FirebaseFirestoreException.Code.ABORTED)
+            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
 
-            val mov = StockMovement(userId = user.uid, userName = currentUserName, productId = product.id, productName = curP.name, type = MovementType.SALIDA_DEVOLUCION, quantity = quantity, locationFrom = Location.MATRIZ, locationTo = Location.PROVEEDOR, reason = reason, stockAfterMatriz = nSM, stockAfterCongelador04 = curP.stockCongelador04, stockAfterTotal = nTS)
-            val dev = DevolucionPendiente(productId = product.id, productName = curP.name, quantity = quantity, provider = provider, reason = reason, userId = user.uid, unit = curP.unit) // Pasar unit
+            val nSM = curP.stockMatriz - quantity
+            val nTS = curP.totalStock - quantity
+
+            if (nSM < 0.0) throw FirebaseFirestoreException("Stock insuficiente: ${String.format(Locale.getDefault(), "%.2f", curP.stockMatriz)} ${curP.unit}", FirebaseFirestoreException.Code.ABORTED)
+
+            val mov = StockMovement(
+                userId = user.uid, userName = currentUserName,
+                productId = product.id, productName = curP.name,
+                type = MovementType.SALIDA_DEVOLUCION, quantity = quantity,
+                locationFrom = Location.MATRIZ, locationTo = Location.PROVEEDOR, reason = reason,
+                stockAfterMatriz = nSM, stockAfterCongelador04 = curP.stockCongelador04, stockAfterTotal = nTS
+            )
+            val dev = DevolucionPendiente(
+                productId = product.id, productName = curP.name, quantity = quantity,
+                provider = provider, reason = reason, userId = user.uid, unit = curP.unit
+            )
 
             t.update(pRef, mapOf(
                 "stockMatriz" to nSM,
                 "totalStock" to nTS,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
-            ));
-            t.set(mRef, mov);
-            t.set(dRef, dev);
+                "lastUpdatedByName" to currentUserName
+            ))
+            t.set(mRef, mov)
+            t.set(dRef, dev)
 
-            productAfterUpdate = curP.copy(stockMatriz = nSM, totalStock = nTS) // Guardar estado actualizado
+            productAfterUpdate = curP.copy(stockMatriz = nSM, totalStock = nTS)
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Devolución registrada", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Devolución registrada: -${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
             productAfterUpdate?.let { updatedProd ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
@@ -864,44 +898,99 @@ val builder = AlertDialog.Builder(requireContext())
             Toast.makeText(context, msg ?: "Error desconocido", Toast.LENGTH_LONG).show()
         }
     }
+
     private fun showTraspasoDialog(product: Product) {
-        val builder = AlertDialog.Builder(requireContext()); builder.setTitle("Traspaso ==> 04: ${product.name}"); builder.setMessage("Stock Matriz: ${product.stockMatriz} ${product.unit}")
-        val container = FrameLayout(requireContext()); val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); val margin = resources.getDimensionPixelSize(R.dimen.dialog_margin); params.leftMargin = margin; params.rightMargin = margin; val inputQuantity = EditText(requireContext()); inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER; inputQuantity.hint = "Cantidad (${product.unit})"; inputQuantity.layoutParams = params; container.addView(inputQuantity); builder.setView(container)
-        builder.setPositiveButton("Traspasar") { _, _ -> try { val q = inputQuantity.text.toString().toLongOrNull(); if (q != null && q > 0) { if (q > product.stockMatriz) { Toast.makeText(context, "Stock insuficiente", Toast.LENGTH_LONG).show(); return@setPositiveButton }; val limit = (product.stockMatriz * 0.40).toLong(); if (q > limit && product.stockMatriz > 0) { AlertDialog.Builder(requireContext()).setTitle("Confirmar").setMessage("Cantidad grande (${q} ${product.unit}). ¿Traspasar?").setPositiveButton("Sí") { _, _ -> performTraspasoMatrizToC04(product, q) }.setNegativeButton("No", null).show() } else { performTraspasoMatrizToC04(product, q) } } else { Toast.makeText(context, "Cantidad inválida", Toast.LENGTH_SHORT).show() } } catch (e: NumberFormatException) { Toast.makeText(context, "Número inválido", Toast.LENGTH_SHORT).show() } }
-        builder.setNegativeButton("Cancelar", null); builder.show()
+        val builder = AlertDialog.Builder(requireContext())
+        val currentStockFormatted = String.format(Locale.getDefault(), "%.2f", product.stockMatriz)
+        builder.setTitle("Traspaso ==> 04: ${product.name}")
+        builder.setMessage("Stock Matriz: $currentStockFormatted ${product.unit}")
+
+        val container = FrameLayout(requireContext())
+        val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val margin = resources.getDimensionPixelSize(R.dimen.dialog_margin)
+        params.leftMargin = margin; params.rightMargin = margin
+
+        val inputQuantity = EditText(requireContext())
+        inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        inputQuantity.hint = "Cantidad a traspasar (${product.unit})"
+        inputQuantity.layoutParams = params
+        container.addView(inputQuantity)
+
+        builder.setView(container)
+
+        builder.setPositiveButton("Traspasar") { _, _ ->
+            try {
+                val quantityString = inputQuantity.text.toString()
+                val quantity = quantityString.toDoubleOrNull()
+
+                if (quantity == null || quantity <= 0.0) {
+                    Toast.makeText(context, "Cantidad inválida (> 0.0)", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (quantity > product.stockMatriz) {
+                    Toast.makeText(context, "Stock insuficiente en Matriz (${String.format("%.2f", product.stockMatriz)} ${product.unit})", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+
+                val limit = (product.stockMatriz * 0.40)
+                if (quantity > limit && product.stockMatriz > 0.0) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Confirmar Traspaso")
+                        .setMessage("Cantidad grande (${quantity} ${product.unit}). ¿Traspasar a C04?")
+                        .setPositiveButton("Sí") { _, _ -> performTraspasoMatrizToC04(product, quantity) }
+                        .setNegativeButton("No", null)
+                        .show()
+                } else {
+                    performTraspasoMatrizToC04(product, quantity)
+                }
+            } catch (e: NumberFormatException) {
+                Toast.makeText(context, "Número inválido", Toast.LENGTH_SHORT).show()
+            }
+        }
+        builder.setNegativeButton("Cancelar", null)
+        builder.show()
     }
 
-    private fun performTraspasoMatrizToC04(product: Product, quantity: Long) {
-        if (product.id.isEmpty()) return;
-        val user = auth.currentUser ?: return
+
+    private fun performTraspasoMatrizToC04(product: Product, quantity: Double) {
+        if (product.id.isEmpty()) { Log.e(TAG,"ID vacío"); return }
+        val user = auth.currentUser ?: run { Log.e(TAG,"Usuario null"); return }
         val currentUserName = user.displayName ?: user.email ?: "Unknown"
-        val pRef = firestore.collection("products").document(product.id);
+        val pRef = firestore.collection("products").document(product.id)
         val mRef = firestore.collection("stockMovements").document()
 
-        var productAfterUpdate: Product? = null // Para pasar al helper
+        var productAfterUpdate: Product? = null
 
         firestore.runTransaction { t ->
             val snap = t.get(pRef)
-            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("NF.", FirebaseFirestoreException.Code.ABORTED)
-            val nSM = curP.stockMatriz - quantity;
-            val nSC04 = curP.stockCongelador04 + quantity;
-            val nTS = curP.totalStock // Total no cambia
-            if (nSM < 0) throw FirebaseFirestoreException("Insuf ${curP.stockMatriz}", FirebaseFirestoreException.Code.ABORTED)
+            val curP = snap.toObject(Product::class.java) ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
 
-            val mov = StockMovement(userId = user.uid, userName = currentUserName, productId = product.id, productName = curP.name, type = MovementType.TRASPASO_M_C04, quantity = quantity, locationFrom = Location.MATRIZ, locationTo = Location.CONGELADOR_04, stockAfterMatriz = nSM, stockAfterCongelador04 = nSC04, stockAfterTotal = nTS)
+            val nSM = curP.stockMatriz - quantity
+            val nSC04 = curP.stockCongelador04 + quantity
+            val nTS = curP.totalStock // Total no cambia en traspaso
+
+            if (nSM < 0.0) throw FirebaseFirestoreException("Stock insuficiente en Matriz: ${String.format(Locale.getDefault(),"%.2f", curP.stockMatriz)} ${curP.unit}", FirebaseFirestoreException.Code.ABORTED)
+
+            val mov = StockMovement(
+                userId = user.uid, userName = currentUserName,
+                productId = product.id, productName = curP.name,
+                type = MovementType.TRASPASO_M_C04, quantity = quantity,
+                locationFrom = Location.MATRIZ, locationTo = Location.CONGELADOR_04,
+                stockAfterMatriz = nSM, stockAfterCongelador04 = nSC04, stockAfterTotal = nTS
+            )
 
             t.update(pRef, mapOf(
                 "stockMatriz" to nSM,
                 "stockCongelador04" to nSC04,
                 "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName // <-- AÑADIDO
-            ));
-            t.set(mRef, mov);
+                "lastUpdatedByName" to currentUserName
+            ))
+            t.set(mRef, mov)
 
-            productAfterUpdate = curP.copy(stockMatriz = nSM, stockCongelador04 = nSC04, totalStock = nTS) // Guardar estado
+            productAfterUpdate = curP.copy(stockMatriz = nSM, stockCongelador04 = nSC04, totalStock = nTS)
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Traspaso registrado", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Traspaso a C04 registrado: ${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
             productAfterUpdate?.let { updatedProd ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
