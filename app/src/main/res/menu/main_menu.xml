@@ -29,6 +29,12 @@
         android:icon="@drawable/pendiente"
         app:showAsAction="ifRoom"
         android:visible="false" />
+    <item
+        android:id="@+id/action_suppliers"
+        android:title="Proveedores"
+        android:icon="@drawable/delivery"
+        app:showAsAction="ifRoom"
+        android:visible="false" />
 
 
 </menu>

@@ -32,11 +32,13 @@ import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.packaging.PackagingFragment
 import com.cesar.bocana.ui.products.ProductListFragment
+import com.cesar.bocana.ui.suppliers.SupplierListFragment // Import añadido
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.SetOptions // Import añadido
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
@@ -50,8 +52,7 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
     private lateinit var binding: ActivityMainBinding
     private lateinit var auth: FirebaseAuth
     private val db = Firebase.firestore
-    private var currentUserRole: UserRole? = null
-    private var currentUserName: String? = null
+    private var currentUserName: String? = null // Ya no necesitamos currentUserRole aquí
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
     private val LOCAL_NOTIFICATION_ID = 1001
@@ -64,7 +65,6 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             getAndSaveFcmToken()
         } else {
             Log.w(TAG, "Notification permission denied.")
-            // Consider showing a message explaining why notifications are useful
         }
     }
 
@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         super.onResume()
         if (auth.currentUser != null) {
             lifecycleScope.launch { checkConditionsAndNotifyLocally() }
-            fetchUserInfoOnly() // Re-fetch user info in case role/status changed
+            fetchUserInfoOnly()
         }
     }
 
@@ -108,16 +108,14 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             when {
                 ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED -> {
                     Log.d(TAG, "Notification permission already granted.")
-                    getAndSaveFcmToken() // Get token if permission already granted
+                    getAndSaveFcmToken()
                 }
-                // Consider adding shouldShowRequestPermissionRationale if you want to explain first
                 else -> {
                     Log.d(TAG, "Requesting notification permission.")
                     requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         } else {
-            // No runtime permission needed for older versions, just get token
             Log.d(TAG, "Notification permission not required for this API level.")
             getAndSaveFcmToken()
         }
@@ -133,9 +131,8 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
                 if (token != null) {
                     Log.d(TAG, "FCM Token obtained: $token. Saving to Firestore.")
                     val userDocRef = db.collection("users").document(userId)
-                    // Use merge=true to avoid overwriting other fields if doc exists but token wasn't set
-                    userDocRef.set(mapOf("fcmToken" to token), com.google.firebase.firestore.SetOptions.merge())
-                        .await() // Wait for the update to complete
+                    userDocRef.set(mapOf("fcmToken" to token), SetOptions.merge())
+                        .await()
                     Log.d(TAG, "FCM Token potentially updated in Firestore.")
                 } else {
                     Log.w(TAG, "FCM Token was null.")
@@ -143,7 +140,6 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.e(TAG, "Error getting/saving FCM token", e)
-                // Handle error appropriately, maybe retry later
             }
         }
     }
@@ -159,14 +155,11 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         try {
             val lowStockSnapshot = db.collection("products")
                 .whereEqualTo("isActive", true)
-                // Cannot query where totalStock <= minStock directly if minStock > 0 in Firestore efficiently without specific structure/indexes
-                // Fetch active products and check condition in code
                 .get()
                 .await()
 
             lowStockCount = lowStockSnapshot.documents.count { doc ->
                 val product = doc.toObject(Product::class.java)
-                // Compare Doubles, check minStock > 0.0
                 product != null && product.minStock > 0.0 && product.totalStock <= product.minStock
             }
             Log.d(TAG, "checkConditions - Low Stock Check: Found $lowStockCount item(s).")
@@ -175,7 +168,7 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             }
 
             val pendingDevoSnapshot = db.collection("pendingDevoluciones")
-                .whereEqualTo("status", DevolucionStatus.PENDIENTE.name) // Filter by PENDING status
+                .whereEqualTo("status", DevolucionStatus.PENDIENTE.name)
                 .limit(1)
                 .get()
                 .await()
@@ -219,15 +212,13 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 Log.w(TAG, "Cannot show local notification, permission not granted.")
-                return // Exit if permission not granted on Android 13+
+                return
             }
         }
-        // Permission ok or not needed
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        // Use FLAG_IMMUTABLE or FLAG_MUTABLE as required by target SDK
         val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
@@ -236,46 +227,44 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
         val pendingIntent: PendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round) // Use round icon perhaps
+            .setSmallIcon(R.mipmap.ic_launcher_round)
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
-            .setAutoCancel(true) // Notification disappears when clicked
+            .setAutoCancel(true)
 
         try {
             NotificationManagerCompat.from(this).notify(LOCAL_NOTIFICATION_ID, builder.build())
             Log.d(TAG, "Local notification shown.")
         } catch (e: SecurityException) {
-            // This might happen on some devices if permissions change unexpectedly
             Log.e(TAG, "SecurityException showing notification.", e)
         }
     }
 
 
     private fun fetchUserInfoAndLoadFragment(savedInstanceState: Bundle?) {
-        val user = auth.currentUser ?: run { goToLogin(); return } // Go to login if user is null
+        val user = auth.currentUser ?: run { goToLogin(); return }
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { document ->
-                if (!isDestroyed && !isFinishing) { // Check activity state
+                if (!isDestroyed && !isFinishing) {
                     if (document != null && document.exists()) {
                         val userData = document.toObject(User::class.java)
-                        currentUserRole = if(userData?.role == UserRole.ADMIN) UserRole.ADMIN else null
-                        currentUserName = userData?.name ?: "Usuario"
-
-                        if (userData?.isAccountActive != true || currentUserRole != UserRole.ADMIN) {
-                            showErrorAndLogout("Acceso denegado o cuenta inactiva.")
+                        // Simplificado: Solo verificamos si está activo
+                        if (userData?.isAccountActive != true) {
+                            showErrorAndLogout("Cuenta inactiva.")
                             return@addOnSuccessListener
                         }
-                        updateToolbarSubtitle()
-                        invalidateOptionsMenu() // Redraw menu based on role
-                        if (savedInstanceState == null) { // Only load fragment if not recreating
+                        currentUserName = userData?.name ?: "Usuario" // Guardamos nombre
+                        updateToolbarSubtitle() // Muestra el nombre
+                        invalidateOptionsMenu()
+                        if (savedInstanceState == null) {
                             loadInitialFragment()
                         }
                     } else {
                         Log.w(TAG,"User document not found for UID: ${user.uid}")
-                        showErrorAndLogout("Error: Usuario no registrado como ADMIN.")
+                        showErrorAndLogout("Error: Usuario no registrado.") // Asumimos que debería existir
                     }
                 }
             }
@@ -288,39 +277,27 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
     }
 
     private fun fetchUserInfoOnly() {
-        val user = auth.currentUser ?: return // Don't proceed if user is null
+        val user = auth.currentUser ?: return
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { document ->
                 if (!isDestroyed && !isFinishing) {
                     if (document != null && document.exists()) {
                         val userData = document.toObject(User::class.java)
-                        val fetchedRole = if(userData?.role == UserRole.ADMIN) UserRole.ADMIN else null
 
-                        // If user is no longer active or admin, log them out
-                        if (userData?.isAccountActive != true || fetchedRole != UserRole.ADMIN) {
-                            Log.w(TAG,"User status changed (inactive or not admin), logging out.")
+                        if (userData?.isAccountActive != true) {
+                            Log.w(TAG,"User status changed (inactive), logging out.")
                             signOut()
                             return@addOnSuccessListener
                         }
 
-                        // Update local state if changed
-                        var invalidateNeeded = false
-                        if (currentUserName != (userData?.name ?: "Usuario")) {
-                            currentUserName = userData?.name ?: "Usuario"
-                            invalidateNeeded = true
-                        }
-                        if (currentUserRole != fetchedRole) {
-                            currentUserRole = fetchedRole
-                            invalidateNeeded = true
-                        }
-
-                        if(invalidateNeeded){
+                        val fetchedName = userData?.name ?: "Usuario"
+                        if (currentUserName != fetchedName) {
+                            currentUserName = fetchedName
                             updateToolbarSubtitle()
-                            invalidateOptionsMenu() // Update menu if role/name changed
+                            invalidateOptionsMenu() // Actualizar si el nombre cambia (poco probable pero posible)
                         }
 
                     } else {
-                        // User document disappeared? Log out.
                         Log.w(TAG,"User document not found during re-fetch, logging out.")
                         signOut()
                     }
@@ -328,18 +305,13 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             }.addOnFailureListener { e ->
                 if (!isDestroyed && !isFinishing) {
                     Log.e(TAG, "Error re-fetching user info", e)
-                    // Decide if logout is needed on connection error during re-fetch
-                    // Maybe just log it for now?
                 }
             }
     }
 
     private fun updateToolbarSubtitle() {
-        if (currentUserName != null && currentUserRole == UserRole.ADMIN) {
-            supportActionBar?.subtitle = "$currentUserName - ${currentUserRole?.name}"
-        } else {
-            supportActionBar?.subtitle = currentUserName ?: "" // Handle null case
-        }
+        // Muestra solo el nombre del usuario
+        supportActionBar?.subtitle = currentUserName ?: ""
     }
 
     private fun loadInitialFragment() {
@@ -347,30 +319,24 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             try {
                 supportFragmentManager.beginTransaction()
                     .replace(R.id.nav_host_fragment_content_main, ProductListFragment())
-                    .commitAllowingStateLoss() // Use allowingStateLoss cautiously if needed, otherwise commit()
+                    .commitAllowingStateLoss()
             } catch (e: IllegalStateException) {
                 Log.e(TAG, "Error loading initial fragment, activity state invalid?", e)
-                // Potentially handle this by trying again later or showing an error
             }
         }
     }
 
     override fun onBackStackChanged() {
-        // Re-evaluate toolbar state based on current fragment
         val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-        val isAtHome = currentFragment is ProductListFragment || supportFragmentManager.backStackEntryCount == 0 // Check backStack too
+        val isAtHome = currentFragment is ProductListFragment || supportFragmentManager.backStackEntryCount == 0
 
         supportActionBar?.setDisplayHomeAsUpEnabled(!isAtHome)
         supportActionBar?.setDisplayShowHomeEnabled(!isAtHome)
 
-        // Restore subtitle only if we are truly back at the home fragment
-        if (isAtHome && currentUserName != null ) { // Removed role check, name is enough
-            updateToolbarSubtitle()
-        } else if (!isAtHome) {
-            // Title might have been set by the specific fragment (like AjustesFragment)
-            // Subtitle is usually cleared by fragments, handled by restoreToolbar in fragments
+        if (isAtHome) {
+            updateToolbarSubtitle() // Restaura el nombre de usuario en el subtítulo
         }
-        invalidateOptionsMenu() // Update menu visibility based on current fragment
+        invalidateOptionsMenu() // Siempre actualiza el menú al cambiar pantalla
     }
 
 
@@ -380,50 +346,48 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
     }
 
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
-        // This ensures the menu reflects the current state and fragment
         if (menu != null) {
-            val isAdmin = currentUserRole == UserRole.ADMIN
             val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-            // Only show admin items if user is admin AND is on the ProductListFragment
-            val showAdminItems = isAdmin && (currentFragment is ProductListFragment)
+            // Mostrar opciones solo si estamos en la pantalla principal (ProductListFragment)
+            val showMenuItems = currentFragment is ProductListFragment
 
-            menu.findItem(R.id.action_ajustes)?.isVisible = showAdminItems
-            menu.findItem(R.id.action_devoluciones)?.isVisible = showAdminItems
-            menu.findItem(R.id.action_packaging)?.isVisible = showAdminItems
+            menu.findItem(R.id.action_ajustes)?.isVisible = showMenuItems
+            menu.findItem(R.id.action_devoluciones)?.isVisible = showMenuItems
+            menu.findItem(R.id.action_packaging)?.isVisible = showMenuItems
+            menu.findItem(R.id.action_suppliers)?.isVisible = showMenuItems // Item añadido en Fase 2
         }
         return super.onPrepareOptionsMenu(menu)
     }
 
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle Up navigation specifically
         if (item.itemId == android.R.id.home) {
             supportFragmentManager.popBackStack()
             return true
         }
 
-        // Handle other menu items only if user is Admin and on the ProductListFragment
-        val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-        if (!(currentFragment is ProductListFragment && isAdmin())) {
-            // If not admin or not on product list, only allow logout
-            if (item.itemId == R.id.action_logout) {
-                signOut()
-                return true
-            }
-            return super.onOptionsItemSelected(item) // Let system handle if not logout
+        // Logout siempre disponible
+        if (item.itemId == R.id.action_logout) {
+            signOut()
+            return true
         }
 
-        // If we are here, user is Admin and on ProductListFragment
-        return when (item.itemId) {
-            R.id.action_logout -> { signOut(); true }
-            R.id.action_ajustes -> { navigateToAjustes(); true }
-            R.id.action_devoluciones -> { navigateToDevoluciones(); true }
-            R.id.action_packaging -> { navigateToPackaging(); true }
-            else -> super.onOptionsItemSelected(item)
+        // Otras acciones solo disponibles desde la lista de productos
+        val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
+        if (currentFragment is ProductListFragment) {
+            return when (item.itemId) {
+                R.id.action_ajustes -> { navigateToAjustes(); true }
+                R.id.action_devoluciones -> { navigateToDevoluciones(); true }
+                R.id.action_packaging -> { navigateToPackaging(); true }
+                R.id.action_suppliers -> { navigateToSuppliers(); true } // Navegación añadida
+                else -> super.onOptionsItemSelected(item)
+            }
         }
+
+        return super.onOptionsItemSelected(item) // Dejar que el sistema maneje otros casos
     }
 
-    private fun isAdmin(): Boolean = currentUserRole == UserRole.ADMIN
+    // Función auxiliar eliminada isAdmin() ya que no se usa
 
     private fun navigateToAjustes() {
         supportFragmentManager.beginTransaction()
@@ -440,25 +404,26 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
             .replace(R.id.nav_host_fragment_content_main, PackagingFragment())
             .addToBackStack("PackagingFragment").commit()
     }
+    // Nueva función para navegar a proveedores
+    private fun navigateToSuppliers() {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, SupplierListFragment())
+            .addToBackStack("SupplierListFragment").commit()
+    }
 
     private fun signOut() {
         Log.d(TAG, "signOut: Initiating sign out...")
-        // Clear local user state immediately
-        currentUserRole = null
-        currentUserName = null
+        currentUserName = null // Limpiar nombre local
         invalidateOptionsMenu()
         updateToolbarSubtitle()
 
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(getString(R.string.default_web_client_id)) // Use your web client ID
+            .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
             .build()
         val googleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Sign out from Firebase
         auth.signOut()
-
-        // Sign out from Google and then navigate to Login
         googleSignInClient.signOut().addOnCompleteListener {
             Log.d(TAG, "Google sign out complete, navigating to Login.")
             goToLogin()
@@ -466,19 +431,18 @@ class MainActivity : AppCompatActivity(), FragmentManager.OnBackStackChangedList
     }
 
     private fun goToLogin() {
-        if (!isFinishing) { // Prevent crash if activity is already finishing
+        if (!isFinishing) {
             val intent = Intent(this, LoginActivity::class.java)
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             startActivity(intent)
-            finishAffinity() // Close all activities in the task
+            finishAffinity()
         }
     }
 
     private fun showErrorAndLogout(message: String) {
         Log.e(TAG, "Error causing logout: $message")
-        // Ensure Toast runs on main thread, although typically called from listeners already on main
         runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
-        signOut() // Initiate sign out process
+        signOut()
     }
 
     companion object {
