@@ -1,6 +1,5 @@
 package com.cesar.bocana.ui.adapters
 
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,8 +16,8 @@ import java.util.Locale
 
 interface ProductActionListener {
     fun onAddCompraClicked(product: Product)
-    fun onSalidaClicked(product: Product)
-    fun onTraspasoC04Clicked(product: Product)
+    fun onSalidaClicked(product: Product, anchorView: View)
+    fun onTraspasoC04Clicked(product: Product, anchorView: View)
     fun onItemClicked(product: Product)
     fun onEditC04Clicked(product: Product)
     fun onTraspasoC04MClicked(product: Product)
@@ -60,7 +59,6 @@ class ProductAdapter(
         fun bind(item: Product, listener: ProductActionListener, contextLocation: String) {
             binding.textViewProductName.text = item.name
             binding.textViewProductUnit.text = item.unit
-
             val format = Locale.getDefault()
             val formattedMinStock = String.format(format, "%.2f", item.minStock)
             val formattedStockMatriz = String.format(format, "%.2f", item.stockMatriz)
@@ -75,8 +73,7 @@ class ProductAdapter(
             val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
             val context = binding.root.context
             val lowStockColor = ContextCompat.getColor(context, R.color.low_stock_red)
-            val defaultTextColor = ContextCompat.getColor(context, android.R.color.tab_indicator_text) // O usa un color de tu tema
-
+            val defaultTextColor = ContextCompat.getColor(context, android.R.color.tab_indicator_text)
             binding.textViewMinStockValue.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
             binding.textViewMinStockLabel.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
             binding.imageViewLowStockIndicator.visibility = if (isLowStock) View.VISIBLE else View.GONE
@@ -86,6 +83,11 @@ class ProductAdapter(
             val canModify = userRole == UserRole.ADMIN
 
             if (contextLocation == Location.MATRIZ) {
+                binding.matrizStockContainer.visibility = View.VISIBLE
+                binding.c04StockContainer.visibility = View.GONE
+                binding.textViewStockTotalLabel.visibility = View.VISIBLE
+                binding.textViewStockTotalValue.visibility = View.VISIBLE
+
                 binding.buttonAddCompra.visibility = View.VISIBLE
                 binding.buttonAddSalida.visibility = View.VISIBLE
                 binding.buttonAddTraspaso.visibility = View.VISIBLE
@@ -93,28 +95,32 @@ class ProductAdapter(
                 binding.buttonTraspasoC04M.visibility = View.GONE
 
                 binding.buttonAddCompra.isEnabled = canModify
+                binding.buttonAddCompra.alpha = if(canModify) 1f else 0.5f
                 binding.buttonAddSalida.isEnabled = canModify
+                binding.buttonAddSalida.alpha = if(canModify) 1f else 0.5f
                 binding.buttonAddTraspaso.isEnabled = canModify
-                binding.buttonAddCompra.alpha = if (canModify) 1.0f else 0.5f
-                binding.buttonAddSalida.alpha = if (canModify) 1.0f else 0.5f
-                binding.buttonAddTraspaso.alpha = if (canModify) 1.0f else 0.5f
+                binding.buttonAddTraspaso.alpha = if(canModify) 1f else 0.5f
+            } else {
+                binding.matrizStockContainer.visibility = View.GONE
+                binding.c04StockContainer.visibility = View.VISIBLE
+                binding.textViewStockTotalLabel.visibility = View.GONE
+                binding.textViewStockTotalValue.visibility = View.GONE
 
-            } else { // CONGELADOR_04 Context
                 binding.buttonAddCompra.visibility = View.GONE
                 binding.buttonAddSalida.visibility = View.GONE
                 binding.buttonAddTraspaso.visibility = View.GONE
-                binding.buttonEditC04.visibility = View.VISIBLE // Este se eliminará en Fase 3
+                binding.buttonEditC04.visibility = View.VISIBLE
                 binding.buttonTraspasoC04M.visibility = View.VISIBLE
 
                 binding.buttonEditC04.isEnabled = canModify
+                binding.buttonEditC04.alpha = if(canModify) 1f else 0.5f
                 binding.buttonTraspasoC04M.isEnabled = canModify
-                binding.buttonEditC04.alpha = if (canModify) 1.0f else 0.5f
-                binding.buttonTraspasoC04M.alpha = if (canModify) 1.0f else 0.5f
+                binding.buttonTraspasoC04M.alpha = if(canModify) 1f else 0.5f
             }
 
             binding.buttonAddCompra.setOnClickListener { if(canModify) listener.onAddCompraClicked(item) }
-            binding.buttonAddSalida.setOnClickListener { if(canModify) listener.onSalidaClicked(item) }
-            binding.buttonAddTraspaso.setOnClickListener { if(canModify) listener.onTraspasoC04Clicked(item) }
+            binding.buttonAddSalida.setOnClickListener { view -> if(canModify) listener.onSalidaClicked(item, view) }
+            binding.buttonAddTraspaso.setOnClickListener { view -> if(canModify) listener.onTraspasoC04Clicked(item, view) }
             binding.buttonEditC04.setOnClickListener { if(canModify) listener.onEditC04Clicked(item) }
             binding.buttonTraspasoC04M.setOnClickListener { if(canModify) listener.onTraspasoC04MClicked(item) }
             binding.root.setOnClickListener { listener.onItemClicked(item) }
@@ -135,6 +141,6 @@ class ProductDiffCallback : DiffUtil.ItemCallback<Product>() {
         return oldItem.id == newItem.id
     }
     override fun areContentsTheSame(oldItem: Product, newItem: Product): Boolean {
-        return oldItem == newItem // Comparación basada en data class
+        return oldItem == newItem
     }
 }

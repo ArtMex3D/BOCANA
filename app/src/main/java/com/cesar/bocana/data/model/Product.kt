@@ -3,6 +3,7 @@ package com.cesar.bocana.data.model
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
+import kotlin.jvm.JvmField // Asegúrate de tener este import si usas @JvmField
 
 data class Product(
     @DocumentId
@@ -19,11 +20,16 @@ data class Product(
     @ServerTimestamp
     val updatedAt: Date? = null,
     val lastUpdatedByName: String? = null,
-    val isActive: Boolean = true
+    @JvmField // Es buena práctica para booleanos is... o requires...
+    val isActive: Boolean = true,
+    @JvmField // Campo añadido
+    val requiresPackaging: Boolean = false // Añadido: Valor por defecto false
 ) {
+    // Constructor vacío actualizado
     constructor() : this(
         id = "", name = "", unit = "", minStock = 0.0, providerDetails = "",
         stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
-        createdAt = null, updatedAt = null, lastUpdatedByName = null, isActive = true
+        createdAt = null, updatedAt = null, lastUpdatedByName = null, isActive = true,
+        requiresPackaging = false // Añadido al constructor vacío
     )
 }

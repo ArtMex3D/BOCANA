@@ -11,7 +11,19 @@ data class PendingPackagingTask(
     val quantityReceived: Double = 0.0,
     val unit: String = "",
     @ServerTimestamp val receivedAt: Date? = null,
-    val purchaseMovementId: String? = null
+    val purchaseMovementId: String? = null,
+    val supplierId: String? = null,
+    val supplierName: String? = null
 ){
-    constructor() : this("", "", "", 0.0, "", null, null)
+    constructor() : this(
+        id = "",
+        productId = "",
+        productName = "",
+        quantityReceived = 0.0,
+        unit = "",
+        receivedAt = null,
+        purchaseMovementId = null,
+        supplierId = null,
+        supplierName = null
+    )
 }

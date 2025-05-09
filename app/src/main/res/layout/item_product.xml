@@ -33,7 +33,8 @@
             android:src="@android:drawable/ic_dialog_alert"
             android:visibility="gone"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/textViewProductName"
+            app:layout_constraintBottom_toBottomOf="@+id/textViewProductName"
             app:tint="@android:color/holo_orange_dark"
             tools:visibility="visible"/>
 
@@ -66,116 +67,142 @@
             android:textStyle="bold"
             app:layout_constraintBaseline_toBaselineOf="@+id/textViewMinStockLabel"
             app:layout_constraintStart_toEndOf="@+id/textViewMinStockLabel"
-            tools:text="50" />
+            tools:text="50.00" />
 
-        <TextView
-            android:id="@+id/textViewStockMatrizLabel"
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/matriz_stock_container"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Matriz:"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit" />
+            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit"
+            app:layout_constraintStart_toStartOf="parent" >
 
-        <TextView
-            android:id="@+id/textViewStockMatrizValue"
+            <TextView
+                android:id="@+id/textViewStockMatrizLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Matriz:"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <TextView
+                android:id="@+id/textViewStockMatrizValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+                android:textStyle="bold"
+                app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizLabel"
+                app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizLabel"
+                tools:text="150.00" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/c04_stock_container"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-            android:textStyle="bold"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizLabel"
-            app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizLabel"
-            tools:text="150" />
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit"
+            app:layout_constraintStart_toStartOf="parent" >
+            <TextView
+                android:id="@+id/textViewStockC04Label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="C-04:"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"/>
 
-        <TextView
-            android:id="@+id/textViewStockC04Label"
+            <TextView
+                android:id="@+id/textViewStockC04Value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+                android:textStyle="bold"
+                app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Label"
+                app:layout_constraintStart_toEndOf="@+id/textViewStockC04Label"
+                tools:text="50.00" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <androidx.constraintlayout.widget.Barrier
+            android:id="@+id/stockLocationBarrier"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="C-04:"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizValue"
-            app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizValue" />
-
-        <TextView
-            android:id="@+id/textViewStockC04Value"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-            android:textStyle="bold"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Label"
-            app:layout_constraintStart_toEndOf="@+id/textViewStockC04Label"
-            tools:text="50" />
-
+            app:barrierDirection="bottom"
+            app:constraint_referenced_ids="matriz_stock_container,c04_stock_container" />
         <TextView
             android:id="@+id/textViewStockTotalLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginTop="8dp"
             android:text="StockTotal:"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Value"
-            app:layout_constraintStart_toEndOf="@+id/textViewStockC04Value" />
-
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/stockLocationBarrier" />
         <TextView
             android:id="@+id/textViewStockTotalValue"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-            android:textColor="@color/total_stock_green" android:textStyle="bold"
+            android:textColor="@color/total_stock_green"
+            android:textStyle="bold"
             app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockTotalLabel"
             app:layout_constraintStart_toEndOf="@+id/textViewStockTotalLabel"
-            tools:text="200" />
+            tools:text="200.00" />
 
         <LinearLayout
             android:id="@+id/layoutActionButtons"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="12dp"
             android:orientation="horizontal"
-            app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewStockMatrizLabel" >
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textViewStockTotalValue" >
 
             <ImageButton
-            android:id="@+id/buttonAddCompra"
-            android:layout_width="48dp" android:layout_height="48dp"
-            android:src="@android:drawable/ic_input_add"
-            app:tint="#195200"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Registrar Compra" />
+                android:id="@+id/buttonAddCompra"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Registrar Compra"
+                android:src="@android:drawable/ic_input_add"
+                app:tint="#195200" />
 
             <ImageButton
                 android:id="@+id/buttonAddSalida"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_marginStart="16dp"
-                android:src="@drawable/remove_24"
-                app:tint="@android:color/holo_red_dark"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Registrar Salida" />
+                android:contentDescription="Registrar Salida"
+                android:src="@drawable/remove_24"
+                app:tint="@android:color/holo_red_dark" />
+
             <ImageButton
                 android:id="@+id/buttonAddTraspaso"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_marginStart="16dp"
-                android:src="@drawable/traspaso"
-                app:tint="#0085B1"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Traspasar a C04" />
+                android:contentDescription="Traspasar a C04"
+                android:src="@drawable/traspaso"
+                app:tint="#0085B1" />
+
             <ImageButton
                 android:id="@+id/buttonEditC04"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_marginStart="16dp"
-                android:src="@drawable/editar"
-                app:tint="#930195"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Ajustar Stock C04" />
+                android:contentDescription="Ajustar Stock C04"
+                android:src="@drawable/editar"
+                app:tint="#930195" />
 
             <ImageButton
                 android:id="@+id/buttonTraspasoC04M"
@@ -185,10 +212,9 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Regresar Traspaso a Matriz"
                 android:src="@drawable/traspaso"
-                app:layout_constraintBottom_toBottomOf="@+id/buttonEditC04"
-                app:layout_constraintStart_toEndOf="@+id/buttonEditC04"
-                app:layout_constraintTop_toTopOf="@+id/buttonEditC04"
-                app:tint="@color/teal_200" />
+                app:tint="#0339DA" />
+
+
         </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
