@@ -69,11 +69,13 @@ import com.cesar.bocana.data.model.Supplier
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.firestore.WriteBatch
 import java.util.Calendar
+import android.widget.DatePicker
+import android.app.DatePickerDialog
 
 
 class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
-
+    private val stockEpsilon = 0.1
     private var _binding: FragmentProductListBinding? = null
     private val binding get() = _binding!!
     private var currentLocationContext: String = Location.MATRIZ
@@ -190,7 +192,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 validationError = true
             }
             // Usar un pequeño épsilon para la comparación de doubles
-            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && quantityToTraspasar > selectedLotsTotalNetQuantity + 0.001) {
+            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && quantityToTraspasar > selectedLotsTotalNetQuantity + 0.1) {
                 inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
                 validationError = true
             }
@@ -393,7 +395,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
                 validationError = true
             }
-            if (quantityToDevolver != null && lotAdapter.currentList.isNotEmpty() && quantityToDevolver > selectedLotsTotalNetQuantity + 0.001) { // 0.001 epsilon
+            if (quantityToDevolver != null && lotAdapter.currentList.isNotEmpty() && quantityToDevolver > selectedLotsTotalNetQuantity + 0.1) { //  epsilon
                 inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
                 validationError = true
             }
@@ -504,64 +506,141 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             }
     }
 
-    private fun performTraspasoC04ToMatriz(product: Product, quantity: Double) {
-        if (product.id.isEmpty()) { Log.e(TAG,"Error ID"); Toast.makeText(context, "Error ID", Toast.LENGTH_LONG).show(); return }
-        val currentUser = auth.currentUser; if (currentUser == null) { Toast.makeText(context,"Error user", Toast.LENGTH_SHORT).show(); return }
+    private fun performTraspasoC04ToMatriz(
+        productArgument: Product,
+        quantityToTraspasarTotal: Double,
+        selectedLotIdsFromC04: List<String>
+    ) {
+        val currentUser = auth.currentUser ?: run {
+            Toast.makeText(context, "Error de autenticación.", Toast.LENGTH_SHORT).show()
+            isDialogOpen = false
+            return
+        }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
+        val traspasoTimestamp = Date()
 
-        val productRef = firestore.collection("products").document(product.id)
+        showListLoading(true)
+
+        val productRef = firestore.collection("products").document(productArgument.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
-        var productAfterUpdate: Product? = null
-
         firestore.runTransaction { transaction ->
-            val snapshot = transaction.get(productRef)
-            val currentProduct = snapshot.toObject(Product::class.java)
-                ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
+            val productSnapshot = transaction.get(productRef)
+            val currentProduct = productSnapshot.toObject(Product::class.java)
+                ?: throw FirebaseFirestoreException("Producto no encontrado: ${productArgument.name}", FirebaseFirestoreException.Code.ABORTED)
 
-            val newStockCongelador04 = currentProduct.stockCongelador04 - quantity
-            val newStockMatriz = currentProduct.stockMatriz + quantity
-            val newTotalStock = currentProduct.totalStock // No cambia en traspaso
-
-            if (newStockCongelador04 < 0.0) {
-                throw FirebaseFirestoreException("Stock insuficiente en C04 (${String.format(Locale.getDefault(), "%.2f", currentProduct.stockCongelador04)} ${currentProduct.unit})", FirebaseFirestoreException.Code.ABORTED)
+            val lotesOrigenC04Snapshots = selectedLotIdsFromC04.map { lotId ->
+                transaction.get(firestore.collection("inventoryLots").document(lotId))
             }
 
-            val movement = StockMovement(
-                userId = currentUser.uid, userName = currentUserName,
-                productId = product.id, productName = currentProduct.name,
-                type = MovementType.TRASPASO_C04_M,
-                quantity = quantity,
-                locationFrom = Location.CONGELADOR_04,
-                locationTo = Location.MATRIZ,
-                reason = null,
-                stockAfterMatriz = newStockMatriz,
-                stockAfterCongelador04 = newStockCongelador04,
-                stockAfterTotal = newTotalStock
-            )
+            val lotesOrigenC04 = lotesOrigenC04Snapshots.mapNotNull { snapshot ->
+                if (!snapshot.exists()) throw FirebaseFirestoreException("Lote origen C04 ${snapshot.id} no encontrado.", FirebaseFirestoreException.Code.ABORTED)
+                snapshot.toObject(StockLot::class.java)?.copy(id = snapshot.id)
+                    ?: throw FirebaseFirestoreException("Error convirtiendo lote origen C04 ${snapshot.id}.", FirebaseFirestoreException.Code.ABORTED)
+            }.sortedBy { it.receivedAt ?: Date(0) } // Fecha en que llegaron a C04
+
+            val totalDisponibleEnLotesC04Seleccionados = lotesOrigenC04.sumOf { it.currentQuantity }
+            if (quantityToTraspasarTotal - totalDisponibleEnLotesC04Seleccionados > stockEpsilon) {
+                throw FirebaseFirestoreException("Stock insuficiente en lotes de C-04 seleccionados (${String.format(Locale.getDefault(), "%.2f", totalDisponibleEnLotesC04Seleccionados)} ${currentProduct.unit})", FirebaseFirestoreException.Code.ABORTED)
+            }
+
+            var cantidadRestantePorTraspasarGlobal = quantityToTraspasarTotal
+            val idsLotesOrigenAfectadosConCantidad = mutableListOf<String>()
+            val idsNuevosLotesDestinoConCantidad = mutableListOf<String>()
+
+            for (loteOrigenC04 in lotesOrigenC04) {
+                if (cantidadRestantePorTraspasarGlobal <= stockEpsilon) break
+
+                val cantidadATraspasarDeEsteLote = kotlin.math.min(loteOrigenC04.currentQuantity, cantidadRestantePorTraspasarGlobal)
+
+                if (cantidadATraspasarDeEsteLote > stockEpsilon) {
+                    val nuevaCantidadEnLoteOrigenC04 = loteOrigenC04.currentQuantity - cantidadATraspasarDeEsteLote
+                    transaction.update(
+                        firestore.collection("inventoryLots").document(loteOrigenC04.id),
+                        mapOf(
+                            "currentQuantity" to nuevaCantidadEnLoteOrigenC04,
+                            "isDepleted" to (nuevaCantidadEnLoteOrigenC04 <= stockEpsilon)
+                        )
+                    )
+                    idsLotesOrigenAfectadosConCantidad.add("${loteOrigenC04.id.takeLast(4)}:${String.format(Locale.getDefault(), "%.2f", cantidadATraspasarDeEsteLote)}")
+
+                    val newStockLotMatrizRef = firestore.collection("inventoryLots").document()
+                    val nuevoLoteEnMatriz = StockLot(
+                        id = newStockLotMatrizRef.id,
+                        productId = loteOrigenC04.productId,
+                        productName = loteOrigenC04.productName,
+                        unit = loteOrigenC04.unit,
+                        location = Location.MATRIZ, // Destino es Matriz
+                        // Heredar proveedor y lotNumber del sublote de C04, que a su vez los heredó del padre original si existían
+                        supplierId = loteOrigenC04.supplierId,
+                        supplierName = loteOrigenC04.supplierName,
+                        lotNumber = loteOrigenC04.lotNumber,
+                        receivedAt = traspasoTimestamp, // Fecha en que llega de regreso a Matriz
+                        movementIdIn = newMovementRef.id,
+                        initialQuantity = cantidadATraspasarDeEsteLote,
+                        currentQuantity = cantidadATraspasarDeEsteLote,
+                        isDepleted = false,
+                        isPackaged = loteOrigenC04.isPackaged, // Heredar estado de empaque
+                        expirationDate = loteOrigenC04.expirationDate,
+                        // Los campos original... no se propagan al nuevo lote en Matriz,
+                        // ya que este lote en Matriz no proviene directamente de un "lote padre de compra".
+                        // Su origen es un traspaso desde C04.
+                        originalLotId = null,
+                        originalReceivedAt = null,
+                        originalSupplierName = null,
+                        originalLotNumber = null
+                    )
+                    transaction.set(newStockLotMatrizRef, nuevoLoteEnMatriz)
+                    idsNuevosLotesDestinoConCantidad.add("${newStockLotMatrizRef.id.takeLast(4)}:${String.format(Locale.getDefault(), "%.2f", cantidadATraspasarDeEsteLote)}")
+
+                    cantidadRestantePorTraspasarGlobal -= cantidadATraspasarDeEsteLote
+                }
+            }
+
+            if (kotlin.math.abs(cantidadRestantePorTraspasarGlobal) > stockEpsilon && quantityToTraspasarTotal > stockEpsilon) {
+                throw FirebaseFirestoreException("Discrepancia al procesar cantidades de traspaso C04->M. Restante: $cantidadRestantePorTraspasarGlobal", FirebaseFirestoreException.Code.ABORTED)
+            }
+
+            val nuevoStockC04 = currentProduct.stockCongelador04 - quantityToTraspasarTotal
+            val nuevoStockMatriz = currentProduct.stockMatriz + quantityToTraspasarTotal
 
             transaction.update(productRef, mapOf(
-                "stockCongelador04" to newStockCongelador04,
-                "stockMatriz" to newStockMatriz,
+                "stockCongelador04" to nuevoStockC04,
+                "stockMatriz" to nuevoStockMatriz,
                 "updatedAt" to FieldValue.serverTimestamp(),
                 "lastUpdatedByName" to currentUserName
             ))
-            transaction.set(newMovementRef, movement)
 
-            productAfterUpdate = currentProduct.copy(stockMatriz = newStockMatriz, stockCongelador04 = newStockCongelador04)
+            val movement = StockMovement(
+                id = newMovementRef.id,
+                userId = currentUser.uid,
+                userName = currentUserName,
+                productId = currentProduct.id,
+                productName = currentProduct.name,
+                type = MovementType.TRASPASO_C04_M,
+                quantity = quantityToTraspasarTotal,
+                locationFrom = Location.CONGELADOR_04,
+                locationTo = Location.MATRIZ,
+                reason = "Origen(C04): ${idsLotesOrigenAfectadosConCantidad.joinToString()}; Destino(M): ${idsNuevosLotesDestinoConCantidad.joinToString()}",
+                stockAfterCongelador04 = nuevoStockC04,
+                stockAfterMatriz = nuevoStockMatriz,
+                stockAfterTotal = currentProduct.totalStock,
+                timestamp = traspasoTimestamp
+            )
+            transaction.set(newMovementRef, movement)
             null
         }.addOnSuccessListener {
-            Toast.makeText(context, "Traspaso a Matriz registrado: +${String.format("%.2f", quantity)} ${product.unit}", Toast.LENGTH_SHORT).show()
-            productAfterUpdate?.let { updatedProd ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
-                }
-            }
+            Toast.makeText(context, "Traspaso C-04 -> Matriz realizado: ${String.format(Locale.getDefault(), "%.2f", quantityToTraspasarTotal)} ${productArgument.unit}", Toast.LENGTH_SHORT).show()
         }.addOnFailureListener { e ->
             val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
-                e.message ?: "Error datos."
-            } else { "Error al registrar traspaso a Matriz: ${e.message}" }
-            Toast.makeText(context, msg ?: "Error desconocido", Toast.LENGTH_LONG).show()
+                e.message ?: "Error de datos durante el traspaso C04->M."
+            } else {
+                "Error registrando traspaso C04->M: ${e.message}"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }.addOnCompleteListener {
+            showListLoading(false)
+            isDialogOpen = false
         }
     }
 
@@ -583,7 +662,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 if (newQuantity == null || newQuantity < 0.0) { Toast.makeText(context, "Inválido (>= 0.0)", Toast.LENGTH_SHORT).show(); isDialogOpen = false; return@setPositiveButton }
                 if (newQuantity > product.stockCongelador04) { Toast.makeText(context, "Error: Nueva cantidad > actual (${String.format("%.2f", product.stockCongelador04)})", Toast.LENGTH_LONG).show(); isDialogOpen = false; return@setPositiveButton }
                 val quantityDifference = product.stockCongelador04 - newQuantity
-                if (quantityDifference <= 0.001) { Toast.makeText(context, "No se requiere ajuste (igual o mayor)", Toast.LENGTH_SHORT).show(); isDialogOpen = false; return@setPositiveButton } // Tolerancia
+                if (quantityDifference <= 0.1) { Toast.makeText(context, "No se requiere ajuste (igual o mayor)", Toast.LENGTH_SHORT).show(); isDialogOpen = false; return@setPositiveButton } // Tolerancia
                 val limit = (product.stockCongelador04 * 0.40)
                 if (quantityDifference > limit && product.stockCongelador04 > 0.0) {
                     isDialogOpen = false // Permitir nuevo diálogo
@@ -957,7 +1036,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
                 Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
                 validationError = true
-            } else if (quantityToConsume != null && lotAdapter.currentList.isNotEmpty() && quantityToConsume > selectedLotsTotalNetQuantity + 0.001) {
+            } else if (quantityToConsume != null && lotAdapter.currentList.isNotEmpty() && quantityToConsume > selectedLotsTotalNetQuantity + 0.1) {
                 inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
                 validationError = true
             }
@@ -1068,15 +1147,16 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
         val activeSupplierNames = allSuppliers.filter { it.isActive }.map { it.name }
         val supplierAdapterSpinner = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, activeSupplierNames)
-        val inputSupplierLayout = com.google.android.material.textfield.TextInputLayout(requireContext())
+        val inputSupplierLayout = TextInputLayout(requireContext()) // Usar TextInputLayout de Material
         inputSupplierLayout.hint = "Proveedor (Opcional, recomendado)"
-        inputSupplierLayout.boxBackgroundMode = com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE
+        inputSupplierLayout.boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
         inputSupplierLayout.setPadding(0, padding / 2, 0, 0)
         val inputSupplier = AutoCompleteTextView(requireContext())
         inputSupplier.setAdapter(supplierAdapterSpinner)
         inputSupplier.threshold = 0
         val density = resources.displayMetrics.density
-        inputSupplier.setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
+        // El padding del AutoCompleteTextView dentro de TextInputLayout se maneja mejor por el propio TextInputLayout
+        // inputSupplier.setPadding((16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt(), (16 * density).toInt())
         inputSupplierLayout.addView(inputSupplier)
         containerLayout.addView(inputSupplierLayout)
 
@@ -1105,30 +1185,32 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         containerLayout.addView(dateLabel)
 
         val dateButton = Button(requireContext(), null, android.R.attr.borderlessButtonStyle)
-        val selectedDateCalendar = java.util.Calendar.getInstance()
-        val dateFormat = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
+        val selectedDateCalendar = Calendar.getInstance()
+        val dateFormat = SimpleDateFormat("dd / MM / yy", Locale.getDefault()) // "yy" para año de 2 dígitos
         dateButton.text = dateFormat.format(selectedDateCalendar.time)
         dateButton.setOnClickListener {
-            val datePickerDialog = android.app.DatePickerDialog(
+            // Definir el listener con los tipos correctos
+            val dateSetListener = DatePickerDialog.OnDateSetListener { _: DatePicker?, year: Int, monthOfYear: Int, dayOfMonth: Int ->
+                selectedDateCalendar.set(year, monthOfYear, dayOfMonth)
+                // Mantener la hora actual al seleccionar la fecha
+                val nowCalendar = Calendar.getInstance()
+                selectedDateCalendar.set(Calendar.HOUR_OF_DAY, nowCalendar.get(Calendar.HOUR_OF_DAY))
+                selectedDateCalendar.set(Calendar.MINUTE, nowCalendar.get(Calendar.MINUTE))
+                selectedDateCalendar.set(Calendar.SECOND, nowCalendar.get(Calendar.SECOND))
+                dateButton.text = dateFormat.format(selectedDateCalendar.time)
+            }
+            // Crear el DatePickerDialog correctamente
+            val datePickerDialog = android.app.DatePickerDialog( // Especificar android.app.DatePickerDialog
                 requireContext(),
-                { _, year, month, dayOfMonth ->
-                    selectedDateCalendar.set(year, month, dayOfMonth)
-                    val nowCalendar = java.util.Calendar.getInstance()
-                    selectedDateCalendar.set(java.util.Calendar.HOUR_OF_DAY, nowCalendar.get(java.util.Calendar.HOUR_OF_DAY))
-                    selectedDateCalendar.set(java.util.Calendar.MINUTE, nowCalendar.get(java.util.Calendar.MINUTE))
-                    selectedDateCalendar.set(java.util.Calendar.SECOND, nowCalendar.get(java.util.Calendar.SECOND))
-                    dateButton.text = dateFormat.format(selectedDateCalendar.time)
-                },
-                selectedDateCalendar.get(java.util.Calendar.YEAR),
-                selectedDateCalendar.get(java.util.Calendar.MONTH),
-                selectedDateCalendar.get(java.util.Calendar.DAY_OF_MONTH)
+                dateSetListener,
+                selectedDateCalendar.get(Calendar.YEAR),
+                selectedDateCalendar.get(Calendar.MONTH),
+                selectedDateCalendar.get(Calendar.DAY_OF_MONTH)
             )
-            datePickerDialog.datePicker.maxDate = System.currentTimeMillis()
+            datePickerDialog.datePicker.maxDate = System.currentTimeMillis() // No permitir fechas futuras
             datePickerDialog.show()
         }
         containerLayout.addView(dateButton)
-
-
         builder.setView(containerLayout)
 
         builder.setPositiveButton("Aceptar") { _, _ ->
@@ -1136,42 +1218,57 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             val quantityValue = quantityString.toDoubleOrNull()
             val supplierNameInput = inputSupplier.text.toString().trim()
             val selectedRadioId = radioGroupType.checkedRadioButtonId
-            var isBulk: Boolean? = null
-            if (selectedRadioId == radioButtonAGranel.id) { isBulk = true }
-            else if (selectedRadioId == radioButtonEmpacado.id) { isBulk = false }
+            var isBulkReception: Boolean? = null // Renombrado para claridad
+            if (selectedRadioId == radioButtonAGranel.id) { isBulkReception = true }
+            else if (selectedRadioId == radioButtonEmpacado.id) { isBulkReception = false }
             val receptionDate = selectedDateCalendar.time
 
             var validationError = false
-            inputQuantity.error = if (quantityValue == null || quantityValue <= 0.0) "Cantidad > 0.0".also { validationError = true } else null
-            inputSupplierLayout.error = null
-            if (isBulk == null) { Toast.makeText(context, "Selecciona Tipo Recepción", Toast.LENGTH_SHORT).show(); validationError = true }
+            // Usar stockEpsilon en la validación
+            if (quantityValue == null || quantityValue <= stockEpsilon) { // CAMBIO AQUÍ
+                inputQuantity.error = "Cantidad debe ser > ${String.format(Locale.getDefault(), "%.2f", stockEpsilon)} ${product.unit}"
+                validationError = true
+            } else {
+                inputQuantity.error = null
+            }
+            inputSupplierLayout.error = null // Resetear error si lo hubo antes
+            if (isBulkReception == null) {
+                Toast.makeText(context, "Selecciona Tipo Recepción", Toast.LENGTH_SHORT).show()
+                validationError = true
+            }
 
             if (validationError) {
-                isDialogOpen = false
+                isDialogOpen = false // Permitir reabrir el diálogo si la validación falla
                 return@setPositiveButton
             }
-            val potentialMatch = if (supplierNameInput.isNotEmpty()) allSuppliers.find { it.name.equals(supplierNameInput, ignoreCase = true) } else null
-            // Asegúrate que quantityValue no sea null antes de la comparación. La validación previa ya lo hace, usamos !!
-            val limit = if(product.stockMatriz <= 0.0) quantityValue!! + 1.0 else (product.stockMatriz * 0.40)
+
+            val currentProductStockMatriz = product.stockMatriz
+            // Usar stockEpsilon para la comparación de si el stock es "cero"
+            val limit = if (currentProductStockMatriz <= stockEpsilon) quantityValue!! + 1.0 else (currentProductStockMatriz * 0.40)
 
             if (quantityValue!! > limit) {
                 isDialogOpen = false
                 AlertDialog.Builder(requireContext())
-                    .setTitle("Confirmar Compra").setMessage("Cantidad grande (${quantityValue} ${product.unit}). ¿Continuar?")
+                    .setTitle("Confirmar Compra")
+                    .setMessage("Cantidad grande (${String.format(Locale.getDefault(), "%.2f", quantityValue)} ${product.unit}). ¿Continuar?")
                     .setPositiveButton("Sí") { _, _ ->
-                        checkAndPerformCompra(product, quantityValue, supplierNameInput, potentialMatch, allSuppliers, isBulk!!, receptionDate)
+                        val potentialMatch = if (supplierNameInput.isNotEmpty()) allSuppliers.find { it.name.equals(supplierNameInput, ignoreCase = true) } else null
+                        // Pasar isBulkReception a checkAndPerformCompra
+                        checkAndPerformCompra(product, quantityValue, supplierNameInput, potentialMatch, allSuppliers, isBulkReception!!, receptionDate)
                     }
                     .setNegativeButton("No", null)
                     .setOnDismissListener { if(!isDialogOpen) isDialogOpen = false }
                     .show()
             } else {
-                checkAndPerformCompra(product, quantityValue, supplierNameInput, potentialMatch, allSuppliers, isBulk!!, receptionDate)
+                val potentialMatch = if (supplierNameInput.isNotEmpty()) allSuppliers.find { it.name.equals(supplierNameInput, ignoreCase = true) } else null
+                // Pasar isBulkReception a checkAndPerformCompra
+                checkAndPerformCompra(product, quantityValue, supplierNameInput, potentialMatch, allSuppliers, isBulkReception!!, receptionDate)
             }
         }
         builder.setNegativeButton("Cancelar") { dialog, _ -> dialog.dismiss() }
 
         val dialog = builder.create()
-        showDebouncedDialogWithCustomView(dialog)
+        showDebouncedDialogWithCustomView(dialog) // Asumo que esta función maneja isDialogOpen
     }
 
     private fun showDebouncedDialogWithCustomView(dialog: AlertDialog) {
@@ -1264,92 +1361,125 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
     }
 
     private fun performCompra(
-        product: Product,
+        productArgument: Product, // Renombrado para evitar confusión con currentProduct de Firestore
         quantityValue: Double,
         supplierId: String?,
         supplierName: String?,
-        isBulk: Boolean,
+        isBulkReception: Boolean, // Recibido desde checkAndPerformCompra
         receptionDate: Date
     ) {
-        if (product.id.isEmpty()) {
+        if (productArgument.id.isEmpty()) {
+            Log.e(TAG, "performCompra: ID de producto vacío.")
+            Toast.makeText(context, "Error: ID de producto no válido.", Toast.LENGTH_LONG).show()
             isDialogOpen = false
+            showListLoading(false)
             return
         }
         val currentUser = auth.currentUser
         if (currentUser == null) {
+            Log.e(TAG, "performCompra: Usuario no autenticado.")
+            Toast.makeText(context, "Error: Usuario no autenticado.", Toast.LENGTH_SHORT).show()
             isDialogOpen = false
+            showListLoading(false)
             return
         }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
 
-        if (_binding != null) showListLoading(true)
+        // Usar stockEpsilon para la validación inicial de la cantidad
+        if (quantityValue <= stockEpsilon) { // CAMBIO AQUÍ
+            Log.w(TAG, "performCompra: Cantidad de compra no es significativamente positiva ($quantityValue).")
+            Toast.makeText(context, "La cantidad comprada debe ser mayor a ${String.format(Locale.getDefault(), "%.2f", stockEpsilon)} ${productArgument.unit}.", Toast.LENGTH_SHORT).show()
+            isDialogOpen = false
+            showListLoading(false)
+            return
+        }
 
-        val productRef = firestore.collection("products").document(product.id)
+        showListLoading(true)
+
+        val productRef = firestore.collection("products").document(productArgument.id)
         val newMovementRef = firestore.collection("stockMovements").document()
         val newStockLotRef = firestore.collection("inventoryLots").document()
-        val newPackagingTaskRef = if (isBulk) firestore.collection("pendingPackaging").document() else null
 
         firestore.runTransaction { transaction ->
             val productSnapshot = transaction.get(productRef)
             val currentProduct = productSnapshot.toObject(Product::class.java)
-                ?: throw FirebaseFirestoreException("Producto no encontrado: ${product.name}", FirebaseFirestoreException.Code.ABORTED)
+                ?: throw FirebaseFirestoreException("Producto no encontrado: ${productArgument.name}", FirebaseFirestoreException.Code.ABORTED)
 
             val newStockMatriz = currentProduct.stockMatriz + quantityValue
             val newTotalStock = newStockMatriz + currentProduct.stockCongelador04
 
             val movement = StockMovement(
                 id = newMovementRef.id,
+                timestamp = receptionDate,
                 userId = currentUser.uid,
                 userName = currentUserName,
-                productId = product.id,
+                productId = currentProduct.id,
                 productName = currentProduct.name,
                 type = MovementType.COMPRA,
                 quantity = quantityValue,
                 locationFrom = Location.PROVEEDOR,
                 locationTo = Location.MATRIZ,
+                reason = if (supplierName != null) "Compra a $supplierName" else "Compra sin proveedor",
                 stockAfterMatriz = newStockMatriz,
                 stockAfterCongelador04 = currentProduct.stockCongelador04,
-                stockAfterTotal = newTotalStock,
-                timestamp = receptionDate
+                stockAfterTotal = newTotalStock
             )
+            transaction.set(newMovementRef, movement)
 
             val newLot = StockLot(
                 id = newStockLotRef.id,
-                productId = product.id,
+                productId = currentProduct.id,
                 productName = currentProduct.name,
                 unit = currentProduct.unit,
                 location = Location.MATRIZ,
                 supplierId = supplierId,
                 supplierName = supplierName,
                 receivedAt = receptionDate,
-                movementIdIn = movement.id,
+                movementIdIn = newMovementRef.id, // Correcto: ID del movimiento de esta compra
                 initialQuantity = quantityValue,
                 currentQuantity = quantityValue,
                 isDepleted = false,
-                isPackaged = !isBulk
+                isPackaged = !isBulkReception, // Correcto: si no es a granel, está empacado
+                lotNumber = null,
+                expirationDate = null
             )
-
-            transaction.update(
-                productRef, mapOf(
-                    "stockMatriz" to newStockMatriz,
-                    "totalStock" to newTotalStock,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                    "lastUpdatedByName" to currentUserName,
-                    "requiresPackaging" to (currentProduct.requiresPackaging || isBulk)
-                )
-            )
-
-            transaction.set(newMovementRef, movement)
             transaction.set(newStockLotRef, newLot)
 
-            if (isBulk && newPackagingTaskRef != null) {
+            val productUpdateData = hashMapOf<String, Any>(
+                "stockMatriz" to newStockMatriz,
+                "totalStock" to newTotalStock,
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "lastUpdatedByName" to currentUserName
+            )
+
+            // Condición AJUSTADA para crear PendingPackagingTask y actualizar product.requiresPackaging
+            val shouldCreatePackagingTaskThisTime = isBulkReception && currentProduct.requiresPackaging
+
+            if (shouldCreatePackagingTaskThisTime) {
+                // Si esta compra a granel es para un producto que requiere empaque,
+                // nos aseguramos que el flag del producto (si no lo estaba ya) refleje esto.
+                // Aunque si currentProduct.requiresPackaging ya es true, este set es redundante para ese campo.
+                // La principal razón para actualizar product.requiresPackaging sería si una compra a granel
+                // de un producto que *no* lo requería, ahora *sí* lo activa globalmente.
+                // Si esa no es la intención, y product.requiresPackaging solo se setea al crear el producto,
+                // entonces esta línea de abajo podría no ser necesaria.
+                // Por ahora, la dejamos para consistencia: si se crea tarea, el producto requiere empaque.
+                productUpdateData["requiresPackaging"] = true
+            }
+            // Si no se crea tarea de empaque, no modificamos el flag requiresPackaging del producto,
+            // se queda con el valor que tenía.
+
+            transaction.update(productRef, productUpdateData)
+
+            if (shouldCreatePackagingTaskThisTime) {
+                val newPackagingTaskRef = firestore.collection("pendingPackaging").document() // Crear Ref aquí dentro
                 val packagingTask = PendingPackagingTask(
                     id = newPackagingTaskRef.id,
-                    productId = product.id,
+                    productId = currentProduct.id,
                     productName = currentProduct.name,
                     quantityReceived = quantityValue,
                     unit = currentProduct.unit,
-                    purchaseMovementId = movement.id,
+                    purchaseMovementId = newMovementRef.id, // ID del movimiento de esta compra
                     receivedAt = receptionDate,
                     supplierId = supplierId,
                     supplierName = supplierName
@@ -1358,31 +1488,29 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             }
             null
         }.addOnSuccessListener {
-            if (_binding != null) showListLoading(false)
-            Toast.makeText(context, "Compra registrada: +${String.format("%.2f", quantityValue)} ${product.unit}", Toast.LENGTH_SHORT).show()
+            Log.i(TAG, "Compra registrada: ${productArgument.name}, Lote: ${newStockLotRef.id}, Mov: ${newMovementRef.id}")
+            Toast.makeText(context, "Compra registrada: +${String.format(Locale.getDefault(), "%.2f", quantityValue)} ${productArgument.unit}", Toast.LENGTH_SHORT).show()
             productRef.get().addOnSuccessListener { updatedDoc ->
                 if (isAdded && context != null) {
                     updatedDoc.toObject(Product::class.java)?.let { updatedProduct ->
-                        viewLifecycleOwner.lifecycleScope.launch {
+                        lifecycleScope.launch {
                             NotificationTriggerHelper.triggerLowStockNotification(updatedProduct)
                         }
                     }
                 }
             }
             isDialogOpen = false
+            showListLoading(false)
         }.addOnFailureListener { e ->
-            if (_binding != null) showListLoading(false)
+            Log.e(TAG, "Error al registrar compra para ${productArgument.name}", e)
             val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
-                e.message ?: "Error de datos durante la compra."
-            } else {
-                "Error registrando compra: ${e.message}"
-            }
+                e.message ?: "Error de datos."
+            } else { "Error registrando compra: ${e.message}" }
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             isDialogOpen = false
+            showListLoading(false)
         }
     }
-
-// Añade esta función COMPLETA a tu clase ProductListFragment.kt
 
 
     private fun performSalidaConsumo(product: Product, quantityToConsume: Double, selectedLotIds: List<String>) {
@@ -1439,7 +1567,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
             // --- VALIDACIONES Y CÁLCULOS (Usando datos leídos) ---
             val totalSelectedStock = sortedLots.sumOf { lot -> lot.currentQuantity }
-            if (quantityToConsume > totalSelectedStock + 0.001) {
+            if (quantityToConsume > totalSelectedStock + 0.1) {
                 throw FirebaseFirestoreException("Stock neto insuficiente en lotes (${String.format("%.2f", totalSelectedStock)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
             }
 
@@ -1448,12 +1576,12 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             val affectedLotDetails = mutableListOf<String>()
 
             for (lot in sortedLots) {
-                if (remainingToConsume <= 0.001) break
+                if (remainingToConsume <= 0.1) break
 
                 val quantityFromThisLot = kotlin.math.min(remainingToConsume, lot.currentQuantity)
-                if (quantityFromThisLot > 0.001) {
+                if (quantityFromThisLot > 0.1) {
                     val newLotQuantity = lot.currentQuantity - quantityFromThisLot
-                    val isNowDepleted = newLotQuantity <= 0.001
+                    val isNowDepleted = newLotQuantity <= 0.1
 
                     lotsToUpdateData[lot.id] = mapOf(
                         "currentQuantity" to newLotQuantity,
@@ -1464,14 +1592,14 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                 }
             }
 
-            if (lotsToUpdateData.isEmpty() && quantityToConsume > 0.001) {
+            if (lotsToUpdateData.isEmpty() && quantityToConsume > 0.1) {
                 throw FirebaseFirestoreException("Error al calcular el descuento de lotes.", FirebaseFirestoreException.Code.ABORTED)
             }
 
             val newStockMatrizCalculated = currentProduct.stockMatriz - quantityToConsume
             val newTotalStockCalculated = currentProduct.totalStock - quantityToConsume
 
-            if (newStockMatrizCalculated < -0.001 || newTotalStockCalculated < -0.001) {
+            if (newStockMatrizCalculated < -0.1 || newTotalStockCalculated < -0.1) {
                 throw FirebaseFirestoreException("Error de consistencia en stock producto post-cálculo.", FirebaseFirestoreException.Code.ABORTED)
             }
             // --- FIN VALIDACIONES Y CÁLCULOS ---
@@ -1578,7 +1706,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
             // --- VALIDACIONES Y CÁLCULOS ---
             val totalSelectedStockNet = sortedLots.sumOf { it.currentQuantity }
-            if (quantityToDevolver > totalSelectedStockNet + 0.001) { // 0.001 epsilon
+            if (quantityToDevolver > totalSelectedStockNet + 0.1) {
                 throw FirebaseFirestoreException("Stock neto insuficiente en lotes (${String.format("%.2f", totalSelectedStockNet)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
             }
 
@@ -1622,12 +1750,12 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             val affectedLotDetails = mutableListOf<String>()
 
             for (lot in sortedLots) {
-                if (remainingToDevolver <= 0.001) break // 0.001 epsilon
+                if (remainingToDevolver <= 0.1) break
 
                 val quantityFromThisLot = kotlin.math.min(remainingToDevolver, lot.currentQuantity)
-                if (quantityFromThisLot > 0.001) {
+                if (quantityFromThisLot > 0.1) {
                     val newLotQuantity = lot.currentQuantity - quantityFromThisLot
-                    val isNowDepleted = newLotQuantity <= 0.001 // Epsilon
+                    val isNowDepleted = newLotQuantity <= 0.1 // Epsilon
 
                     lotsToUpdateData[lot.id] = mapOf(
                         "currentQuantity" to newLotQuantity,
@@ -1637,7 +1765,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
                     affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", quantityFromThisLot)}")
                 }
             }
-            if (lotsToUpdateData.isEmpty() && quantityToDevolver > 0.001) {
+            if (lotsToUpdateData.isEmpty() && quantityToDevolver > 0.1) {
                 throw FirebaseFirestoreException("Error al calcular descuento de lotes para devolución.", FirebaseFirestoreException.Code.ABORTED)
             }
 
@@ -1645,7 +1773,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             val newStockMatrizCalculated = currentProduct.stockMatriz - quantityToDevolver
             val newTotalStockCalculated = currentProduct.totalStock - quantityToDevolver
 
-            if (newStockMatrizCalculated < -0.001 || newTotalStockCalculated < -0.001) { // Epsilon
+            if (newStockMatrizCalculated < -0.1 || newTotalStockCalculated < -0.1) { // Epsilon
                 throw FirebaseFirestoreException("Error de consistencia en stock producto post-cálculo.", FirebaseFirestoreException.Code.ABORTED)
             }
             // --- FIN VALIDACIONES Y CÁLCULOS ---
@@ -1724,40 +1852,264 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         }
     }
 
+    private fun showTraspasoC04ToMatrizDialog(product: Product) {
+        val currentContext = context ?: run {
+            isDialogOpen = false
+            return
+        }
+
+        // Reutilizar R.layout.dialog_traspaso_lotes (o el que uses para traspasos)
+        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_traspaso_lotes, null)
+
+        val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoTitleProduct)
+        val directionTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoDirection)
+        val lotSelectionLabelTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoLotSelectionLabel)
+        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
+        val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
+        val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)
+        val inputLayoutQuantity = dialogViewInflated.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.textFieldLayoutCantidadTraspaso)
+        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadTraspaso)
+        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoAceptar)
+        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoCancelar)
+
+        titleProductTextView.text = "Traspaso: ${product.name}"
+        directionTextView.text = "Origen: C-04  --->  Destino: MATRIZ"
+        lotSelectionLabelTextView.text = "Selecciona Lote(s) Origen (Congelador 04):"
+        inputLayoutQuantity.hint = "Cantidad NETA Total a Regresar a Matriz"
+        buttonAceptar.text = "Regresar a Matriz"
+
+        val lotAdapter = LotSelectionAdapter()
+        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
+        recyclerViewLotes.adapter = lotAdapter
+
+        val builder = AlertDialog.Builder(currentContext)
+        builder.setView(dialogViewInflated)
+
+        val alertDialog = builder.create()
+        alertDialog.setOnDismissListener { isDialogOpen = false }
+
+        buttonCancelar.setOnClickListener {
+            alertDialog.dismiss()
+        }
+
+        buttonAceptar.setOnClickListener {
+            val quantityString = inputQuantityNet.text.toString()
+            val quantityToTraspasar = quantityString.toDoubleOrNull()
+            val selectedLotIds = lotAdapter.getSelectedLotIds()
+            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
+
+            var validationError = false
+            inputQuantityNet.error = null
+
+            if (quantityToTraspasar == null || quantityToTraspasar <= stockEpsilon) {
+                inputQuantityNet.error = "Cantidad debe ser > ${String.format(Locale.getDefault(), "%.2f", stockEpsilon)}"
+                validationError = true
+            }
+            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
+                Toast.makeText(context, "Debes seleccionar al menos un lote origen de C-04", Toast.LENGTH_SHORT).show()
+                validationError = true
+            }
+            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && (quantityToTraspasar - selectedLotsTotalNetQuantity > stockEpsilon)) {
+                inputQuantityNet.error = "Excede stock de lotes seleccionados en C-04 (${String.format(Locale.getDefault(), "%.2f", selectedLotsTotalNetQuantity)})"
+                validationError = true
+            }
+
+            if (!validationError && quantityToTraspasar != null) {
+                if (lotAdapter.currentList.isEmpty() && quantityToTraspasar > stockEpsilon) {
+                    Toast.makeText(context, "No hay lotes disponibles en C-04 para traspasar.", Toast.LENGTH_SHORT).show()
+                } else if (selectedLotIds.isNotEmpty()){
+                    performTraspasoC04ToMatriz(product, quantityToTraspasar, selectedLotIds)
+                    alertDialog.dismiss()
+                } else if (lotAdapter.currentList.isEmpty() && quantityToTraspasar <= stockEpsilon){
+                    alertDialog.dismiss()
+                } else {
+                    Toast.makeText(context, "Verifica cantidad y selección de lotes.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        progressBarLotes.visibility = View.VISIBLE
+        textViewNoLotes.visibility = View.GONE
+        recyclerViewLotes.visibility = View.GONE
+
+        val lotsQuery = firestore.collection("inventoryLots")
+            .whereEqualTo("productId", product.id)
+            .whereEqualTo("location", Location.CONGELADOR_04) // Cambiado a C04
+            .whereEqualTo("isDepleted", false)
+            .orderBy("receivedAt", Query.Direction.ASCENDING) // Fecha en que llegó a C04
+
+        lotsQuery.get()
+            .addOnSuccessListener { snapshot ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnSuccessListener
+                }
+                progressBarLotes.visibility = View.GONE
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val loadedLots = snapshot.documents.mapNotNull { doc ->
+                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
+                        catch (e: Exception) { null }
+                    }
+                    lotAdapter.submitList(loadedLots)
+                    textViewNoLotes.visibility = View.GONE
+                    recyclerViewLotes.visibility = View.VISIBLE
+                } else {
+                    textViewNoLotes.text = "No hay lotes disponibles en C-04 para este producto."
+                    textViewNoLotes.visibility = View.VISIBLE
+                    recyclerViewLotes.visibility = View.GONE
+                }
+            }
+            .addOnFailureListener { e ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnFailureListener
+                }
+                progressBarLotes.visibility = View.GONE
+                textViewNoLotes.text = "Error al cargar lotes de C-04."
+                textViewNoLotes.visibility = View.VISIBLE
+                recyclerViewLotes.visibility = View.GONE
+                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+
+        showDebouncedDialogWithCustomView(alertDialog)
+    }
+
 
     private fun showTraspasoC04MDialog(product: Product) {
-        if (context == null) { Log.e(TAG, "Contexto nulo showTraspasoC04MDialog"); isDialogOpen = false; return }
-        val builder = AlertDialog.Builder(requireContext())
-        val currentStockFormatted = String.format(Locale.getDefault(), "%.2f", product.stockCongelador04)
-        builder.setTitle("Traspaso ===> Matriz: ${product.name}")
-        builder.setMessage("Stock actual en 04: $currentStockFormatted ${product.unit}")
-        val container = FrameLayout(requireContext()); val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        val margin = resources.getDimensionPixelSize(R.dimen.dialog_margin); params.leftMargin = margin; params.rightMargin = margin
-        val inputQuantity = EditText(requireContext()); inputQuantity.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        inputQuantity.hint = "Cantidad a regresar a Matriz (${product.unit})"; inputQuantity.layoutParams = params; container.addView(inputQuantity)
-        builder.setView(container)
-        builder.setPositiveButton("Regresar a Matriz") { _, _ -> // El dialog se cierra
-            val quantityString = inputQuantity.text.toString()
-            try {
-                val quantity = quantityString.toDoubleOrNull()
-                if (quantity == null || quantity <= 0.0) { Toast.makeText(context, "Cantidad inválida (> 0.0)", Toast.LENGTH_SHORT).show(); isDialogOpen = false; return@setPositiveButton }
-                if (quantity > product.stockCongelador04) { Toast.makeText(context, "Error: Stock insuficiente en C04 (${String.format("%.2f", product.stockCongelador04)} ${product.unit})", Toast.LENGTH_LONG).show(); isDialogOpen = false; return@setPositiveButton }
-                val limit = (product.stockCongelador04 * 0.40)
-                if (quantity > limit && product.stockCongelador04 > 0.0) {
-                    isDialogOpen = false // Permitir nuevo diálogo
-                    AlertDialog.Builder(requireContext()).setTitle("Confirmar Traspaso").setMessage("Cantidad grande (${String.format("%.2f", quantity)} ${product.unit}). ¿Regresar a Matriz?")
-                        .setPositiveButton("Sí") { _, _ -> performTraspasoC04ToMatriz(product, quantity) } // Llama a versión con Double
-                        .setNegativeButton("No", null)
-                        .setOnDismissListener { if(!isDialogOpen) isDialogOpen = false }
-                        .show()
-                } else { performTraspasoC04ToMatriz(product, quantity) } // Llama a versión con Double
-            } catch (e: NumberFormatException) { Toast.makeText(context, "Número inválido.", Toast.LENGTH_SHORT).show(); isDialogOpen = false; }
+        val currentContext = context ?: run {
+            isDialogOpen = false
+            Log.e(TAG, "showTraspasoC04MDialog: Contexto nulo.")
+            return
         }
-        builder.setNegativeButton("Cancelar") { dialog, _ -> dialog.dismiss() }
 
-        val dialog = builder.create()
-        showDebouncedDialogWithCustomView(dialog)
+        // Reutilizar R.layout.dialog_traspaso_lotes. Asegúrate de que los IDs sean correctos.
+        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_traspaso_lotes, null)
+
+        val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoTitleProduct)
+        val directionTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoDirection)
+        val lotSelectionLabelTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoLotSelectionLabel)
+        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
+        val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
+        val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)
+        val inputLayoutQuantity = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutCantidadTraspaso)
+        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadTraspaso)
+        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoAceptar)
+        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoCancelar)
+
+        titleProductTextView.text = "Traspaso: ${product.name}"
+        directionTextView.text = "Origen: C-04  --->  Destino: MATRIZ"
+        lotSelectionLabelTextView.text = "Selecciona Lote(s) Origen (Congelador 04):"
+        inputLayoutQuantity.hint = "Cantidad NETA Total a Regresar a Matriz"
+        buttonAceptar.text = "Regresar a Matriz"
+
+        val lotAdapter = LotSelectionAdapter()
+        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
+        recyclerViewLotes.adapter = lotAdapter
+
+        val builder = AlertDialog.Builder(currentContext)
+        builder.setView(dialogViewInflated)
+
+        val alertDialog = builder.create()
+        alertDialog.setOnDismissListener {
+            isDialogOpen = false
+            Log.d(TAG, "Dialogo Traspaso C04->M cerrado.")
+        }
+
+        buttonCancelar.setOnClickListener {
+            alertDialog.dismiss()
+        }
+
+        buttonAceptar.setOnClickListener {
+            val quantityString = inputQuantityNet.text.toString()
+            val quantityToTraspasar = quantityString.toDoubleOrNull()
+            val selectedLotIds = lotAdapter.getSelectedLotIds() // Obtener los IDs de los lotes seleccionados
+            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
+
+            var validationError = false
+            inputQuantityNet.error = null
+
+            if (quantityToTraspasar == null || quantityToTraspasar <= stockEpsilon) {
+                inputQuantityNet.error = "Cantidad debe ser > ${String.format(Locale.getDefault(), "%.2f", stockEpsilon)}"
+                validationError = true
+            }
+            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
+                Toast.makeText(context, "Debes seleccionar al menos un lote origen de C-04", Toast.LENGTH_SHORT).show()
+                validationError = true
+            }
+            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && (quantityToTraspasar - selectedLotsTotalNetQuantity > stockEpsilon)) {
+                inputQuantityNet.error = "Excede stock de lotes seleccionados en C-04 (${String.format(Locale.getDefault(), "%.2f", selectedLotsTotalNetQuantity)})"
+                validationError = true
+            }
+
+            if (!validationError && quantityToTraspasar != null) {
+                if (lotAdapter.currentList.isEmpty() && quantityToTraspasar > stockEpsilon) {
+                    Toast.makeText(context, "No hay lotes disponibles en C-04 para traspasar.", Toast.LENGTH_SHORT).show()
+                } else if (selectedLotIds.isNotEmpty()){
+                    // LLAMADA CORRECTA A performTraspasoC04ToMatriz con los tres argumentos
+                    performTraspasoC04ToMatriz(product, quantityToTraspasar, selectedLotIds)
+                    alertDialog.dismiss()
+                } else if (lotAdapter.currentList.isEmpty() && quantityToTraspasar <= stockEpsilon){
+                    Log.d(TAG, "Traspaso C04->M: No hay lotes y cantidad es cero/insignificante.")
+                    alertDialog.dismiss()
+                } else {
+                    Toast.makeText(context, "Verifica cantidad y selección de lotes.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        progressBarLotes.visibility = View.VISIBLE
+        textViewNoLotes.visibility = View.GONE
+        recyclerViewLotes.visibility = View.GONE
+
+        val lotsQuery = firestore.collection("inventoryLots")
+            .whereEqualTo("productId", product.id)
+            .whereEqualTo("location", Location.CONGELADOR_04) // Lotes de C04
+            .whereEqualTo("isDepleted", false)
+            .orderBy("receivedAt", Query.Direction.ASCENDING) // Fecha en que llegaron a C04
+
+        lotsQuery.get()
+            .addOnSuccessListener { snapshot ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnSuccessListener
+                }
+                progressBarLotes.visibility = View.GONE
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val loadedLots = snapshot.documents.mapNotNull { doc ->
+                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
+                        catch (e: Exception) {
+                            Log.e(TAG, "Error convirtiendo lote C04: ${doc.id}", e)
+                            null
+                        }
+                    }
+                    lotAdapter.submitList(loadedLots)
+                    textViewNoLotes.visibility = View.GONE
+                    recyclerViewLotes.visibility = View.VISIBLE
+                } else {
+                    textViewNoLotes.text = "No hay lotes disponibles en C-04 para este producto."
+                    textViewNoLotes.visibility = View.VISIBLE
+                    recyclerViewLotes.visibility = View.GONE
+                }
+            }
+            .addOnFailureListener { e ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnFailureListener
+                }
+                progressBarLotes.visibility = View.GONE
+                textViewNoLotes.text = "Error al cargar lotes de C-04."
+                textViewNoLotes.visibility = View.VISIBLE
+                recyclerViewLotes.visibility = View.GONE
+                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+
+        showDebouncedDialogWithCustomView(alertDialog) // Usa tu función para manejar isDialogOpen
     }
+
 
     private fun performTraspasoMatrizToC04(
         product: Product,
@@ -1797,7 +2149,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
 
             // --- 2. VALIDACIONES Y CÁLCULOS ---
             val totalDisponibleEnLotesSeleccionados = sortedLotesOrigen.sumOf { it.currentQuantity }
-            if (quantityToTraspasarTotal > totalDisponibleEnLotesSeleccionados + 0.001) { // Epsilon
+            if (quantityToTraspasarTotal > totalDisponibleEnLotesSeleccionados + 0.1) { // Epsilon
                 throw FirebaseFirestoreException("Stock insuficiente en lotes de Matriz seleccionados (${String.format("%.2f", totalDisponibleEnLotesSeleccionados)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
             }
 
@@ -1813,46 +2165,50 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             val movementId = newMovementRef.id
 
             for (loteOrigen in sortedLotesOrigen) {
-                if (cantidadRestanteATraspasar <= 0.001) break // Epsilon
+                if (cantidadRestanteATraspasar <= 0.1) break // Epsilon
 
                 val cantidadATraspasarDeEsteLote = kotlin.math.min(loteOrigen.currentQuantity, cantidadRestanteATraspasar)
 
-                if (cantidadATraspasarDeEsteLote > 0.001) { // Epsilon
+                if (cantidadATraspasarDeEsteLote > 0.1) { // Epsilon
                     idsLotesOrigenAfectados.add(loteOrigen.id)
 
                     // Actualizar lote origen en Matriz
                     val nuevaCantidadEnLoteOrigen = loteOrigen.currentQuantity - cantidadATraspasarDeEsteLote
                     lotesMatrizActualizar[loteOrigen.id] = mapOf(
                         "currentQuantity" to nuevaCantidadEnLoteOrigen,
-                        "isDepleted" to (nuevaCantidadEnLoteOrigen <= 0.001) // Epsilon
+                        "isDepleted" to (nuevaCantidadEnLoteOrigen <= 0.1) // Epsilon
                     )
 
                     // Preparar nuevo lote para C04
                     val newLotIdC04 = firestore.collection("inventoryLots").document().id
                     idsNuevosLotesDestino.add(newLotIdC04)
                     val nuevoLoteC04 = StockLot(
-                        id = newLotIdC04,
+                        id = newLotIdC04, // El ID que generaste para este nuevo sublote
                         productId = loteOrigen.productId,
                         productName = loteOrigen.productName,
                         unit = loteOrigen.unit,
                         location = Location.CONGELADOR_04,
-                        supplierId = loteOrigen.supplierId,
-                        supplierName = loteOrigen.supplierName,
-                        receivedAt = traspasoTimestamp, // Fecha del traspaso
-                        movementIdIn = movementId, // ID del movimiento de traspaso
+                        supplierId = loteOrigen.supplierId,     // Hereda el proveedor del lote origen
+                        supplierName = loteOrigen.supplierName, // Hereda el nombre del proveedor del lote origen
+                        receivedAt = traspasoTimestamp,         // Fecha en que LLEGA A C04 (fecha del traspaso)
+                        movementIdIn = movementId,              // ID del StockMovement de ESTE traspaso
                         initialQuantity = cantidadATraspasarDeEsteLote,
                         currentQuantity = cantidadATraspasarDeEsteLote,
                         isDepleted = false,
-                        isPackaged = loteOrigen.isPackaged, // Heredar estado de empaque
-                        lotNumber = loteOrigen.lotNumber, // Heredar número de lote si existe
-                        expirationDate = loteOrigen.expirationDate // Heredar fecha de caducidad si existe
+                        isPackaged = loteOrigen.isPackaged,     // Hereda estado de empaque
+                        lotNumber = loteOrigen.lotNumber,       // Hereda el número de lote del proveedor del lote origen
+                        expirationDate = loteOrigen.expirationDate, // Hereda fecha de caducidad
+                        originalLotId = loteOrigen.id,                   // ID del lote de Matriz del que vino
+                        originalReceivedAt = loteOrigen.receivedAt,      // Fecha en que el lote padre llegó A MATRIZ
+                        originalSupplierName = loteOrigen.supplierName,  // Nombre del proveedor del lote padre
+                        originalLotNumber = loteOrigen.lotNumber         // Número de lote del proveedor del lote padre
                     )
                     nuevosLotesParaC04.add(nuevoLoteC04)
                     cantidadRestanteATraspasar -= cantidadATraspasarDeEsteLote
                 }
             }
 
-            if (kotlin.math.abs(cantidadRestanteATraspasar) > 0.001 && quantityToTraspasarTotal > 0.001) {
+            if (kotlin.math.abs(cantidadRestanteATraspasar) > 0.1 && quantityToTraspasarTotal > 0.1) {
                 throw FirebaseFirestoreException("Discrepancia al calcular cantidades de traspaso.", FirebaseFirestoreException.Code.ABORTED)
             }
 

@@ -117,6 +117,11 @@ class ProductAdapter(
                 binding.buttonTraspasoC04M.isEnabled = canModify
                 binding.buttonTraspasoC04M.alpha = if(canModify) 1f else 0.5f
             }
+            binding.buttonTraspasoC04M.setOnClickListener {
+                if(canModify && contextLocation == Location.CONGELADOR_04) { // Doble chequeo por si acaso
+                    listener.onTraspasoC04MClicked(item)
+                }
+            }
 
             binding.buttonAddCompra.setOnClickListener { if(canModify) listener.onAddCompraClicked(item) }
             binding.buttonAddSalida.setOnClickListener { view -> if(canModify) listener.onSalidaClicked(item, view) }

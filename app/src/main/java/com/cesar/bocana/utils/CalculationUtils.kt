@@ -1,58 +1,61 @@
 package com.cesar.bocana.util
 
 import android.util.Log
-import com.cesar.bocana.data.model.MovementType
+import com.cesar.bocana.data.model.Location // Importar Location
+import com.cesar.bocana.data.model.MovementType // Importar MovementType
 import com.cesar.bocana.data.model.StockMovement
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
 import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 
 object CalculationUtils {
 
     private const val TAG = "CalculationUtils"
+    private const val CONSUMPTION_EPSILON = 0.1 // Definir el mismo épsilon que en ProductListFragment
 
     fun getCurrentWeekDates(): Pair<Date, Date> {
-        val calendar = Calendar.getInstance()
+        val calendar = Calendar.getInstance(Locale.getDefault())
+        val endDateCalendar = calendar.clone() as Calendar
+        val currentDayOfWeek = endDateCalendar.get(Calendar.DAY_OF_WEEK)
 
-        val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-        val daysToSubtract = when (currentDayOfWeek) {
+        val daysToAdjustEnd: Int = when (currentDayOfWeek) {
+            Calendar.WEDNESDAY -> -1
+            Calendar.THURSDAY -> -2
+            Calendar.FRIDAY -> -3
+            Calendar.SATURDAY -> -4
+            Calendar.SUNDAY -> -5
+            Calendar.MONDAY -> -6
             Calendar.TUESDAY -> 0
-            Calendar.WEDNESDAY -> 1
-            Calendar.THURSDAY -> 2
-            Calendar.FRIDAY -> 3
-            Calendar.SATURDAY -> 4
-            Calendar.SUNDAY -> 5
-            Calendar.MONDAY -> 6
             else -> 0
         }
-        calendar.add(Calendar.DAY_OF_YEAR, -daysToSubtract)
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val startDate = calendar.time
 
-        calendar.add(Calendar.DAY_OF_YEAR, 6)
-        calendar.set(Calendar.HOUR_OF_DAY, 23)
-        calendar.set(Calendar.MINUTE, 59)
-        calendar.set(Calendar.SECOND, 59)
-        calendar.set(Calendar.MILLISECOND, 999)
-        val endDate = calendar.time
+        endDateCalendar.add(Calendar.DAY_OF_YEAR, daysToAdjustEnd)
+        endDateCalendar.set(Calendar.HOUR_OF_DAY, 23)
+        endDateCalendar.set(Calendar.MINUTE, 59)
+        endDateCalendar.set(Calendar.SECOND, 59)
+        endDateCalendar.set(Calendar.MILLISECOND, 999)
+        val endDate = endDateCalendar.time
 
-        Log.d(TAG, "Rango Semana Actual: Inicio=$startDate, Fin=$endDate")
+        val startDateCalendar = endDateCalendar.clone() as Calendar
+        startDateCalendar.add(Calendar.DAY_OF_YEAR, -6)
+        startDateCalendar.set(Calendar.HOUR_OF_DAY, 0)
+        startDateCalendar.set(Calendar.MINUTE, 0)
+        startDateCalendar.set(Calendar.SECOND, 0)
+        startDateCalendar.set(Calendar.MILLISECOND, 0)
+        val startDate = startDateCalendar.time
+
+        Log.d(TAG, "Rango Semana Consumo: Inicio=$startDate, Fin=$endDate (Miércoles a Martes)")
         return Pair(startDate, endDate)
     }
 
     fun calculateWeeklyConsumption(
         firestore: FirebaseFirestore,
-        callback: (result: Map<String, Double>?, error: Exception?) -> Unit // <-- Cambiado a Double
+        callback: (result: Map<String, Double>?, error: Exception?) -> Unit
     ) {
         val (startDate, endDate) = getCurrentWeekDates()
-        // --- Cambiado a Map<String, Double> y valor por defecto 0.0 ---
         val consumptionMap = mutableMapOf<String, Double>()
 
         Log.d(TAG, "Calculando consumo entre $startDate y $endDate")
@@ -67,12 +70,30 @@ object CalculationUtils {
                 for (document in querySnapshot.documents) {
                     val movement = document.toObject(StockMovement::class.java)
                     if (movement != null) {
-                        // movement.quantity ahora es Double
-                        if (movement.type == MovementType.SALIDA_CONSUMO || movement.type == MovementType.AJUSTE_STOCK_C04) {
-                            // --- Lógica de suma ahora con Double ---
-                            val currentProductConsumption = consumptionMap.getOrDefault(movement.productId, 0.0) // <-- Valor por defecto 0.0
-                            consumptionMap[movement.productId] = currentProductConsumption + movement.quantity // <-- Suma Double + Double
-                            Log.d(TAG, "Movimiento relevante: Prod=${movement.productName}, Tipo=${movement.type}, Cant=${movement.quantity}")
+                        var quantityConsumed = 0.0
+                        var isValidConsumptionType = false
+
+                        when (movement.type) {
+                            MovementType.SALIDA_CONSUMO,
+                            MovementType.SALIDA_CONSUMO_C04, // Asegúrate que este enum exista
+                            MovementType.AJUSTE_STOCK_C04 -> {
+                                quantityConsumed = movement.quantity // Asume que quantity es positiva para salidas
+                                isValidConsumptionType = true
+                            }
+                            MovementType.AJUSTE_MANUAL -> {
+                                if (movement.quantity < -CONSUMPTION_EPSILON &&
+                                    (movement.locationFrom == Location.MATRIZ || movement.locationFrom == Location.CONGELADOR_04)) {
+                                    quantityConsumed = kotlin.math.abs(movement.quantity)
+                                    isValidConsumptionType = true
+                                }
+                            }
+                            else -> { /* No es un tipo de consumo relevante */ }
+                        }
+
+                        if (isValidConsumptionType && quantityConsumed > CONSUMPTION_EPSILON) {
+                            val currentProductConsumption = consumptionMap.getOrDefault(movement.productId, 0.0)
+                            consumptionMap[movement.productId] = currentProductConsumption + quantityConsumed
+                            Log.d(TAG, "Movimiento relevante: Prod=${movement.productName}, Tipo=${movement.type}, CantConsumida=${String.format(Locale.US, "%.2f", quantityConsumed)}")
                         }
                     } else {
                         Log.w(TAG, "Error convirtiendo movimiento: ${document.id}")
