@@ -1,5 +1,7 @@
 package com.cesar.bocana.ui.products
 
+
+import com.cesar.bocana.ui.adapters.SingleLotSelectionListener
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import android.view.*
@@ -266,13 +268,281 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         _binding = null
     }
 
-    override fun onEditC04Clicked(product: Product) { // SIN anchorView
-        if (isDialogOpen) { Log.d(TAG,"Dialog open, ignoring Edit C04 click."); return }
+    override fun onEditC04Clicked(product: Product) {
+        if (isDialogOpen) {
+            Log.d(TAG, "Dialog or menu already open, ignoring Edit C04 (Ajuste Sublote) click.")
+            return
+        }
         isDialogOpen = true
-        Log.d(TAG, "Action: EditC04 ${product.name}")
-        showEditC04Dialog(product) // Esta debe llamar a showDebouncedDialogWithCustomView internamente
+        Log.d(TAG, "Action: Ajuste Sublote C04 para ${product.name}")
+        showAjusteSubLoteC04Dialog(product)
     }
 
+    private fun showAjusteSubLoteC04Dialog(product: Product) {
+        val currentContext = context ?: run {
+            isDialogOpen = false
+            return
+        }
+
+        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_ajuste_sublote_c04, null)
+
+        val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogAjusteSubLoteTitleProduct)
+        // val selectionLabelTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogAjusteSubLoteSelectionLabel) // Ya en layout
+        val recyclerViewSubLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewSubLotesC04Dialog)
+        val progressBarSubLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarSubLotesC04Dialog)
+        val textViewNoSubLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoSubLotesC04Dialog)
+        val selectedSubLoteInfoTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewSelectedSubLoteInfo)
+        val inputLayoutNuevaCantidad = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutNuevaCantidadSubLote)
+        val editTextNuevaCantidad = dialogViewInflated.findViewById<EditText>(R.id.editTextNuevaCantidadSubLote)
+        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogAjusteSubLoteAceptar)
+        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogAjusteSubLoteCancelar)
+
+        titleProductTextView.text = "Ajustar Sublote C04: ${product.name}"
+        inputLayoutNuevaCantidad.isEnabled = false // Deshabilitado hasta seleccionar lote
+        buttonAceptar.isEnabled = false      // Deshabilitado hasta seleccionar lote
+
+        var subloteSeleccionado: StockLot? = null
+
+        val lotAdapter = LotSelectionAdapter(
+            multiSelectEnabled = false, // MODO SELECCIÓN ÚNICA
+            singleLotSelectionListener = object : SingleLotSelectionListener {
+                override fun onLotSelected(selectedLot: StockLot) {
+                    subloteSeleccionado = selectedLot
+                    val df = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
+                    val origenInfo = if (selectedLot.originalLotId != null) {
+                        "Origen: ${selectedLot.originalSupplierName ?: (selectedLot.originalLotNumber ?: "Desc.")} (${selectedLot.originalReceivedAt?.let { df.format(it).substring(0,8) } ?: "N/A"})"
+                    } else { "Lote Directo C04" }
+                    selectedSubLoteInfoTextView.text =
+                        "$origenInfo / Traspaso: ${selectedLot.receivedAt?.let { df.format(it) } ?: "N/A"}\nActual: ${String.format(Locale.getDefault(), "%.2f", selectedLot.currentQuantity)} ${selectedLot.unit}"
+                    selectedSubLoteInfoTextView.visibility = View.VISIBLE
+                    inputLayoutNuevaCantidad.hint = "Nueva Cant. para este sublote (${selectedLot.unit})"
+                    inputLayoutNuevaCantidad.isEnabled = true
+                    buttonAceptar.isEnabled = true
+                    editTextNuevaCantidad.requestFocus()
+                }
+            }
+        )
+        recyclerViewSubLotes.layoutManager = LinearLayoutManager(currentContext)
+        recyclerViewSubLotes.adapter = lotAdapter
+
+        val builder = AlertDialog.Builder(currentContext)
+        builder.setView(dialogViewInflated)
+
+        val alertDialog = builder.create()
+        alertDialog.setOnDismissListener { isDialogOpen = false }
+
+        buttonCancelar.setOnClickListener {
+            alertDialog.dismiss()
+        }
+
+        buttonAceptar.setOnClickListener {
+            val nuevaCantidadString = editTextNuevaCantidad.text.toString()
+            val nuevaCantidadNeta = nuevaCantidadString.toDoubleOrNull()
+            val subloteActual = subloteSeleccionado
+
+            if (subloteActual == null) {
+                Toast.makeText(context, "Por favor, selecciona un sublote.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (nuevaCantidadNeta == null || nuevaCantidadNeta < 0.0) {
+                editTextNuevaCantidad.error = "Cantidad debe ser >= 0.0"
+                return@setOnClickListener
+            }
+            if (nuevaCantidadNeta - subloteActual.currentQuantity > stockEpsilon) { // No se puede aumentar stock con este flujo
+                editTextNuevaCantidad.error = "Nueva cantidad no puede ser mayor a la actual (${String.format(Locale.getDefault(), "%.2f", subloteActual.currentQuantity)})"
+                return@setOnClickListener
+            }
+
+            val consumoNeto = subloteActual.currentQuantity - nuevaCantidadNeta
+            if (consumoNeto < -stockEpsilon) { // Doble chequeo por si algo raro pasa
+                editTextNuevaCantidad.error = "Error en cálculo de consumo."
+                return@setOnClickListener
+            }
+
+            if (kotlin.math.abs(consumoNeto) <= stockEpsilon && kotlin.math.abs(subloteActual.currentQuantity - nuevaCantidadNeta) <= stockEpsilon) {
+                Toast.makeText(context, "No se requiere ajuste.", Toast.LENGTH_SHORT).show()
+                alertDialog.dismiss()
+                return@setOnClickListener
+            }
+
+            performAjusteSubLoteC04(product, subloteActual, nuevaCantidadNeta)
+            alertDialog.dismiss()
+        }
+
+        progressBarSubLotes.visibility = View.VISIBLE
+        textViewNoSubLotes.visibility = View.GONE
+        recyclerViewSubLotes.visibility = View.GONE
+
+        val lotsQuery = firestore.collection("inventoryLots")
+            .whereEqualTo("productId", product.id)
+            .whereEqualTo("location", Location.CONGELADOR_04)
+            .whereEqualTo("isDepleted", false)
+            .orderBy("originalReceivedAt", Query.Direction.ASCENDING) // Agrupar visualmente por lote padre
+            .orderBy("receivedAt", Query.Direction.ASCENDING)       // Luego por fecha de traspaso
+
+        lotsQuery.get()
+            .addOnSuccessListener { snapshot ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnSuccessListener
+                }
+                progressBarSubLotes.visibility = View.GONE
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val loadedLots = snapshot.documents.mapNotNull { doc ->
+                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
+                        catch (e: Exception) { null }
+                    }
+                    lotAdapter.submitList(loadedLots)
+                    textViewNoSubLotes.visibility = View.GONE
+                    recyclerViewSubLotes.visibility = View.VISIBLE
+                } else {
+                    textViewNoSubLotes.text = "No hay sublotes activos en C-04 para este producto."
+                    textViewNoSubLotes.visibility = View.VISIBLE
+                    recyclerViewSubLotes.visibility = View.GONE
+                }
+            }
+            .addOnFailureListener { e ->
+                if (!isAdded || _binding == null) {
+                    if(alertDialog.isShowing) alertDialog.dismiss()
+                    isDialogOpen = false
+                    return@addOnFailureListener
+                }
+                progressBarSubLotes.visibility = View.GONE
+                textViewNoSubLotes.text = "Error al cargar sublotes de C-04."
+                textViewNoSubLotes.visibility = View.VISIBLE
+                recyclerViewSubLotes.visibility = View.GONE
+                Toast.makeText(context, "Error al cargar sublotes: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+
+        showDebouncedDialogWithCustomView(alertDialog)
+    }
+
+    private fun performAjusteSubLoteC04(
+        productArgument: Product,
+        subloteAActualizar: StockLot,
+        nuevaCantidadNetaSublote: Double
+    ) {
+        val currentUser = auth.currentUser ?: run {
+            Toast.makeText(context, "Error de autenticación.", Toast.LENGTH_SHORT).show()
+            isDialogOpen = false
+            return
+        }
+        val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
+
+        val cantidadActualSublote = subloteAActualizar.currentQuantity
+        val consumoNeto = cantidadActualSublote - nuevaCantidadNetaSublote
+
+        // Validaciones cruciales antes de la transacción
+        if (nuevaCantidadNetaSublote < 0.0) {
+            Toast.makeText(context, "La nueva cantidad no puede ser negativa.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (nuevaCantidadNetaSublote - cantidadActualSublote > stockEpsilon) {
+            Toast.makeText(context, "Error: La nueva cantidad no puede ser mayor a la actual para este tipo de ajuste.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (consumoNeto < -stockEpsilon) { // Si nueva cantidad es significativamente mayor
+            Toast.makeText(context, "Error en cálculo de consumo. La nueva cantidad es mayor.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (kotlin.math.abs(consumoNeto) <= stockEpsilon && kotlin.math.abs(cantidadActualSublote - nuevaCantidadNetaSublote) <= stockEpsilon) {
+            // No hay cambio significativo, no hacer nada. El diálogo ya lo maneja.
+            return
+        }
+
+
+        showListLoading(true)
+
+        val productRef = firestore.collection("products").document(productArgument.id)
+        val subloteRef = firestore.collection("inventoryLots").document(subloteAActualizar.id)
+        val newMovementRef = firestore.collection("stockMovements").document()
+
+        firestore.runTransaction { transaction ->
+            val productSnapshot = transaction.get(productRef)
+            val currentProduct = productSnapshot.toObject(Product::class.java)
+                ?: throw FirebaseFirestoreException("Producto no encontrado: ${productArgument.name}", FirebaseFirestoreException.Code.ABORTED)
+
+            // No es necesario leer el sublote de nuevo si confiamos en el objeto subloteAActualizar,
+            // pero para máxima seguridad en una transacción, se podría releer.
+            // Por ahora, usaremos la cantidad del objeto pasado.
+
+            val nuevaCantidadRealSublote = if (nuevaCantidadNetaSublote < stockEpsilon) 0.0 else nuevaCantidadNetaSublote
+            val consumoReal = cantidadActualSublote - nuevaCantidadRealSublote // Recalcular con cantidad ajustada a 0 si es muy pequeña
+
+            if (consumoReal < 0 && kotlin.math.abs(consumoReal) > stockEpsilon) { // Si después de ajustar a 0, el consumo es negativo (nueva > actual)
+                throw FirebaseFirestoreException("Error de lógica: consumo no puede ser negativo.", FirebaseFirestoreException.Code.ABORTED)
+            }
+
+            // 1. Actualizar el Sublote Específico
+            transaction.update(subloteRef, mapOf(
+                "currentQuantity" to nuevaCantidadRealSublote,
+                "isDepleted" to (nuevaCantidadRealSublote <= stockEpsilon)
+            ))
+
+            // 2. Actualizar el Producto (restando el consumo neto)
+            val nuevoStockC04 = currentProduct.stockCongelador04 - consumoReal
+            val nuevoTotalStock = currentProduct.totalStock - consumoReal
+
+            if (nuevoStockC04 < -stockEpsilon || nuevoTotalStock < -stockEpsilon) { // Permitir llegar a cero, pero no negativo más allá del épsilon
+                throw FirebaseFirestoreException("Error de consistencia: Stock del producto quedaría negativo.", FirebaseFirestoreException.Code.ABORTED)
+            }
+
+            transaction.update(productRef, mapOf(
+                "stockCongelador04" to nuevoStockC04,
+                "totalStock" to nuevoTotalStock,
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "lastUpdatedByName" to currentUserName
+            ))
+
+            // 3. Crear el StockMovement
+            if (consumoReal > stockEpsilon) { // Solo registrar movimiento si hubo consumo real
+                val movement = StockMovement(
+                    id = newMovementRef.id,
+                    userId = currentUser.uid,
+                    userName = currentUserName,
+                    productId = currentProduct.id,
+                    productName = currentProduct.name,
+                    type = MovementType.AJUSTE_STOCK_C04, // O SALIDA_CONSUMO_C04 si lo prefieres
+                    quantity = consumoReal, // Cantidad que se consumió
+                    locationFrom = Location.CONGELADOR_04,
+                    locationTo = Location.EXTERNO, // Consumo
+                    reason = "Ajuste sublote C04 ID: ${subloteAActualizar.id.takeLast(6)}",
+                    stockAfterMatriz = currentProduct.stockMatriz,
+                    stockAfterCongelador04 = nuevoStockC04,
+                    stockAfterTotal = nuevoTotalStock,
+                    timestamp = Date()
+                )
+                transaction.set(newMovementRef, movement)
+            }
+            null
+        }.addOnSuccessListener {
+            val msg = if (consumoNeto > stockEpsilon) "Sublote ajustado. Consumo: ${String.format(Locale.getDefault(), "%.2f", consumoNeto)} ${productArgument.unit}" else "Sublote ajustado."
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+            if (consumoNeto > stockEpsilon) { // Solo notificar si hubo consumo
+                productRef.get().addOnSuccessListener { updatedDoc ->
+                    if (isAdded && context != null) {
+                        updatedDoc.toObject(Product::class.java)?.let { updatedProduct ->
+                            lifecycleScope.launch {
+                                NotificationTriggerHelper.triggerLowStockNotification(updatedProduct)
+                            }
+                        }
+                    }
+                }
+            }
+        }.addOnFailureListener { e ->
+            val errorMsg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
+                e.message ?: "Error de datos durante el ajuste."
+            } else {
+                "Error ajustando sublote: ${e.message}"
+            }
+            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+        }.addOnCompleteListener {
+            showListLoading(false)
+            isDialogOpen = false
+        }
+    }
 
     // Función NUEVA para configurar el listener de las pestañas
     private fun setupTabLayoutListener() {
