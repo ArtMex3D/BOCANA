@@ -18,13 +18,7 @@ import java.util.Date
 // Modelo para el encabezado del grupo
 data class GroupHeaderItem(val headerTitle: String)
 
-// Modelo para los ítems que el adapter manejará (puede ser encabezado o sublote)
-sealed class GroupableListItem {
-    data class Header(val item: GroupHeaderItem) : GroupableListItem()
-    data class SubLote(val stockLot: StockLot) : GroupableListItem()
-    // Podrías añadir un ID único a cada GroupableListItem si DiffUtil lo necesita para 'areItemsTheSame'
-    // abstract val id: String
-}
+
 
 // Nueva interfaz para selección única
 interface SingleLotSelectionListener {

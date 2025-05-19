@@ -1,6 +1,9 @@
 package com.cesar.bocana.ui.products
 
-
+import com.cesar.bocana.ui.adapters.GroupableListItem
+import com.cesar.bocana.ui.adapters.SubloteC04SelectionAdapter
+import com.cesar.bocana.ui.adapters.SubloteC04SelectionListener
+import java.util.TreeMap
 import com.cesar.bocana.ui.adapters.SingleLotSelectionListener
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -268,68 +271,87 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         _binding = null
     }
 
+
     override fun onEditC04Clicked(product: Product) {
         if (isDialogOpen) {
-            Log.d(TAG, "Dialog or menu already open, ignoring Edit C04 (Ajuste Sublote) click.")
+            Log.d(TAG, "onEditC04Clicked: Diálogo o menú ya abierto, ignorando clic en Editar C04.")
             return
         }
-        isDialogOpen = true
-        Log.d(TAG, "Action: Ajuste Sublote C04 para ${product.name}")
+        isDialogOpen = true // Marcar ANTES de mostrar el diálogo
+        Log.d(TAG, "onEditC04Clicked: Abriendo diálogo Ajuste Sublote C04 para ${product.name}")
         showAjusteSubLoteC04Dialog(product)
     }
-
     private fun showAjusteSubLoteC04Dialog(product: Product) {
         val currentContext = context ?: run {
+            Log.e(TAG, "showAjusteSubLoteC04Dialog: Contexto nulo.")
             isDialogOpen = false
             return
         }
 
         val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_ajuste_sublote_c04, null)
-
         val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogAjusteSubLoteTitleProduct)
-        // val selectionLabelTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogAjusteSubLoteSelectionLabel) // Ya en layout
         val recyclerViewSubLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewSubLotesC04Dialog)
         val progressBarSubLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarSubLotesC04Dialog)
         val textViewNoSubLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoSubLotesC04Dialog)
         val selectedSubLoteInfoTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewSelectedSubLoteInfo)
-        val inputLayoutNuevaCantidad = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutNuevaCantidadSubLote)
+        val inputLayoutNuevaCantidad = dialogViewInflated.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.textFieldLayoutNuevaCantidadSubLote)
         val editTextNuevaCantidad = dialogViewInflated.findViewById<EditText>(R.id.editTextNuevaCantidadSubLote)
         val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogAjusteSubLoteAceptar)
         val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogAjusteSubLoteCancelar)
 
         titleProductTextView.text = "Ajustar Sublote C04: ${product.name}"
-        inputLayoutNuevaCantidad.isEnabled = false // Deshabilitado hasta seleccionar lote
-        buttonAceptar.isEnabled = false      // Deshabilitado hasta seleccionar lote
+        inputLayoutNuevaCantidad.isEnabled = false
+        buttonAceptar.isEnabled = false
+        selectedSubLoteInfoTextView.visibility = View.GONE
 
-        var subloteSeleccionado: StockLot? = null
+        var subloteSeleccionadoPorUsuario: StockLot? = null
+        val shortDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
+        val fullDateTimeFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
 
-        val lotAdapter = LotSelectionAdapter(
-            multiSelectEnabled = false, // MODO SELECCIÓN ÚNICA
-            singleLotSelectionListener = object : SingleLotSelectionListener {
-                override fun onLotSelected(selectedLot: StockLot) {
-                    subloteSeleccionado = selectedLot
-                    val df = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
-                    val origenInfo = if (selectedLot.originalLotId != null) {
-                        "Origen: ${selectedLot.originalSupplierName ?: (selectedLot.originalLotNumber ?: "Desc.")} (${selectedLot.originalReceivedAt?.let { df.format(it).substring(0,8) } ?: "N/A"})"
-                    } else { "Lote Directo C04" }
-                    selectedSubLoteInfoTextView.text =
-                        "$origenInfo / Traspaso: ${selectedLot.receivedAt?.let { df.format(it) } ?: "N/A"}\nActual: ${String.format(Locale.getDefault(), "%.2f", selectedLot.currentQuantity)} ${selectedLot.unit}"
-                    selectedSubLoteInfoTextView.visibility = View.VISIBLE
-                    inputLayoutNuevaCantidad.hint = "Nueva Cant. para este sublote (${selectedLot.unit})"
-                    inputLayoutNuevaCantidad.isEnabled = true
-                    buttonAceptar.isEnabled = true
-                    editTextNuevaCantidad.requestFocus()
+        val subloteAdapter = SubloteC04SelectionAdapter(object : SubloteC04SelectionListener {
+            override fun onSubloteSelected(selectedLot: StockLot) {
+                subloteSeleccionadoPorUsuario = selectedLot
+                val traspasoDateStr = selectedLot.receivedAt?.let { fullDateTimeFormat.format(it) } ?: "N/A"
+                val currentQtyStr = String.format(Locale.getDefault(), "%.2f", selectedLot.currentQuantity)
+                val origenDisplay: String
+
+                if (selectedLot.originalLotId != null) {
+                    val supplierName = selectedLot.originalSupplierName ?: "Padre Desc."
+                    val receivedAt = selectedLot.originalReceivedAt
+                    val dateStr = if (receivedAt != null) shortDateFormat.format(receivedAt) else "Fecha Desc."
+                    origenDisplay = "Lote Padre Origen: $supplierName ($dateStr)"
+                } else {
+                    val provInfo = selectedLot.supplierName ?: "Prov. Desc."
+                    val loteProvInfo = selectedLot.lotNumber ?: "Lote N/A"
+                    if (selectedLot.supplierName != null || selectedLot.lotNumber != null) {
+                        origenDisplay = "Lote C04 (Prov: $provInfo, Lote: $loteProvInfo)"
+                    } else {
+                        origenDisplay = "Sublote C04 Antiguo (ID:...${selectedLot.id.takeLast(4)})"
+                    }
                 }
+
+                selectedSubLoteInfoTextView.text = "Seleccionado:\n$origenDisplay\nSublote (Traspaso: $traspasoDateStr) - Actual: $currentQtyStr ${selectedLot.unit}"
+                selectedSubLoteInfoTextView.visibility = View.VISIBLE
+                inputLayoutNuevaCantidad.hint = "Nueva Cant. para sublote (${selectedLot.unit})"
+                inputLayoutNuevaCantidad.isEnabled = true
+                buttonAceptar.isEnabled = true
+                editTextNuevaCantidad.setText(currentQtyStr)
+                editTextNuevaCantidad.requestFocus()
+                editTextNuevaCantidad.selectAll()
             }
-        )
+        })
+
         recyclerViewSubLotes.layoutManager = LinearLayoutManager(currentContext)
-        recyclerViewSubLotes.adapter = lotAdapter
+        recyclerViewSubLotes.adapter = subloteAdapter
 
         val builder = AlertDialog.Builder(currentContext)
         builder.setView(dialogViewInflated)
-
         val alertDialog = builder.create()
-        alertDialog.setOnDismissListener { isDialogOpen = false }
+
+        alertDialog.setOnDismissListener {
+            Log.d(TAG, "Diálogo AjusteSubLoteC04 CERRADO. isDialogOpen = false")
+            isDialogOpen = false
+        }
 
         buttonCancelar.setOnClickListener {
             alertDialog.dismiss()
@@ -338,27 +360,27 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
         buttonAceptar.setOnClickListener {
             val nuevaCantidadString = editTextNuevaCantidad.text.toString()
             val nuevaCantidadNeta = nuevaCantidadString.toDoubleOrNull()
-            val subloteActual = subloteSeleccionado
+            val subloteActual = subloteSeleccionadoPorUsuario
 
             if (subloteActual == null) {
-                Toast.makeText(context, "Por favor, selecciona un sublote.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Selecciona un sublote.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             if (nuevaCantidadNeta == null || nuevaCantidadNeta < 0.0) {
-                editTextNuevaCantidad.error = "Cantidad debe ser >= 0.0"
+                inputLayoutNuevaCantidad.error = "Cantidad debe ser >= 0.0"
                 return@setOnClickListener
+            } else {
+                inputLayoutNuevaCantidad.error = null
             }
-            if (nuevaCantidadNeta - subloteActual.currentQuantity > stockEpsilon) { // No se puede aumentar stock con este flujo
-                editTextNuevaCantidad.error = "Nueva cantidad no puede ser mayor a la actual (${String.format(Locale.getDefault(), "%.2f", subloteActual.currentQuantity)})"
+
+            if (nuevaCantidadNeta - subloteActual.currentQuantity > stockEpsilon) {
+                inputLayoutNuevaCantidad.error = "Aumento no permitido aquí."
                 return@setOnClickListener
+            } else {
+                inputLayoutNuevaCantidad.error = null
             }
 
             val consumoNeto = subloteActual.currentQuantity - nuevaCantidadNeta
-            if (consumoNeto < -stockEpsilon) { // Doble chequeo por si algo raro pasa
-                editTextNuevaCantidad.error = "Error en cálculo de consumo."
-                return@setOnClickListener
-            }
-
             if (kotlin.math.abs(consumoNeto) <= stockEpsilon && kotlin.math.abs(subloteActual.currentQuantity - nuevaCantidadNeta) <= stockEpsilon) {
                 Toast.makeText(context, "No se requiere ajuste.", Toast.LENGTH_SHORT).show()
                 alertDialog.dismiss()
@@ -377,23 +399,50 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             .whereEqualTo("productId", product.id)
             .whereEqualTo("location", Location.CONGELADOR_04)
             .whereEqualTo("isDepleted", false)
-            .orderBy("originalReceivedAt", Query.Direction.ASCENDING) // Agrupar visualmente por lote padre
-            .orderBy("receivedAt", Query.Direction.ASCENDING)       // Luego por fecha de traspaso
+            .orderBy("receivedAt", Query.Direction.ASCENDING)
 
         lotsQuery.get()
             .addOnSuccessListener { snapshot ->
                 if (!isAdded || _binding == null) {
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    isDialogOpen = false
+                    if (alertDialog.isShowing) alertDialog.dismiss()
                     return@addOnSuccessListener
                 }
                 progressBarSubLotes.visibility = View.GONE
                 if (snapshot != null && !snapshot.isEmpty) {
-                    val loadedLots = snapshot.documents.mapNotNull { doc ->
-                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
-                        catch (e: Exception) { null }
+                    val allSublotes = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(StockLot::class.java)?.copy(id = doc.id)
                     }
-                    lotAdapter.submitList(loadedLots)
+
+                    val groupedListItems = mutableListOf<GroupableListItem>()
+                    val groups = TreeMap<String, MutableList<StockLot>>()
+
+                    allSublotes.forEach { sublote ->
+                        val headerTitle: String
+                        if (sublote.originalLotId != null) {
+                            val supplierName = sublote.originalSupplierName ?: "Padre Desc."
+                            val receivedAt = sublote.originalReceivedAt
+                            val dateStr = if (receivedAt != null) shortDateFormat.format(receivedAt) else "Fecha Desc."
+                            headerTitle = "Lote Padre Origen: $supplierName ($dateStr)"
+                        } else {
+                            val provInfo = sublote.supplierName ?: "Prov. Desc."
+                            val loteProvInfo = sublote.lotNumber ?: "Lote N/A"
+                            if (sublote.supplierName != null || sublote.lotNumber != null) {
+                                headerTitle = "Lote C04 (Prov: $provInfo, Lote: $loteProvInfo)"
+                            } else {
+                                headerTitle = "Sublote C04 Antiguo (ID:...${sublote.id.takeLast(4)})"
+                            }
+                        }
+                        groups.getOrPut(headerTitle) { mutableListOf() }.add(sublote)
+                    }
+
+                    groups.forEach { (header, sublotesInGroup) ->
+                        groupedListItems.add(GroupableListItem.HeaderItem(header))
+                        sublotesInGroup.forEach { sublote -> // Ya están ordenados por la consulta de Firestore
+                            groupedListItems.add(GroupableListItem.SubLoteItem(sublote))
+                        }
+                    }
+
+                    subloteAdapter.submitList(groupedListItems)
                     textViewNoSubLotes.visibility = View.GONE
                     recyclerViewSubLotes.visibility = View.VISIBLE
                 } else {
@@ -404,20 +453,31 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider {
             }
             .addOnFailureListener { e ->
                 if (!isAdded || _binding == null) {
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    isDialogOpen = false
+                    if (alertDialog.isShowing) alertDialog.dismiss()
                     return@addOnFailureListener
                 }
                 progressBarSubLotes.visibility = View.GONE
-                textViewNoSubLotes.text = "Error al cargar sublotes de C-04."
+                textViewNoSubLotes.text = "Error al cargar sublotes C-04."
                 textViewNoSubLotes.visibility = View.VISIBLE
                 recyclerViewSubLotes.visibility = View.GONE
-                Toast.makeText(context, "Error al cargar sublotes: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Error cargando sublotes: ${e.message}", Toast.LENGTH_LONG).show()
             }
 
-        showDebouncedDialogWithCustomView(alertDialog)
+        try {
+            if (isAdded && !alertDialog.isShowing) {
+                alertDialog.show()
+                Log.d(TAG, "Diálogo AjusteSubLoteC04 MOSTRADO.")
+            } else if (alertDialog.isShowing) {
+                Log.d(TAG, "Diálogo AjusteSubLoteC04 ya se estaba mostrando.")
+            } else {
+                Log.w(TAG, "Diálogo AjusteSubLoteC04 NO mostrado, fragmento no añadido.")
+                isDialogOpen = false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error mostrando AlertDialog AjusteSubLoteC04", e)
+            isDialogOpen = false
+        }
     }
-
     private fun performAjusteSubLoteC04(
         productArgument: Product,
         subloteAActualizar: StockLot,
