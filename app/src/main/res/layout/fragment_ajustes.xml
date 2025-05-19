@@ -16,7 +16,8 @@
             android:id="@+id/textViewAjustesTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Realizar Ajuste Manual de Stock"
+            android:text="Ajuste Manual"
+            android:textAlignment="center"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -41,16 +42,16 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
-            android:id="@+id/textViewAjusteCurrentStocks"
+            android:id="@+id/textViewAjusteCurrentStocksProduct"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="4dp"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
             android:visibility="gone"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteProduct"
-            tools:text="Actual: Matriz=100.00 Kg, C04=50.00 Kg, Total=150.00 Kg"
+            tools:text="Stock Producto: Matriz=100.00 Kg, C04=50.00 Kg, Total=150.00 Kg"
             tools:visibility="visible" />
 
 
@@ -59,16 +60,17 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Ubicación a ajustar:"
+            android:text="Ubicación del lote a ajustar:"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewAjusteCurrentStocks" />
+            app:layout_constraintTop_toBottomOf="@+id/textViewAjusteCurrentStocksProduct" />
 
         <RadioGroup
             android:id="@+id/radioGroupAjusteLocation"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
+            android:enabled="false"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textViewAjusteLocationLabel">
@@ -78,6 +80,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:enabled="false"
                 android:text="Matriz" />
 
             <RadioButton
@@ -85,8 +88,41 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:enabled="false"
                 android:text="Congelador 04" />
         </RadioGroup>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/textFieldLayoutAjusteLote"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="Seleccionar Lote unico"
+            android:enabled="false"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/radioGroupAjusteLocation">
+
+            <AutoCompleteTextView
+                android:id="@+id/autoCompleteTextViewAjusteLote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:id="@+id/textViewAjusteLoteInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteLote"
+            tools:text="Lote Seleccionado: Rec: 10/05/24 - Prov: Juan - Actual: 50.0 Kg"
+            tools:visibility="visible" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutAjusteNewQuantity"
@@ -94,11 +130,12 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:hint="Nueva Cantidad EXACTA"
-            app:helperText="Introduce el stock final correcto para la ubicación"
+            android:hint="Nueva Cantidad EXACTA del Lote"
+            android:enabled="false"
+            app:helperText="Introduce el stock final correcto para el lote seleccionado"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/radioGroupAjusteLocation">
+            app:layout_constraintTop_toBottomOf="@+id/textViewAjusteLoteInfo">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/editTextAjusteNewQuantity"
@@ -114,6 +151,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:hint="Motivo del Ajuste (Obligatorio)"
+            android:enabled="false"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteNewQuantity">
@@ -134,6 +172,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="Realizar Ajuste"
+            android:enabled="false"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteReason" />
@@ -149,7 +188,6 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/buttonPerformAjuste"
             tools:visibility="visible"/>
-
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.core.widget.NestedScrollView>
