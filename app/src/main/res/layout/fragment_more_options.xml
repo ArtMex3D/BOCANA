@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    tools:context=".ui.masopciones.MoreOptionsFragment">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToAjustes"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ajuste Manual de Lote"
+        android:layout_marginBottom="8dp"
+        app:icon="@drawable/ic_settings" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToArchivedProducts"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Productos Archivados"
+        android:layout_marginBottom="8dp"
+        app:icon="@drawable/guardar"
+        />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToPrintLabels"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Etiquetas (Próximamente)"
+        app:icon="@drawable/imprimir"
+        android:enabled="false" />
+
+</LinearLayout>
