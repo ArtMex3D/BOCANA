@@ -9,6 +9,7 @@ import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentMoreOptionsBinding
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.archived.ArchivedProductsFragment
+import com.cesar.bocana.ui.printing.PrintLabelMainFragment // Importar el nuevo fragmento
 
 class MoreOptionsFragment : Fragment() {
 
@@ -40,9 +41,15 @@ class MoreOptionsFragment : Fragment() {
                 .commit()
         }
 
-        binding.buttonNavToPrintLabels.setOnClickListener {
-            // Lógica futura para imprimir etiquetas
+        // Listener para el nuevo botón
+        binding.buttonNavToPrintLabelsFeature.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, PrintLabelMainFragment())
+                .addToBackStack("PrintLabelMainFragment")
+                .commit()
         }
+
+
     }
 
     override fun onDestroyView() {
@@ -50,3 +57,4 @@ class MoreOptionsFragment : Fragment() {
         _binding = null
     }
 }
+

@@ -13,6 +13,7 @@ googleGmsGoogleServices = "4.4.2" # Versión del plugin google-services
 junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
 espressoCore = "3.6.1"
+kotlinParcelize = "1.9.23"
 
 
 [libraries]
@@ -37,7 +38,7 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 
 [plugins]
-# Build Plugins
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlinParcelize" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 # kotlin-compose = { id = "org.jetbrains.kotlin.compose", version.ref = "kotlin" }

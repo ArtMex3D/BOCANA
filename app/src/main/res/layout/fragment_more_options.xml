@@ -24,16 +24,16 @@
         android:layout_height="wrap_content"
         android:text="Productos Archivados"
         android:layout_marginBottom="8dp"
-        app:icon="@drawable/guardar"
-        />
+        app:icon="@drawable/guardar" />
 
+    <!-- NUEVO BOTÓN -->
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToPrintLabels"
+        android:id="@+id/buttonNavToPrintLabelsFeature"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Etiquetas (Próximamente)"
+        android:text="Imprimir Etiquetas"
         app:icon="@drawable/imprimir"
-        android:enabled="false" />
+        android:layout_marginBottom="8dp"/>
 
-</LinearLayout>
+    </LinearLayout>

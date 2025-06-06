@@ -94,6 +94,17 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchRequiresPackaging"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Requiere Empaque (si se recibe a granel)"
+            android:textAppearance="?attr/textAppearanceBody1"
+            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProviderDetails"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <Button
             android:id="@+id/buttonSaveProduct"
             android:layout_width="0dp"
@@ -102,7 +113,7 @@
             android:text="Guardar Producto"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProviderDetails" />
+            app:layout_constraintTop_toBottomOf="@+id/switchRequiresPackaging" />
 
         <ProgressBar
             android:id="@+id/progressBarSave"

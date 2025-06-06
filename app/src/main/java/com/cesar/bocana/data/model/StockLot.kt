@@ -14,14 +14,14 @@ data class StockLot(
     val location: String = Location.MATRIZ,
 
     val supplierId: String? = null,
-    val supplierName: String? = null, // Este es el proveedor del lote actual
-    @ServerTimestamp val receivedAt: Date? = null, // Fecha recepción en esta ubicación o traspaso
+    val supplierName: String? = null,
+    @ServerTimestamp val receivedAt: Date? = null,
     val movementIdIn: String = "",
 
     val initialQuantity: Double = 0.0,
     var currentQuantity: Double = 0.0,
 
-    val lotNumber: String? = null, // Número de lote del proveedor para este lote
+    val lotNumber: String? = null,
     val expirationDate: Date? = null,
 
     @JvmField
@@ -29,11 +29,11 @@ data class StockLot(
     @JvmField
     var isPackaged: Boolean = false,
 
-    // NUEVOS CAMPOS PARA RASTREAR EL LOTE PADRE ORIGINAL (si este lote fue creado por traspaso)
-    val originalLotId: String? = null,         // ID del StockLot de Matriz del que provino originalmente
-    @ServerTimestamp val originalReceivedAt: Date? = null, // La fecha receivedAt del lote padre original en Matriz
-    val originalSupplierName: String? = null,  // El supplierName del lote padre original
-    val originalLotNumber: String? = null      // El lotNumber del lote padre original (si lo tenía)
+    val originalLotId: String? = null,
+    @ServerTimestamp val originalReceivedAt: Date? = null,
+    val originalSupplierId: String? = null, // CAMPO AÑADIDO
+    val originalSupplierName: String? = null,
+    val originalLotNumber: String? = null
 
 ) {
     constructor() : this(
@@ -42,6 +42,8 @@ data class StockLot(
         initialQuantity = 0.0, currentQuantity = 0.0,
         lotNumber = null, expirationDate = null,
         isDepleted = false, isPackaged = false,
-        originalLotId = null, originalReceivedAt = null, originalSupplierName = null, originalLotNumber = null // Añadir al constructor vacío
+        originalLotId = null, originalReceivedAt = null,
+        originalSupplierId = null, // AÑADIDO AL CONSTRUCTOR VACÍO
+        originalSupplierName = null, originalLotNumber = null
     )
 }

@@ -1,8 +1,8 @@
 plugins {
-    alias(libs.plugins.android.application) // <- Usando alias de libs.versions.toml
-    alias(libs.plugins.kotlin.android)      // <- Usando alias de libs.versions.toml
-    alias(libs.plugins.google.gms.google.services) // <- Usando alias de libs.versions.toml
-    // alias(libs.plugins.kotlin.parcelize) // <- Descomentar si se usa
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.kotlin.parcelize)
 }
 
 android {
