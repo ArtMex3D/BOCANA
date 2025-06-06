@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="6dp"
+    android:background="@android:color/white">
+
+    <TextView
+        android:id="@+id/textViewPreviewProductName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceHeadline6"
+        android:textColor="@android:color/black"
+        android:textStyle="bold"
+        android:textAllCaps="true"
+        android:gravity="center_horizontal"
+        tools:text="ATUN ALETA AMARILLA" />
+
+    <TextView
+        android:id="@+id/textViewPreviewSupplier"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceBody2"
+        android:textColor="@android:color/black"
+        android:gravity="center_horizontal"
+        android:layout_marginTop="4dp"
+        tools:text="Proveedor: Proveedor X S.A." />
+
+    <TextView
+        android:id="@+id/textViewPreviewDate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceBody2"
+        android:textColor="@android:color/black"
+        android:gravity="center_horizontal"
+        android:layout_marginTop="2dp"
+        tools:text="Fecha: 25/12/2025" />
+
+    <TextView
+        android:id="@+id/textViewPreviewWeight"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceSubtitle1"
+        android:textColor="@android:color/black"
+        android:textStyle="bold"
+        android:gravity="center_horizontal"
+        android:layout_marginTop="6dp"
+        tools:text="Peso: 50.00 Kg" />
+
+    <!-- Si es "Manual", podrías mostrar un recuadro o un texto diferente -->
+    <TextView
+        android:id="@+id/textViewPreviewManualWeightPlaceholder"
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="KG"
+        android:textColor="@android:color/darker_gray"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        tools:visibility="visible"/>
+
+</LinearLayout>

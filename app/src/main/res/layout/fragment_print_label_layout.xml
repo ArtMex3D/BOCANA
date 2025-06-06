@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        tools:context=".ui.printing.PrintLabelLayoutFragment">
+
+        <TextView
+            android:id="@+id/textViewLayoutTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="Diseño y Previsualización de Etiquetas"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+            android:textAlignment="center"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:id="@+id/textViewSelectTemplate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Seleccionar etiquetas por hoja (A4):"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            app:layout_constraintTop_toBottomOf="@id/textViewLayoutTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginTop="24dp"/>
+
+        <RadioGroup
+            android:id="@+id/radioGroupLabelTemplates"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/textViewSelectTemplate"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <!-- Los RadioButton se añadirán dinámicamente o se definirán aquí más tarde -->
+            <!-- Ejemplo:
+            <RadioButton
+                android:id="@+id/radioTemplate1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="10 por hoja (2 columnas)"/>
+            <RadioButton
+                android:id="@+id/radioTemplate2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                tools:text="14 por hoja (2 columnas)"/>
+             -->
+        </RadioGroup>
+
+        <TextView
+            android:id="@+id/textViewPreviewLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Previsualización (1 Etiqueta):"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            app:layout_constraintTop_toBottomOf="@id/radioGroupLabelTemplates"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginTop="24dp"/>
+
+        <FrameLayout
+            android:id="@+id/frameLayoutPreview"
+            android:layout_width="0dp"
+            android:layout_height="100dp"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/textViewPreviewLabel"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintWidth_max="300dp"
+            app:layout_constraintHorizontal_bias="0.0">
+            <!-- Contenedor para la previsualización de la etiqueta -->
+            <!-- Podríamos inflar un layout de etiqueta aquí o dibujarlo en un CustomView -->
+            <TextView
+                android:id="@+id/textViewActualPreview"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:padding="8dp"
+                android:textAlignment="center"
+                tools:text="Proveedor: Nombre Largo\nFecha: 25/12/2025"
+                android:background="#FFFFFF"
+                android:textColor="@android:color/black"/>
+        </FrameLayout>
+
+        <Button
+            android:id="@+id/buttonGeneratePdf"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="Generar y Compartir PDF"
+            app:layout_constraintTop_toBottomOf="@id/frameLayoutPreview"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="32dp"/>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.core.widget.NestedScrollView>
