@@ -5,10 +5,18 @@ import com.cesar.bocana.ui.printing.LabelType
 import kotlinx.parcelize.Parcelize
 import java.util.Date
 
+enum class QrCodeOption {
+    NONE,
+    STOCK_WEB,
+    MOVEMENTS_APP,
+    BOTH
+}
+
 @Parcelize
 data class LabelData(
     val labelType: LabelType,
-    val productId: String? = null, // CAMPO AÑADIDO
+    val qrCodeOption: QrCodeOption, // CAMPO AÑADIDO
+    val productId: String? = null,
     val productName: String? = null,
     val supplierName: String? = null,
     val date: Date,

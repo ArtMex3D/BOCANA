@@ -15,6 +15,7 @@ import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.data.model.QrCodeOption
 import com.cesar.bocana.databinding.FragmentPrintLabelConfigBinding
 import com.cesar.bocana.utils.FirestoreCollections
 import com.cesar.bocana.utils.ProductFields
@@ -38,7 +39,7 @@ class PrintLabelConfigFragment : Fragment() {
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private var productsList = listOf<Product>()
     private var selectedProduct: Product? = null
-    private val units = listOf("Kg", "g", "L", "ml", "Pzas", "Cajas", "Bolsas")
+    private val units = listOf("Kg", "Pzas", "Cajas", "Bolsas")
 
     companion object {
         private const val ARG_LABEL_TYPE = "label_type"
@@ -88,32 +89,26 @@ class PrintLabelConfigFragment : Fragment() {
 
     private fun setupUIForLabelType() {
         binding.buttonSelectDate.text = dateFormat.format(Date())
-
         val isDetailed = labelType == LabelType.DETAILED
 
         binding.textViewConfigTitle.text = if (isDetailed) "Configurar Etiqueta Detallada" else "Configurar Etiqueta Simple"
 
-        binding.textFieldLayoutProduct.isVisible = isDetailed
+        binding.textFieldLayoutProduct.isVisible = true
         binding.textViewWeightLabel.isVisible = isDetailed
         binding.radioGroupWeightType.isVisible = isDetailed
-        binding.textFieldLayoutWeight.isVisible = false
-        binding.textFieldLayoutUnit.isVisible = false
+        binding.layoutWeightAndUnit.isVisible = false
 
-        if (isDetailed) {
-            loadProducts()
-            setupUnitSpinner()
-        }
+        loadProducts()
+        setupUnitSpinner()
     }
 
     private fun setupListeners() {
         binding.buttonSelectDate.setOnClickListener { showDatePicker() }
 
         binding.radioGroupWeightType.setOnCheckedChangeListener { _, checkedId ->
-            val showWeightInput = (checkedId == R.id.radioButtonPredefinedWeight)
-            binding.textFieldLayoutWeight.isVisible = showWeightInput
-            binding.textFieldLayoutUnit.isVisible = true
-
-            if (!showWeightInput) {
+            binding.layoutWeightAndUnit.isVisible = true
+            binding.textFieldLayoutWeight.isVisible = (checkedId == R.id.radioButtonPredefinedWeight)
+            if (checkedId != R.id.radioButtonPredefinedWeight) {
                 binding.editTextWeight.text = null
             }
         }
@@ -137,7 +132,7 @@ class PrintLabelConfigFragment : Fragment() {
                     .orderBy(ProductFields.NAME)
                     .get().await()
 
-                productsList = snapshot.toObjects(Product::class.java)
+                productsList = snapshot.documents.mapNotNull { doc -> doc.toObject(Product::class.java)?.copy(id = doc.id) }
                 val productNames = productsList.map { it.name }
 
                 withContext(Dispatchers.Main) {
@@ -182,22 +177,37 @@ class PrintLabelConfigFragment : Fragment() {
         val supplier = binding.editTextSupplier.text.toString().trim()
         val date = selectedDateCalendar.time
 
+        var productId: String? = null
         var productName: String? = null
         var weight: String? = null
         var unit: String? = null
+
+        val qrOption = when (binding.radioGroupQrType.checkedRadioButtonId) {
+            R.id.radioQrStockWeb -> QrCodeOption.STOCK_WEB
+            R.id.radioQrMovementsApp -> QrCodeOption.MOVEMENTS_APP
+            R.id.radioQrBoth -> QrCodeOption.BOTH
+            else -> QrCodeOption.NONE
+        }
+
+        if (qrOption != QrCodeOption.NONE) {
+            if (binding.autoCompleteProduct.text.isNullOrEmpty() || selectedProduct == null) {
+                binding.textFieldLayoutProduct.error = "Selecciona un producto para el QR"; isValid = false
+            } else {
+                binding.textFieldLayoutProduct.error = null
+                productName = selectedProduct?.name
+                productId = selectedProduct?.id
+            }
+        } else {
+            productName = binding.autoCompleteProduct.text.toString() // Opcional, puede ir vacío
+            productId = selectedProduct?.id // Opcional
+        }
+
 
         if (labelType == LabelType.SIMPLE) {
             if (supplier.isEmpty()) {
                 binding.textFieldLayoutSupplier.error = "Proveedor es obligatorio"; isValid = false
             } else { binding.textFieldLayoutSupplier.error = null }
-        } else { // DETAILED
-            if (binding.autoCompleteProduct.text.isNullOrEmpty() || selectedProduct == null) {
-                binding.textFieldLayoutProduct.error = "Selecciona un producto"; isValid = false
-            } else {
-                binding.textFieldLayoutProduct.error = null
-                productName = selectedProduct?.name
-            }
-
+        } else {
             val weightTypeId = binding.radioGroupWeightType.checkedRadioButtonId
             if (weightTypeId == -1) {
                 Toast.makeText(context, "Selecciona un tipo de peso", Toast.LENGTH_SHORT).show(); isValid = false
@@ -209,7 +219,7 @@ class PrintLabelConfigFragment : Fragment() {
 
                 if (weightTypeId == R.id.radioButtonManualWeight) {
                     weight = "Manual"
-                } else { // Predefined Weight
+                } else {
                     weight = binding.editTextWeight.text.toString().trim()
                     if (weight.isEmpty() || weight.toDoubleOrNull() == null || (weight.toDoubleOrNull() ?: 0.0) <= 0.0) {
                         binding.textFieldLayoutWeight.error = "Peso inválido (>0)"; isValid = false
@@ -222,6 +232,8 @@ class PrintLabelConfigFragment : Fragment() {
 
         val labelData = LabelData(
             labelType = labelType!!,
+            qrCodeOption = qrOption,
+            productId = productId,
             productName = productName,
             supplierName = supplier.ifEmpty { null },
             date = date,

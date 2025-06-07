@@ -1,6 +1,7 @@
 package com.cesar.bocana.ui.printing
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -28,7 +29,10 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
+import com.cesar.bocana.data.model.QrCodeOption
 import com.cesar.bocana.databinding.FragmentPrintLabelLayoutBinding
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeEncoder
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -50,7 +54,6 @@ class PrintLabelLayoutFragment : Fragment() {
     private val PAGE_MARGIN_BOTTOM_POINTS = 36f
     private val PAGE_MARGIN_LEFT_POINTS = 28f
     private val PAGE_MARGIN_RIGHT_POINTS = 28f
-
     private val LABEL_SPACING_POINTS = 4f
 
     data class TemplateOption(val description: String, val totalLabelsPerPage: Int, val columns: Int)
@@ -79,22 +82,11 @@ class PrintLabelLayoutFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
 
-        currentTemplateOptions = if (labelData?.labelType == LabelType.SIMPLE) {
-            listOf(
-                TemplateOption("2 por hoja ", 2, 1),
-                TemplateOption("10 por hoja ", 10, 2),
-                TemplateOption("16 por hoja ", 16, 2),
-                TemplateOption("20 por hoja ", 20, 2)
-            )
-        } else {
-            listOf(
-                TemplateOption("2 por hoja ", 2, 1),
-                TemplateOption("6 por hoja ", 6, 2),
-                TemplateOption("8 por hoja ", 8, 2),
-                TemplateOption("10 por hoja ", 10, 2),
-                TemplateOption("14 por hoja ", 14, 2),
-            )
-        }
+        currentTemplateOptions = listOf(
+            TemplateOption("6 por hoja (2 col)", 6, 2),
+            TemplateOption("8 por hoja (2 col)", 8, 2),
+            TemplateOption("10 por hoja (2 col)", 10, 2)
+        )
     }
 
     override fun onCreateView(
@@ -119,7 +111,11 @@ class PrintLabelLayoutFragment : Fragment() {
 
         binding.buttonGeneratePdf.setOnClickListener {
             if (selectedTemplate == null) {
-                Toast.makeText(context, "Selecciona una plantilla de etiquetas por hoja", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Selecciona una plantilla", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (labelData?.qrCodeOption != QrCodeOption.NONE && labelData?.productId.isNullOrEmpty()) {
+                Toast.makeText(context, "Se requiere un producto para generar el QR.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             generateAndSharePdf()
@@ -145,10 +141,7 @@ class PrintLabelLayoutFragment : Fragment() {
             val radioButton = RadioButton(context).apply {
                 text = template.description
                 id = View.generateViewId()
-                layoutParams = RadioGroup.LayoutParams(
-                    RadioGroup.LayoutParams.MATCH_PARENT,
-                    RadioGroup.LayoutParams.WRAP_CONTENT
-                )
+                layoutParams = RadioGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setPadding(0,16,0,16)
             }
             binding.radioGroupLabelTemplates.addView(radioButton)
@@ -195,6 +188,16 @@ class PrintLabelLayoutFragment : Fragment() {
         }
     }
 
+    private fun generateQrCodeBitmap(text: String, size: Int): Bitmap? {
+        return try {
+            val barcodeEncoder = BarcodeEncoder()
+            barcodeEncoder.encodeBitmap(text, BarcodeFormat.QR_CODE, size, size)
+        } catch (e: Exception) {
+            Log.e("PrintLabel", "Error generando QR", e)
+            null
+        }
+    }
+
     private fun drawLabelsOnCanvas(canvas: Canvas, data: LabelData, template: TemplateOption) {
         val usablePageWidth = PAGE_WIDTH_A4_POINTS - PAGE_MARGIN_LEFT_POINTS - PAGE_MARGIN_RIGHT_POINTS
         val usablePageHeight = PAGE_HEIGHT_A4_POINTS - PAGE_MARGIN_TOP_POINTS - PAGE_MARGIN_BOTTOM_POINTS
@@ -216,53 +219,120 @@ class PrintLabelLayoutFragment : Fragment() {
             val labelRect = RectF(currentX, currentY, currentX + labelWidthPts, currentY + labelHeightPts)
             canvas.drawRect(labelRect, borderPaint)
 
-            if (data.labelType == LabelType.SIMPLE) {
-                drawSimpleLabelContent(canvas, data, labelRect)
-            } else {
-                drawDetailedLabelContent(canvas, data, labelRect)
+            drawLabelContent(canvas, data, labelRect)
+        }
+    }
+
+    private fun drawLabelContent(canvas: Canvas, data: LabelData, bounds: RectF) {
+        val labelPadding = bounds.width() * 0.05f
+
+        when (data.qrCodeOption) {
+            QrCodeOption.NONE -> {
+                if (data.labelType == LabelType.SIMPLE) {
+                    drawSimpleText(canvas, data, bounds, bounds.width() - (2 * labelPadding), labelPadding)
+                } else {
+                    drawDetailedText(canvas, data, bounds, bounds.width() - (2 * labelPadding), labelPadding)
+                }
+            }
+            QrCodeOption.STOCK_WEB, QrCodeOption.MOVEMENTS_APP -> {
+                // <-- AJUSTAR AQUÍ: TAMAÑO DEL QR -->
+                // Cambia 0.8f a un número menor para un QR más pequeño, o mayor para uno más grande.
+                val qrSize = bounds.height() * 0.8f
+                // <-- AJUSTAR AQUÍ: POSICIÓN HORIZONTAL DEL QR -->
+                // 'bounds.right - qrSize - labelPadding' lo alinea a la derecha.
+                // 'bounds.left + labelPadding' lo alinearía a la izquierda.
+                // 'bounds.left + (bounds.width() - qrSize) / 2' lo centraría.
+                val qrLeft = bounds.right - qrSize - labelPadding
+                // <-- AJUSTAR AQUÍ: POSICIÓN VERTICAL DEL QR -->
+                // '(bounds.height() - qrSize) / 2' lo centra verticalmente.
+                val qrTop = bounds.top + (bounds.height() - qrSize) / 2
+
+                // Ancho disponible para el texto, a la izquierda del QR
+                val textMaxWidth = qrLeft - bounds.left - (labelPadding * 2)
+
+                val url = if (data.qrCodeOption == QrCodeOption.STOCK_WEB) {
+                    "https://bocana.netlify.app/qr.html?id=${data.productId}"
+                } else {
+                    "bocana://movimiento?productoId=${data.productId}"
+                }
+
+                val qrBitmap = generateQrCodeBitmap(url, qrSize.toInt())
+                if (qrBitmap != null) canvas.drawBitmap(qrBitmap, qrLeft, qrTop, null)
+
+                if (textMaxWidth > 0) { // Solo dibujar texto si hay espacio
+                    if (data.labelType == LabelType.SIMPLE) {
+                        drawSimpleText(canvas, data, bounds, textMaxWidth, labelPadding)
+                    } else {
+                        drawDetailedText(canvas, data, bounds, textMaxWidth, labelPadding)
+                    }
+                }
+            }
+            QrCodeOption.BOTH -> {
+                // <-- AJUSTAR AQUÍ: TAMAÑO DE LOS DOS QRs -->
+                val qrSize = bounds.height() * 0.45f // Dos QR, más pequeños
+
+                val textMaxWidth = bounds.width() - (qrSize * 2) - (labelPadding * 4) // Espacio para texto en el centro
+
+                if (textMaxWidth < 20) { // Si el espacio es muy pequeño, no dibujar
+                    Log.e("PrintLabel", "No hay suficiente espacio para dibujar texto entre ambos QRs")
+                } else {
+                    // Dibuja el texto primero en el área central
+                    val textBounds = RectF(bounds.left + qrSize + (labelPadding * 2), bounds.top, bounds.right - qrSize - (labelPadding * 2), bounds.bottom)
+                    if (data.labelType == LabelType.SIMPLE) {
+                        drawSimpleText(canvas, data, textBounds, textMaxWidth, 0f)
+                    } else {
+                        drawDetailedText(canvas, data, textBounds, textMaxWidth, 0f)
+                    }
+                }
+
+                // Dibuja los QR a los lados
+                val stockUrl = "https://bocana.netlify.app/qr.html?id=${data.productId}"
+                val movementUrl = "bocana://movimiento?productoId=${data.productId}"
+                val stockQrBitmap = generateQrCodeBitmap(stockUrl, qrSize.toInt())
+                val movementQrBitmap = generateQrCodeBitmap(movementUrl, qrSize.toInt())
+
+                val qrTop = bounds.top + (bounds.height() - qrSize) / 2
+                if (stockQrBitmap != null) canvas.drawBitmap(stockQrBitmap, bounds.left + labelPadding, qrTop, null)
+                if (movementQrBitmap != null) canvas.drawBitmap(movementQrBitmap, bounds.right - qrSize - labelPadding, qrTop, null)
             }
         }
     }
 
-    private fun drawSimpleLabelContent(canvas: Canvas, data: LabelData, bounds: RectF) {
+    private fun drawSimpleText(canvas: Canvas, data: LabelData, bounds: RectF, textMaxWidth: Float, padding: Float) {
         val textPaint = TextPaint().apply { color = Color.BLACK; isAntiAlias = true }
         val dateStr = simpleDateFormat.format(data.date)
         val supplierText = data.supplierName ?: "PROVEEDOR"
-        val labelPadding = bounds.width() * 0.05f
 
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        var yPos = bounds.top + bounds.height() * 0.1f
+        var yPos = bounds.top + (bounds.height() * 0.1f)
 
-        yPos += drawTextToFit(canvas, supplierText, bounds.width() - (2 * labelPadding), bounds.height() * 0.45f, textPaint, bounds.left + labelPadding, yPos, Layout.Alignment.ALIGN_CENTER)
-
+        yPos += drawTextToFit(canvas, supplierText, textMaxWidth, bounds.height() * 0.40f, textPaint, bounds.left + padding, yPos, Layout.Alignment.ALIGN_NORMAL)
         yPos += bounds.height() * 0.05f
-
-        drawTextToFit(canvas, dateStr, bounds.width() - (2 * labelPadding), bounds.height() * 0.30f, textPaint, bounds.left + labelPadding, yPos, Layout.Alignment.ALIGN_CENTER)
+        drawTextToFit(canvas, dateStr, textMaxWidth, bounds.height() * 0.35f, textPaint, bounds.left + padding, yPos, Layout.Alignment.ALIGN_NORMAL)
     }
 
-    private fun drawDetailedLabelContent(canvas: Canvas, data: LabelData, bounds: RectF) {
+    private fun drawDetailedText(canvas: Canvas, data: LabelData, bounds: RectF, textMaxWidth: Float, padding: Float) {
         val textPaint = TextPaint().apply { color = Color.BLACK; isAntiAlias = true }
         val dateStr = simpleDateFormat.format(data.date)
         val productName = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
-        val labelPadding = bounds.width() * 0.05f
 
         var yPos = bounds.top + bounds.height() * 0.08f
 
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         textPaint.letterSpacing = 0.08f
-        yPos += drawTextToFit(canvas, productName, bounds.width() - (2 * labelPadding), bounds.height() * 0.22f, textPaint, bounds.left + labelPadding, yPos, Layout.Alignment.ALIGN_CENTER)
+        yPos += drawTextToFit(canvas, productName, textMaxWidth, bounds.height() * 0.22f, textPaint, bounds.left + padding, yPos, Layout.Alignment.ALIGN_NORMAL)
         textPaint.letterSpacing = 0f
 
         yPos += bounds.height() * 0.10f
         textPaint.textSize = bounds.height() * 0.09f
-        val startX = bounds.left + labelPadding
+        val startX = bounds.left + padding
 
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         canvas.drawText("Proveedor:", startX, yPos, textPaint)
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         canvas.drawText(data.supplierName ?: "N/A", startX + textPaint.measureText("Proveedor: ") + 5, yPos, textPaint)
 
-        yPos += bounds.height() * 0.13f
+        yPos += bounds.height() * 0.12f
 
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         canvas.drawText("Fecha:", startX, yPos, textPaint)
@@ -270,15 +340,16 @@ class PrintLabelLayoutFragment : Fragment() {
         canvas.drawText(dateStr, startX + textPaint.measureText("Fecha: ") + 5, yPos, textPaint)
 
         yPos += bounds.height() * 0.22f
-        textPaint.textSize = bounds.height() * 0.25f
+
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textPaint.textSize = bounds.height() * 0.15f
 
         if (data.weight == "Manual") {
             val weightLabel = "Peso: "
             val unitText = data.unit?.uppercase(Locale.ROOT) ?: ""
             canvas.drawText(weightLabel, startX, yPos, textPaint)
             val lineStartX = startX + textPaint.measureText(weightLabel) + 4
-            val lineEndX = bounds.right - labelPadding - textPaint.measureText(unitText) - 4
+            val lineEndX = bounds.left + textMaxWidth - textPaint.measureText(unitText) - 4
             val lineY = yPos - (textPaint.textSize * 0.1f)
             val linePaint = Paint().apply{ color = Color.BLACK; strokeWidth = 1.5f }
             if (lineEndX > lineStartX) {
@@ -287,11 +358,12 @@ class PrintLabelLayoutFragment : Fragment() {
             canvas.drawText(unitText, lineEndX + 4, yPos, textPaint)
         } else {
             val weightText = "Peso: ${data.weight ?: "N/A"} ${data.unit ?: ""}"
-            drawTextToFit(canvas, weightText, bounds.width() - (2 * labelPadding), bounds.height() * 0.2f, textPaint, bounds.left + labelPadding, yPos, Layout.Alignment.ALIGN_CENTER)
+            drawTextToFit(canvas, weightText, textMaxWidth, bounds.height() * 0.2f, textPaint, startX, yPos, Layout.Alignment.ALIGN_NORMAL)
         }
     }
 
     private fun drawTextToFit(canvas: Canvas, text: String, width: Float, maxHeight: Float, paint: TextPaint, x: Float, y: Float, align: Layout.Alignment): Float {
+        if (width <= 0) return 0f
         paint.textSize = maxHeight
         var textWidth = paint.measureText(text)
 
@@ -312,6 +384,7 @@ class PrintLabelLayoutFragment : Fragment() {
         canvas.restore()
         return staticLayout.height.toFloat()
     }
+
 
     private fun generateAndSharePdf() {
         val currentLabelData = labelData ?: return
