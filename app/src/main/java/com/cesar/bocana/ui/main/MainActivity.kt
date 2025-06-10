@@ -12,8 +12,10 @@ import android.os.Bundle
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -26,10 +28,10 @@ import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.User
 import com.cesar.bocana.databinding.ActivityMainBinding
-import com.cesar.bocana.ui.ajustes.AjustesFragment // Asegúrate que esté importado
+import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
-import com.cesar.bocana.ui.masopciones.MoreOptionsFragment // Importar el nuevo fragmento
+import com.cesar.bocana.ui.masopciones.MoreOptionsFragment
 import com.cesar.bocana.ui.packaging.PackagingFragment
 import com.cesar.bocana.ui.products.ProductListFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
@@ -40,6 +42,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.firestore.ktx.toObject
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
@@ -85,6 +88,16 @@ class MainActivity : AppCompatActivity() {
         setupBottomNavigation()
         fetchUserInfoAndLoadInitialFragment(savedInstanceState)
         askNotificationPermission()
+
+        // Manejar el deep link si la actividad se crea desde cero
+        handleDeepLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        // Manejar el deep link si la actividad ya estaba abierta
+        setIntent(intent) // Actualizar el intent de la actividad
+        handleDeepLink(intent)
     }
 
     override fun onResume() {
@@ -95,15 +108,78 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun handleDeepLink(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+
+        val uri = intent.data
+        if (uri != null && uri.scheme == "bocana-app-movements" && uri.host == "movimiento") {
+            val productId = uri.getQueryParameter("productoId")
+            if (!productId.isNullOrEmpty()) {
+                Log.d(TAG, "Deep Link recibido para producto ID: $productId")
+
+                // Limpiar el intent para que no se procese de nuevo al girar la pantalla
+                setIntent(Intent())
+
+                // Asegurarnos de estar en el fragmento de productos
+                binding.bottomNavigation.selectedItemId = R.id.navigation_productos
+
+                // Esperamos un momento para que el fragmento se cargue y luego mostramos el diálogo
+                lifecycleScope.launch {
+                    kotlinx.coroutines.delay(250) // Pequeña demora para asegurar la transición del fragmento
+                    showProductActionsDialog(productId)
+                }
+            }
+        }
+    }
+
+    private fun showProductActionsDialog(productId: String) {
+        // Obtenemos los datos del producto para mostrar su nombre y pasarlo a las funciones de acción
+        db.collection("products").document(productId).get()
+            .addOnSuccessListener { document ->
+                if (!isFinishing && document.exists()) {
+                    val product = document.toObject(Product::class.java)
+                    if (product == null) {
+                        Toast.makeText(this, "Producto con ID $productId no encontrado.", Toast.LENGTH_SHORT).show()
+                        return@addOnSuccessListener
+                    }
+
+                    val actions = arrayOf("Salida por Consumo", "Traspaso a C-04")
+                    AlertDialog.Builder(this)
+                        .setTitle("Acción para: ${product.name}")
+                        .setItems(actions) { dialog, which ->
+                            val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
+                            if (currentFragment is ProductListFragment) {
+                                // Usamos una vista raíz como 'anchor' para los popups
+                                val anchorView: View = currentFragment.view ?: binding.root
+                                when (which) {
+                                    0 -> currentFragment.onSalidaClicked(product, anchorView)
+                                    1 -> currentFragment.onTraspasoC04Clicked(product, anchorView)
+                                }
+                            } else {
+                                Toast.makeText(this, "No se pudo realizar la acción. Intenta desde la lista de productos.", Toast.LENGTH_LONG).show()
+                            }
+                            dialog.dismiss()
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                } else {
+                    Toast.makeText(this, "Producto no encontrado.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(this, "Error al buscar producto: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
     private fun setupBottomNavigation() {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             var selectedFragment: Fragment? = null
-            var title = getString(R.string.app_name) // Título por defecto
+            var title = getString(R.string.app_name)
 
             when (item.itemId) {
                 R.id.navigation_productos -> {
                     selectedFragment = ProductListFragment()
-                    title = "Inventario de Stocks" // Título específico
+                    title = "Inventario de Stocks"
                 }
                 R.id.navigation_proveedores -> {
                     selectedFragment = SupplierListFragment()
@@ -117,25 +193,26 @@ class MainActivity : AppCompatActivity() {
                     selectedFragment = DevolucionesFragment()
                     title = "Devoluciones"
                 }
-                R.id.navigation_mas_opciones -> { // Nueva opción
+                R.id.navigation_mas_opciones -> {
                     selectedFragment = MoreOptionsFragment()
                     title = "Más Opciones"
                 }
             }
 
             if (selectedFragment != null) {
-                supportFragmentManager.beginTransaction()
-                    .replace(R.id.nav_host_fragment_content_main, selectedFragment)
-                    .commit()
+                // Evitar recargar el mismo fragmento
+                val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
+                if (currentFragment?.javaClass != selectedFragment.javaClass) {
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.nav_host_fragment_content_main, selectedFragment)
+                        .commit()
+                }
                 supportActionBar?.title = title
                 updateToolbarSubtitle()
                 true
             } else {
                 false
             }
-        }
-        if (supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main) == null) {
-            binding.bottomNavigation.selectedItemId = R.id.navigation_productos
         }
     }
 
@@ -154,20 +231,17 @@ class MainActivity : AppCompatActivity() {
                         updateToolbarSubtitle()
 
                         if (savedInstanceState == null && supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main) == null) {
-                            Log.d(TAG, "Cargando fragmento inicial (ProductListFragment).")
                             binding.bottomNavigation.selectedItemId = R.id.navigation_productos
                         }
                         invalidateOptionsMenu()
 
                     } else {
-                        Log.w(TAG,"Documento de usuario no encontrado para UID: ${user.uid}")
                         showErrorAndLogout("Error: Usuario no registrado.")
                     }
                 }
             }
             .addOnFailureListener { exception ->
                 if (!isDestroyed && !isFinishing) {
-                    Log.e(TAG, "Error obteniendo documento de usuario", exception)
                     showErrorAndLogout("Error conexión datos user.")
                 }
             }
@@ -177,30 +251,17 @@ class MainActivity : AppCompatActivity() {
         val user = auth.currentUser ?: return
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { document ->
-                if (!isDestroyed && !isFinishing) {
-                    if (document != null && document.exists()) {
-                        val userData = document.toObject(User::class.java)
-
-                        if (userData?.isAccountActive != true) {
-                            Log.w(TAG,"Estado de usuario cambiado (inactivo), cerrando sesión.")
-                            signOut()
-                            return@addOnSuccessListener
-                        }
-
-                        val fetchedName = userData?.name ?: "Usuario"
-                        if (currentUserName != fetchedName) {
-                            currentUserName = fetchedName
-                            updateToolbarSubtitle()
-                        }
-
-                    } else {
-                        Log.w(TAG,"Documento de usuario no encontrado durante re-fetch, cerrando sesión.")
+                if (!isDestroyed && !isFinishing && document != null && document.exists()) {
+                    val userData = document.toObject(User::class.java)
+                    if (userData?.isAccountActive != true) {
                         signOut()
+                        return@addOnSuccessListener
                     }
-                }
-            }.addOnFailureListener { e ->
-                if (!isDestroyed && !isFinishing) {
-                    Log.e(TAG, "Error re-obteniendo info de usuario", e)
+                    val fetchedName = userData?.name ?: "Usuario"
+                    if (currentUserName != fetchedName) {
+                        currentUserName = fetchedName
+                        updateToolbarSubtitle()
+                    }
                 }
             }
     }
@@ -221,33 +282,14 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             android.R.id.home -> {
-                // Si el fragmento actual es uno de los "principales" del bottom nav,
-                // y no es el de "productos", ir a "productos".
-                // Si es "productos" o un fragmento "interno" (ej. AddEdit), dejar que el sistema maneje el Up.
-                val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-                if (currentFragment !is ProductListFragment &&
-                    (currentFragment is SupplierListFragment ||
-                            currentFragment is PackagingFragment ||
-                            currentFragment is DevolucionesFragment ||
-                            currentFragment is MoreOptionsFragment ||
-                            currentFragment is AjustesFragment)) {
-                    binding.bottomNavigation.selectedItemId = R.id.navigation_productos
-                    return true
-                }
-                // Para otros fragmentos (como AddEditProductFragment), el comportamiento Up (popBackStack) es el deseado.
-                // O si ya estamos en ProductListFragment, el Up no debería hacer nada especial aquí.
-                super.onBackPressed() // O supportFragmentManager.popBackStack() si es más apropiado
-                return true
+                supportFragmentManager.popBackStack()
+                true
             }
             else -> super.onOptionsItemSelected(item)
         }
     }
 
     private fun signOut() {
-        Log.d(TAG, "signOut: Iniciando cierre de sesión...")
-        currentUserName = null
-        updateToolbarSubtitle()
-
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
@@ -256,7 +298,6 @@ class MainActivity : AppCompatActivity() {
 
         auth.signOut()
         googleSignInClient.signOut().addOnCompleteListener {
-            Log.d(TAG, "Cierre de sesión de Google completado, navegando a Login.")
             goToLogin()
         }
     }
@@ -271,7 +312,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showErrorAndLogout(message: String) {
-        Log.e(TAG, "Error causando cierre de sesión: $message")
         runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
         signOut()
     }
@@ -291,13 +331,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            when {
-                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED -> {
-                    getAndSaveFcmToken()
-                }
-                else -> {
-                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                getAndSaveFcmToken()
             }
         } else {
             getAndSaveFcmToken()
@@ -309,16 +346,13 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val token = FirebaseMessaging.getInstance().token.await()
-                if (token != null) {
-                    val userDocRef = db.collection("users").document(userId)
-                    userDocRef.set(mapOf("fcmToken" to token), SetOptions.merge()).await()
-                }
+                db.collection("users").document(userId).set(mapOf("fcmToken" to token), SetOptions.merge()).await()
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                Log.e(TAG, "Error obteniendo/guardando token FCM", e)
+                if (e !is CancellationException) Log.e(TAG, "Error obteniendo/guardando token FCM", e)
             }
         }
     }
+
 
     private suspend fun checkConditionsAndNotifyLocally() {
         val alertMessages = mutableListOf<String>()

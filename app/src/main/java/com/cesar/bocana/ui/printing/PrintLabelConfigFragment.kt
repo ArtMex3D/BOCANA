@@ -1,7 +1,10 @@
 package com.cesar.bocana.ui.printing
 
 import android.app.DatePickerDialog
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -12,6 +15,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.data.model.Product
@@ -21,7 +25,6 @@ import com.cesar.bocana.utils.FirestoreCollections
 import com.cesar.bocana.utils.ProductFields
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -40,6 +43,9 @@ class PrintLabelConfigFragment : Fragment() {
     private var productsList = listOf<Product>()
     private var selectedProduct: Product? = null
     private val units = listOf("Kg", "Pzas", "Cajas", "Bolsas")
+
+    private var qrBitmapS: Bitmap? = null
+    private var qrBitmapM: Bitmap? = null
 
     companion object {
         private const val ARG_LABEL_TYPE = "label_type"
@@ -72,6 +78,8 @@ class PrintLabelConfigFragment : Fragment() {
         setupToolbar()
         setupUIForLabelType()
         setupListeners()
+        loadProducts()
+        updatePreview()
 
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -82,8 +90,8 @@ class PrintLabelConfigFragment : Fragment() {
 
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
-            title = "Imprimir Etiquetas - Paso 2"
-            subtitle = "Configurar datos"
+            title = "Imprimir Etiquetas - Configuración"
+            subtitle = "Ajusta y previsualiza tu etiqueta"
         }
     }
 
@@ -93,12 +101,10 @@ class PrintLabelConfigFragment : Fragment() {
 
         binding.textViewConfigTitle.text = if (isDetailed) "Configurar Etiqueta Detallada" else "Configurar Etiqueta Simple"
 
-        binding.textFieldLayoutProduct.isVisible = true
         binding.textViewWeightLabel.isVisible = isDetailed
         binding.radioGroupWeightType.isVisible = isDetailed
         binding.layoutWeightAndUnit.isVisible = false
 
-        loadProducts()
         setupUnitSpinner()
     }
 
@@ -111,13 +117,31 @@ class PrintLabelConfigFragment : Fragment() {
             if (checkedId != R.id.radioButtonPredefinedWeight) {
                 binding.editTextWeight.text = null
             }
+            updatePreview()
         }
 
         binding.autoCompleteProduct.setOnItemClickListener { parent, _, position, _ ->
             val selectedName = parent.getItemAtPosition(position) as? String
             selectedProduct = productsList.find { it.name == selectedName }
             binding.autoCompleteUnit.setText(selectedProduct?.unit ?: "", false)
+            updatePreview()
         }
+
+        binding.radioGroupQrType.setOnCheckedChangeListener { _, _ ->
+            updatePreview()
+        }
+
+        val textWatcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                updatePreview()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        }
+        binding.editTextSupplier.addTextChangedListener(textWatcher)
+        binding.editTextWeight.addTextChangedListener(textWatcher)
+        binding.autoCompleteUnit.addTextChangedListener(textWatcher)
+
 
         binding.buttonConfigContinue.setOnClickListener {
             validateAndNavigate()
@@ -125,7 +149,7 @@ class PrintLabelConfigFragment : Fragment() {
     }
 
     private fun loadProducts() {
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val snapshot = Firebase.firestore.collection(FirestoreCollections.PRODUCTS)
                     .whereEqualTo(ProductFields.IS_ACTIVE, true)
@@ -164,6 +188,7 @@ class PrintLabelConfigFragment : Fragment() {
         val dateSetListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
             selectedDateCalendar.set(year, month, dayOfMonth)
             binding.buttonSelectDate.text = dateFormat.format(selectedDateCalendar.time)
+            updatePreview()
         }
         DatePickerDialog(context, dateSetListener,
             selectedDateCalendar.get(Calendar.YEAR),
@@ -172,16 +197,7 @@ class PrintLabelConfigFragment : Fragment() {
         ).show()
     }
 
-    private fun validateAndNavigate() {
-        var isValid = true
-        val supplier = binding.editTextSupplier.text.toString().trim()
-        val date = selectedDateCalendar.time
-
-        var productId: String? = null
-        var productName: String? = null
-        var weight: String? = null
-        var unit: String? = null
-
+    private fun getCurrentLabelData(): LabelData {
         val qrOption = when (binding.radioGroupQrType.checkedRadioButtonId) {
             R.id.radioQrStockWeb -> QrCodeOption.STOCK_WEB
             R.id.radioQrMovementsApp -> QrCodeOption.MOVEMENTS_APP
@@ -189,67 +205,112 @@ class PrintLabelConfigFragment : Fragment() {
             else -> QrCodeOption.NONE
         }
 
-        if (qrOption != QrCodeOption.NONE) {
-            if (binding.autoCompleteProduct.text.isNullOrEmpty() || selectedProduct == null) {
-                binding.textFieldLayoutProduct.error = "Selecciona un producto para el QR"; isValid = false
-            } else {
-                binding.textFieldLayoutProduct.error = null
-                productName = selectedProduct?.name
-                productId = selectedProduct?.id
+        var weight: String? = null
+        var unit: String? = null
+
+        if (labelType == LabelType.DETAILED) {
+            unit = binding.autoCompleteUnit.text.toString().trim()
+            weight = when (binding.radioGroupWeightType.checkedRadioButtonId) {
+                R.id.radioButtonManualWeight -> "Manual"
+                R.id.radioButtonPredefinedWeight -> binding.editTextWeight.text.toString().trim().ifEmpty { null }
+                else -> null
             }
-        } else {
-            productName = binding.autoCompleteProduct.text.toString() // Opcional, puede ir vacío
-            productId = selectedProduct?.id // Opcional
         }
 
+        return LabelData(
+            labelType = labelType!!,
+            qrCodeOption = qrOption,
+            productId = selectedProduct?.id,
+            productName = selectedProduct?.name ?: binding.autoCompleteProduct.text.toString(),
+            supplierName = binding.editTextSupplier.text.toString().trim(),
+            date = selectedDateCalendar.time,
+            weight = weight,
+            unit = unit
+        )
+    }
 
-        if (labelType == LabelType.SIMPLE) {
-            if (supplier.isEmpty()) {
-                binding.textFieldLayoutSupplier.error = "Proveedor es obligatorio"; isValid = false
-            } else { binding.textFieldLayoutSupplier.error = null }
+    private fun updatePreview() {
+        if (_binding == null) return
+
+        val data = getCurrentLabelData()
+
+        lifecycleScope.launch {
+            qrBitmapS?.recycle()
+            qrBitmapM?.recycle()
+            qrBitmapS = null
+            qrBitmapM = null
+
+            if (!data.productId.isNullOrEmpty()) {
+                if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) {
+                    qrBitmapS = withContext(Dispatchers.Default) {
+                        QRGenerator.generate("https://bocana.netlify.app/qr.html?id=${data.productId}", 150, 'S')
+                    }
+                }
+                if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) {
+                    qrBitmapM = withContext(Dispatchers.Default) {
+                        QRGenerator.generate("bocana-app-movements://${data.productId}", 150, 'M')
+                    }
+                }
+            }
+
+            // --- LLAMADA CORREGIDA ---
+            // Ahora se le pasan los 3 parámetros que la función `updateView` espera.
+            binding.previewView.updateView(data, qrBitmapS, qrBitmapM)
+        }
+    }
+
+    private fun validateAndNavigate() {
+        val data = getCurrentLabelData()
+        var isValid = true
+
+        if (data.qrCodeOption != QrCodeOption.NONE && data.productId.isNullOrEmpty()) {
+            binding.textFieldLayoutProduct.error = "Selecciona un producto para el QR"
+            isValid = false
         } else {
-            val weightTypeId = binding.radioGroupWeightType.checkedRadioButtonId
-            if (weightTypeId == -1) {
-                Toast.makeText(context, "Selecciona un tipo de peso", Toast.LENGTH_SHORT).show(); isValid = false
-            } else {
-                unit = binding.autoCompleteUnit.text.toString().trim()
-                if (unit.isEmpty()) {
-                    binding.textFieldLayoutUnit.error = "Unidad requerida"; isValid = false
-                } else { binding.textFieldLayoutUnit.error = null }
+            binding.textFieldLayoutProduct.error = null
+        }
 
-                if (weightTypeId == R.id.radioButtonManualWeight) {
-                    weight = "Manual"
+        if (data.supplierName.isNullOrEmpty()) {
+            binding.textFieldLayoutSupplier.error = "Proveedor es obligatorio"
+            isValid = false
+        } else {
+            binding.textFieldLayoutSupplier.error = null
+        }
+
+        if (data.labelType == LabelType.DETAILED) {
+            if (data.unit.isNullOrEmpty()) {
+                binding.textFieldLayoutUnit.error = "Unidad requerida"
+                isValid = false
+            } else {
+                binding.textFieldLayoutUnit.error = null
+            }
+
+            if (binding.radioGroupWeightType.checkedRadioButtonId == R.id.radioButtonPredefinedWeight) {
+                if (data.weight.isNullOrEmpty() || (data.weight.toDoubleOrNull() ?: 0.0) <= 0.0) {
+                    binding.textFieldLayoutWeight.error = "Peso inválido"
+                    isValid = false
                 } else {
-                    weight = binding.editTextWeight.text.toString().trim()
-                    if (weight.isEmpty() || weight.toDoubleOrNull() == null || (weight.toDoubleOrNull() ?: 0.0) <= 0.0) {
-                        binding.textFieldLayoutWeight.error = "Peso inválido (>0)"; isValid = false
-                    } else { binding.textFieldLayoutWeight.error = null }
+                    binding.textFieldLayoutWeight.error = null
                 }
             }
         }
 
-        if (!isValid) return
+        if (!isValid) {
+            Toast.makeText(context, "Por favor, corrige los errores", Toast.LENGTH_SHORT).show()
+            return
+        }
 
-        val labelData = LabelData(
-            labelType = labelType!!,
-            qrCodeOption = qrOption,
-            productId = productId,
-            productName = productName,
-            supplierName = supplier.ifEmpty { null },
-            date = date,
-            weight = weight,
-            unit = unit
-        )
-
-        val fragment = PrintLabelLayoutFragment.newInstance(labelData)
+        val fragment = PrintLabelLayoutFragment.newInstance(data)
         parentFragmentManager.beginTransaction()
             .replace(R.id.nav_host_fragment_content_main, fragment)
-            .addToBackStack("PrintLabelLayoutFragment")
+            .addToBackStack(null)
             .commit()
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
+        qrBitmapS?.recycle()
+        qrBitmapM?.recycle()
         _binding = null
     }
 }

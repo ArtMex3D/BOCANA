@@ -22,8 +22,27 @@
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            android:layout_marginBottom="24dp"
+            android:layout_marginBottom="16dp"
             tools:text="Configurar Etiqueta"/>
+
+        <TextView
+            android:id="@+id/textViewPreviewLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Previsualización en Vivo:"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+            app:layout_constraintTop_toBottomOf="@id/textViewConfigTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginTop="16dp"/>
+
+        <com.cesar.bocana.ui.printing.LabelPreviewView
+            android:id="@+id/previewView"
+            android:layout_width="0dp"
+            android:layout_height="120dp"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/textViewPreviewLabel"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"/>
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutProduct"
@@ -32,7 +51,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:hint="Seleccionar Producto (para QR)"
-            app:layout_constraintTop_toBottomOf="@id/textViewConfigTitle"
+            app:layout_constraintTop_toBottomOf="@id/previewView"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
 
@@ -156,7 +175,6 @@
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
-        <!-- NUEVA SECCIÓN PARA CÓDIGO QR -->
         <TextView
             android:id="@+id/textViewQrLabel"
             android:layout_width="wrap_content"
@@ -186,19 +204,19 @@
                 android:id="@+id/radioQrStockWeb"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="QR de Stock (para Web)"/>
+                android:text="QR de Stock (S)"/>
             <RadioButton
                 android:id="@+id/radioQrMovementsApp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="QR de Movimientos (para App)"/>
+                android:text="QR de Movimientos (M)"/>
             <RadioButton
                 android:id="@+id/radioQrBoth"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Ambos Códigos (Stock y Movimientos)"/>
-        </RadioGroup>
-        <!-- FIN NUEVA SECCIÓN -->
+                android:text="Ambos Códigos (S y M)"/>
+
+             </RadioGroup>
 
         <Button
             android:id="@+id/buttonConfigContinue"
