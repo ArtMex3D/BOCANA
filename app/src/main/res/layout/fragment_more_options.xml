@@ -7,6 +7,14 @@
     android:orientation="vertical"
     android:padding="16dp"
     tools:context=".ui.masopciones.MoreOptionsFragment">
+    <Button
+        android:id="@+id/button_history"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Historial de Movimientos"
+        android:layout_marginTop="16dp"
+        app:icon="@drawable/historial"/>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonNavToAjustes"

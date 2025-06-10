@@ -9,7 +9,8 @@ import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentMoreOptionsBinding
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.archived.ArchivedProductsFragment
-import com.cesar.bocana.ui.printing.PrintLabelMainFragment // Importar el nuevo fragmento
+import com.cesar.bocana.ui.printing.PrintLabelMainFragment
+import com.cesar.bocana.ui.history.HistoryFragment
 
 class MoreOptionsFragment : Fragment() {
 
@@ -46,6 +47,13 @@ class MoreOptionsFragment : Fragment() {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.nav_host_fragment_content_main, PrintLabelMainFragment())
                 .addToBackStack("PrintLabelMainFragment")
+                .commit()
+        }
+        binding.buttonHistory.setOnClickListener {
+            val historyFragment = HistoryFragment()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, historyFragment)
+                .addToBackStack(null)
                 .commit()
         }
 
