@@ -186,7 +186,7 @@ class PrintLabelLayoutFragment : Fragment() {
                 QRGenerator.generate("https://bocana.netlify.app/qr.html?id=${data.productId}", 150, 'S')
             } else null
             val qrM = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) {
-                QRGenerator.generate("bocana-app-movements://${data.productId}", 150, 'M')
+                QRGenerator.generate("https://bocana.netlify.app/movimiento/${data.productId}", 150, 'M')
             } else null
             qrS to qrM
         }

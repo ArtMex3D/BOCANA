@@ -37,17 +37,18 @@
     <activity
         android:name=".ui.main.MainActivity"
         android:exported="true"
-        android:launchMode="singleTop" android:theme="@style/Theme.Bocana">
+        android:launchMode="singleTop"
+        android:theme="@style/Theme.Bocana">
 
-        <intent-filter>
+        <intent-filter android:autoVerify="true">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="bocana-app-movements" android:host="movimiento" />
+            <!-- Le decimos a Android que somos dueños de este tipo de enlace -->
+            <data android:scheme="https" android:host="bocana.netlify.app" android:pathPrefix="/movimiento" />
         </intent-filter>
 
     </activity>
-
     <service
         android:name=".services.MyFirebaseMessagingService"
         android:exported="false">

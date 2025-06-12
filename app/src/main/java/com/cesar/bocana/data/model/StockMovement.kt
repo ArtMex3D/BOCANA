@@ -1,30 +1,51 @@
 package com.cesar.bocana.data.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.cesar.bocana.data.local.Converters
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
+// --- TU 'enum MovementType' RESTAURADO ---
 enum class MovementType {
     COMPRA,
     SALIDA_CONSUMO,
     SALIDA_DEVOLUCION,
     TRASPASO_M_C04,
     TRASPASO_C04_M,
-    AJUSTE_STOCK_C04, // Este es para el ajuste del botón "Editar C04" que reduce stock
-    SALIDA_CONSUMO_C04, // **NUEVO TIPO AÑADIDO** para un consumo directo desde C04 si es diferente a AJUSTE_STOCK_C04
-    AJUSTE_MANUAL
+    AJUSTE_STOCK_C04,
+    SALIDA_CONSUMO_C04,
+    AJUSTE_MANUAL,
+    // Tipos que yo había propuesto, se mantienen por si los usas en algún lugar
+    DEVOLUCION_PROVEEDOR,
+    DEVOLUCION_CLIENTE,
+    AJUSTE_POSITIVO,
+    AJUSTE_NEGATIVO,
+    BAJA_PRODUCTO
 }
 
+// --- TU 'object Location' RESTAURADO ---
 object Location {
     const val MATRIZ = "MATRIZ"
     const val CONGELADOR_04 = "CONGELADOR_04"
     const val PROVEEDOR = "PROVEEDOR"
-    const val EXTERNO = "EXTERNO" // Para salidas generales por consumo o devolución
-    const val AJUSTE = "AJUSTE" // Para movimientos de ajuste que no tienen un origen/destino físico claro
+    const val EXTERNO = "EXTERNO"
+    const val AJUSTE = "AJUSTE"
 }
 
+/**
+ * TU data class StockMovement, ahora con las etiquetas que Room necesita
+ * para guardarla en la base de datos local.
+ * NO se ha cambiado ningún nombre de campo.
+ */
+@Entity(tableName = "stock_movements")
+@TypeConverters(Converters::class) // Le dice a Room cómo manejar Date y MovementType
 data class StockMovement(
+    @PrimaryKey
     @DocumentId
+
     val id: String = "",
     @ServerTimestamp
     val timestamp: Date? = null,
@@ -32,16 +53,19 @@ data class StockMovement(
     val userName: String = "",
     val productId: String = "",
     val productName: String = "",
+
+    // Se mantiene tu enum original
     val type: MovementType = MovementType.AJUSTE_MANUAL,
-    val quantity: Double = 0.0, // Siempre positivo para COMPRA, SALIDA, TRASPASO. Para AJUSTE, puede ser +/-.
-    val locationFrom: String? = null, // Ej: MATRIZ, CONGELADOR_04, PROVEEDOR, AJUSTE
-    val locationTo: String? = null,   // Ej: MATRIZ, CONGELADOR_04, EXTERNO, AJUSTE
-    val reason: String? = null, // Ej: "Lotes afectados: abc:10, def:5 | Motivo: Merma"
+
+    val quantity: Double = 0.0,
+    val locationFrom: String? = null,
+    val locationTo: String? = null,
+    val reason: String? = null,
     val stockAfterMatriz: Double? = null,
     val stockAfterCongelador04: Double? = null,
     val stockAfterTotal: Double? = null
 ) {
-    // Constructor vacío para Firestore
+    // Tu constructor vacío original para Firestore
     constructor() : this(
         id = "", timestamp = null, userId = "", userName = "", productId = "", productName = "",
         type = MovementType.AJUSTE_MANUAL, quantity = 0.0, locationFrom = null, locationTo = null,

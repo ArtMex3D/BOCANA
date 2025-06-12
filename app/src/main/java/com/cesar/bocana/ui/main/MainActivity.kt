@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
+import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 
 class MainActivity : AppCompatActivity() {
 
@@ -112,65 +113,26 @@ class MainActivity : AppCompatActivity() {
         if (intent?.action != Intent.ACTION_VIEW) return
 
         val uri = intent.data
-        if (uri != null && uri.scheme == "bocana-app-movements" && uri.host == "movimiento") {
-            val productId = uri.getQueryParameter("productoId")
-            if (!productId.isNullOrEmpty()) {
-                Log.d(TAG, "Deep Link recibido para producto ID: $productId")
-
-                // Limpiar el intent para que no se procese de nuevo al girar la pantalla
-                setIntent(Intent())
-
-                // Asegurarnos de estar en el fragmento de productos
-                binding.bottomNavigation.selectedItemId = R.id.navigation_productos
-
-                // Esperamos un momento para que el fragmento se cargue y luego mostramos el diálogo
-                lifecycleScope.launch {
-                    kotlinx.coroutines.delay(250) // Pequeña demora para asegurar la transición del fragmento
-                    showProductActionsDialog(productId)
-                }
+        // Verificamos si es un enlace HTTPS de nuestro dominio
+        if (uri != null && uri.scheme == "https" && uri.host == "bocana.netlify.app") {
+            val pathSegments = uri.pathSegments
+            // El formato es /movimiento/ID_PRODUCTO
+            if (pathSegments.size == 2 && pathSegments[0] == "movimiento") {
+                val productId = pathSegments[1]
+                Log.d("MainActivity", "App Link recibido para ID: $productId")
+                setIntent(Intent()) // Limpiar el intent
+                navigateToQuickMovementPanel(productId)
             }
         }
     }
-
-    private fun showProductActionsDialog(productId: String) {
-        // Obtenemos los datos del producto para mostrar su nombre y pasarlo a las funciones de acción
-        db.collection("products").document(productId).get()
-            .addOnSuccessListener { document ->
-                if (!isFinishing && document.exists()) {
-                    val product = document.toObject(Product::class.java)
-                    if (product == null) {
-                        Toast.makeText(this, "Producto con ID $productId no encontrado.", Toast.LENGTH_SHORT).show()
-                        return@addOnSuccessListener
-                    }
-
-                    val actions = arrayOf("Salida por Consumo", "Traspaso a C-04")
-                    AlertDialog.Builder(this)
-                        .setTitle("Acción para: ${product.name}")
-                        .setItems(actions) { dialog, which ->
-                            val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-                            if (currentFragment is ProductListFragment) {
-                                // Usamos una vista raíz como 'anchor' para los popups
-                                val anchorView: View = currentFragment.view ?: binding.root
-                                when (which) {
-                                    0 -> currentFragment.onSalidaClicked(product, anchorView)
-                                    1 -> currentFragment.onTraspasoC04Clicked(product, anchorView)
-                                }
-                            } else {
-                                Toast.makeText(this, "No se pudo realizar la acción. Intenta desde la lista de productos.", Toast.LENGTH_LONG).show()
-                            }
-                            dialog.dismiss()
-                        }
-                        .setNegativeButton("Cancelar", null)
-                        .show()
-                } else {
-                    Toast.makeText(this, "Producto no encontrado.", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .addOnFailureListener {
-                Toast.makeText(this, "Error al buscar producto: ${it.message}", Toast.LENGTH_SHORT).show()
-            }
+    // --- ESTA FUNCIÓN REEMPLAZA AL ANTIGUO `showProductActionsDialog` ---
+    private fun navigateToQuickMovementPanel(productId: String) {
+        val fragment = QuickMovementFragment.newInstance(productId)
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, fragment)
+            .addToBackStack(null) // Para poder volver atrás con el botón de retroceso
+            .commit()
     }
-
     private fun setupBottomNavigation() {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             var selectedFragment: Fragment? = null

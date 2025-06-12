@@ -1,8 +1,10 @@
 [versions]
 agp = "8.9.1" # Usa la versión del Android Gradle Plugin que corresponda a tu Android Studio
+itext7Core = "7.2.5"
 kotlin = "1.9.22" # Usa una versión de Kotlin compatible
 coreKtx = "1.13.1"
 appcompat = "1.7.0"
+layout = "7.2.5"
 material = "1.12.0"
 constraintlayout = "2.1.4"
 lifecycle = "2.8.2" # Para ViewModel, LiveData
@@ -14,9 +16,14 @@ junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
 espressoCore = "3.6.1"
 kotlinParcelize = "1.9.23"
-
+kotlinKapt = "1.9.23"
+room = "2.6.1"
 
 [libraries]
+
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
@@ -30,6 +37,8 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" } # No necesita version, la toma del BoM
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" } # No necesita version
+itext7-core = { module = "com.itextpdf:itext7-core", version.ref = "itext7Core" }
+layout = { module = "com.itextpdf:layout", version.ref = "layout" }
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" } # Google Sign-In
 
 # Testing
@@ -38,6 +47,7 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 
 [plugins]
+kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlinKapt" }
 kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlinParcelize" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

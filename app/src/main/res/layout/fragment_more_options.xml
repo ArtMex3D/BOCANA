@@ -26,6 +26,15 @@
         app:icon="@drawable/ic_settings" />
 
     <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToReportGenerator"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Generar Reporte PDF"
+        app:icon="@drawable/pdf"
+        android:layout_marginBottom="8dp"/>
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonNavToArchivedProducts"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"

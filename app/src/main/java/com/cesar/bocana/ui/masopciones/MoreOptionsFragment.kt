@@ -42,6 +42,13 @@ class MoreOptionsFragment : Fragment() {
                 .commit()
         }
 
+        binding.buttonNavToReportGenerator.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, com.cesar.bocana.ui.report.ReportConfigFragment())
+                .addToBackStack("ReportConfigFragment")
+                .commit()
+        }
+
         // Listener para el nuevo botón
         binding.buttonNavToPrintLabelsFeature.setOnClickListener {
             parentFragmentManager.beginTransaction()

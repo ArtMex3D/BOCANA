@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.google.gms.google.services)
     alias(libs.plugins.kotlin.parcelize)
+    alias(libs.plugins.kotlin.kapt)
 }
 
 android {
@@ -58,6 +59,8 @@ android {
 
 dependencies {
 
+
+
     implementation ("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation ("com.airbnb.android:lottie:5.2.0")
@@ -66,12 +69,21 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")
     implementation("com.google.android.gms:play-services-base:18.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation ("com.itextpdf:itext7-core:7.2.5")
+    implementation ("com.itextpdf:layout:7.2.5")
+    implementation("com.itextpdf:pdfa:7.2.5")
+    implementation (libs.itext7.core)
+    implementation (libs.layout)
 
     // === Core Android & UI ===
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    kapt(libs.androidx.room.compiler)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.material)
     implementation(libs.androidx.constraintlayout)
+
 
     // implementation(libs.androidx.lifecycle.viewmodel.ktx)
     // implementation(libs.androidx.lifecycle.livedata.ktx)
