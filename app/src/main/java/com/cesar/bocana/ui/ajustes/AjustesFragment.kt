@@ -461,7 +461,8 @@ class AjustesFragment : Fragment(), MenuProvider {
                 stockAfterMatriz = nuevoStockMatriz,
                 stockAfterCongelador04 = nuevoStockCongelador04,
                 stockAfterTotal = nuevoTotalStock,
-                timestamp = Date()
+                timestamp = Date(),
+                affectedLotIds = listOf(loteAActualizar.id)
             )
             transaction.set(newMovementRef, movement)
             productoDespuesDelAjuste = currentProduct.copy(

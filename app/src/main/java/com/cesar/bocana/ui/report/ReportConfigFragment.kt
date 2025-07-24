@@ -121,6 +121,7 @@ class ReportConfigFragment : Fragment() {
         productAdapter.submitList(filteredList)
     }
 
+    // --- FUNCIÓN CORREGIDA ---
     private fun showDateRangePicker() {
         val datePicker = MaterialDatePicker.Builder.dateRangePicker()
             .setTitleText("Selecciona un rango de fechas")
@@ -128,16 +129,29 @@ class ReportConfigFragment : Fragment() {
             .build()
 
         datePicker.addOnPositiveButtonClickListener { selection ->
-            // El picker devuelve UTC, hay que ajustar a la zona horaria local
-            val utc = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            // El picker devuelve UTC. Lo ajustamos para que abarque el día completo en la zona horaria local.
+            val tz = TimeZone.getDefault()
 
-            utc.timeInMillis = selection.first
-            val startDate = utc.time
+            // Fecha de Inicio: al principio del día
+            val startCal = Calendar.getInstance(tz).apply {
+                timeInMillis = selection.first
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val startDate = startCal.time
 
-            utc.timeInMillis = selection.second
-            val endDate = utc.time
+            // Fecha de Fin: al final del día
+            val endCal = Calendar.getInstance(tz).apply {
+                timeInMillis = selection.second
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+            val endDate = endCal.time
 
-            // AQUÍ LA CORRECCIÓN: Convertimos el Pair de AndroidX a un Pair de Kotlin
             selectedDateRange = Pair(startDate, endDate)
             binding.buttonDateRange.text = "${dateFormat.format(startDate)} - ${dateFormat.format(endDate)}"
         }
@@ -152,10 +166,12 @@ class ReportConfigFragment : Fragment() {
             return
         }
 
+        // --- CAMBIO AQUÍ: Se añade la lectura del chip de "Unidad" ---
         val selectedColumns = mutableListOf<ReportColumn>()
         if(binding.chipStockMatriz.isChecked) selectedColumns.add(ReportColumn.STOCK_MATRIZ)
         if(binding.chipStockC04.isChecked) selectedColumns.add(ReportColumn.STOCK_C04)
         if(binding.chipStockTotal.isChecked) selectedColumns.add(ReportColumn.STOCK_TOTAL)
+        if(binding.checkboxColumnUnit.isChecked) selectedColumns.add(ReportColumn.UNIT) // <-- AGREGADO
         if(binding.chipLastUpdate.isChecked) selectedColumns.add(ReportColumn.ULTIMA_ACTUALIZACION)
 
         if (binding.chipConsumo.isChecked) {
@@ -181,7 +197,6 @@ class ReportConfigFragment : Fragment() {
         showLoading(true)
         lifecycleScope.launch {
             try {
-                // El contexto no puede ser nulo aqui si el fragment está añadido. Usamos requireContext()
                 ReportGenerator.generatePdf(requireContext(), config)
             } catch (e: Exception) {
                 Toast.makeText(context, "Error al generar PDF: ${e.message}", Toast.LENGTH_LONG).show()

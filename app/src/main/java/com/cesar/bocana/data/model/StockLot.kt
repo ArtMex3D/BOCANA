@@ -1,11 +1,22 @@
 package com.cesar.bocana.data.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 import kotlin.jvm.JvmField
+import androidx.room.Index
 
+@Entity(
+    tableName = "stock_lots",
+    indices = [
+        Index(value = ["productId"], unique = false),  // Para JOINs con Product
+        Index(value = ["supplierId"], unique = false)   // Para JOINs con Supplier
+    ]
+)
 data class StockLot(
+    @PrimaryKey
     @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",
@@ -31,7 +42,7 @@ data class StockLot(
 
     val originalLotId: String? = null,
     @ServerTimestamp val originalReceivedAt: Date? = null,
-    val originalSupplierId: String? = null, // CAMPO AÑADIDO
+    val originalSupplierId: String? = null,
     val originalSupplierName: String? = null,
     val originalLotNumber: String? = null
 
@@ -43,7 +54,7 @@ data class StockLot(
         lotNumber = null, expirationDate = null,
         isDepleted = false, isPackaged = false,
         originalLotId = null, originalReceivedAt = null,
-        originalSupplierId = null, // AÑADIDO AL CONSTRUCTOR VACÍO
+        originalSupplierId = null,
         originalSupplierName = null, originalLotNumber = null
     )
 }

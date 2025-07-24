@@ -151,8 +151,6 @@ class PrintLabelLayoutFragment : Fragment() {
 
         val file = File(requireContext().cacheDir, "bocana_etiquetas.pdf")
         withContext(Dispatchers.IO) {
-            // --- LÍNEA CORREGIDA ---
-            // Esta es la forma correcta de escribir el contenido del documento PDF en un archivo.
             FileOutputStream(file).use { outputStream ->
                 pdfDocument.writeTo(outputStream)
             }
@@ -192,6 +190,7 @@ class PrintLabelLayoutFragment : Fragment() {
         }
     }
 
+    // ##### INICIO DE LA FUNCIÓN MODIFICADA #####
     private fun createAndPopulateLabelView(context: Context, data: LabelData, qrS: Bitmap?, qrM: Bitmap?): View {
         val inflater = LayoutInflater.from(context)
         val view: View
@@ -199,20 +198,23 @@ class PrintLabelLayoutFragment : Fragment() {
         if (data.labelType == LabelType.DETAILED) {
             view = inflater.inflate(R.layout.layout_label_detailed, null)
             val productNameTv = view.findViewById<TextView>(R.id.label_product_name)
-            val supplierAndDateTv = view.findViewById<TextView>(R.id.label_supplier_and_date)
+            // CAMBIO: Se obtienen las referencias a los nuevos TextViews separados
+            val supplierTv = view.findViewById<TextView>(R.id.label_supplier)
+            val dateTv = view.findViewById<TextView>(R.id.label_date)
             val weightTv = view.findViewById<TextView>(R.id.label_weight)
-            val qrSIv = view.findViewById<ImageView>(R.id.label_qr_s)
+            // CAMBIO: Solo necesitamos la referencia al QR 'M'
             val qrMIv = view.findViewById<ImageView>(R.id.label_qr_m)
 
             productNameTv.text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
-            val supplierText = "Prov: ${data.supplierName ?: "N/A"}"
-            val dateText = "Fecha: ${simpleDateFormat.format(data.date)}"
-            supplierAndDateTv.text = "$supplierText\n$dateText"
+
+            // CAMBIO: Se asigna el texto directamente a cada TextView sin prefijos
+            supplierTv.text = data.supplierName ?: "PROVEEDOR"
+            dateTv.text = simpleDateFormat.format(data.date)
+
             weightTv.text = if (data.weight == "Manual") "PESO: ____________ ${data.unit ?: ""}" else "PESO: ${data.weight} ${data.unit}"
 
-            qrSIv.setImageBitmap(qrS)
             qrMIv.setImageBitmap(qrM)
-            qrSIv.visibility = if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
+            // CAMBIO: La visibilidad ahora solo depende del QR 'M'
             qrMIv.visibility = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
 
         } else { // LabelType.SIMPLE
@@ -232,6 +234,7 @@ class PrintLabelLayoutFragment : Fragment() {
         }
         return view
     }
+    // ##### FIN DE LA FUNCIÓN MODIFICADA #####
 
     private fun sharePdf(file: File) {
         if (!isAdded || !file.exists()) return

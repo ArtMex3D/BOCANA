@@ -85,8 +85,12 @@
                 app:selectionRequired="true">
 
                 <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_stock_matriz" style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stock Matriz" android:checked="true"/>
+                    android:id="@+id/chip_stock_matriz"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Stock Matriz"
+                    android:checked="true"/>
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chip_stock_c04" style="@style/Widget.MaterialComponents.Chip.Filter"
                     android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stock C-04" android:checked="true"/>
@@ -94,11 +98,26 @@
                     android:id="@+id/chip_stock_total" style="@style/Widget.MaterialComponents.Chip.Filter"
                     android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stock Total" android:checked="true"/>
                 <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_consumo" style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Consumo" android:checked="false"/>
+                    android:id="@+id/chip_consumo"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Consumo"
+                    android:checked="false"/>
                 <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_last_update" style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Última Actualización" android:checked="false"/>
+                    android:id="@+id/checkbox_column_unit"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Unidad" />
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chip_last_update"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Última Actualización"
+                    android:checked="true"/>
             </com.google.android.material.chip.ChipGroup>
 
             <!-- Sección de Fechas (condicional) -->

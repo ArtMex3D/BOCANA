@@ -9,8 +9,9 @@ import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentMoreOptionsBinding
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.archived.ArchivedProductsFragment
+import com.cesar.bocana.ui.history.AdvancedHistoryFragment
+import com.cesar.bocana.ui.history.HistoryFragment // <<<--- VOLVEMOS A IMPORTAR EL HISTORIAL ANTIGUO
 import com.cesar.bocana.ui.printing.PrintLabelMainFragment
-import com.cesar.bocana.ui.history.HistoryFragment
 
 class MoreOptionsFragment : Fragment() {
 
@@ -28,6 +29,25 @@ class MoreOptionsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Botón para el historial simple (el original)
+        binding.buttonHistory.setOnClickListener {
+            val historyFragment = HistoryFragment()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, historyFragment)
+                .addToBackStack(null)
+                .commit()
+        }
+
+        // Botón para la nueva búsqueda avanzada
+        binding.buttonAdvancedHistory.setOnClickListener {
+            val advancedHistoryFragment = AdvancedHistoryFragment()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, advancedHistoryFragment)
+                .addToBackStack(null)
+                .commit()
+        }
+
+        // --- Resto de los botones sin cambios ---
         binding.buttonNavToAjustes.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.nav_host_fragment_content_main, AjustesFragment())
@@ -49,22 +69,12 @@ class MoreOptionsFragment : Fragment() {
                 .commit()
         }
 
-        // Listener para el nuevo botón
         binding.buttonNavToPrintLabelsFeature.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.nav_host_fragment_content_main, PrintLabelMainFragment())
                 .addToBackStack("PrintLabelMainFragment")
                 .commit()
         }
-        binding.buttonHistory.setOnClickListener {
-            val historyFragment = HistoryFragment()
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, historyFragment)
-                .addToBackStack(null)
-                .commit()
-        }
-
-
     }
 
     override fun onDestroyView() {
@@ -72,4 +82,3 @@ class MoreOptionsFragment : Fragment() {
         _binding = null
     }
 }
-

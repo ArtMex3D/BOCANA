@@ -1,45 +1,70 @@
 [versions]
-agp = "8.9.1" # Usa la versión del Android Gradle Plugin que corresponda a tu Android Studio
-itext7Core = "7.2.5"
-kotlin = "1.9.22" # Usa una versión de Kotlin compatible
+# Plugins
+agp = "8.4.1" # Versión del Android Gradle Plugin
+kotlin = "1.9.23" # Versión de Kotlin
+googleGmsGoogleServices = "4.4.2"
+
+# Librerías de AndroidX
 coreKtx = "1.13.1"
 appcompat = "1.7.0"
-layout = "7.2.5"
 material = "1.12.0"
 constraintlayout = "2.1.4"
-lifecycle = "2.8.2" # Para ViewModel, LiveData
-navigation = "2.7.7" # Para Navigation Component (si lo usas)
+lifecycle = "2.8.2"
+fragmentKtx = "1.8.0"
+room = "2.6.1"
+paging = "3.3.0" # Versión unificada para Paging 3
+
+# Firebase
 firebaseBom = "33.1.1"
 playServicesAuth = "21.2.0"
-googleGmsGoogleServices = "4.4.2" # Versión del plugin google-services
+
+# Otras librerías
+itext7 = "7.2.5"
+gson = "2.10.1"
+desugar = "2.0.4"
+
+# Testing
 junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
 espressoCore = "3.6.1"
-kotlinParcelize = "1.9.23"
-kotlinKapt = "1.9.23"
-room = "2.6.1"
 
 [libraries]
-
-androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
-androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
-androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+# AndroidX - Core y UI
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
-# androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
-# androidx-lifecycle-livedata-ktx = { group = "androidx.lifecycle", name = "lifecycle-livedata-ktx", version.ref = "lifecycle" }
-# androidx-navigation-fragment-ktx = { group = "androidx.navigation", name = "navigation-fragment-ktx", version.ref = "navigation" }
-# androidx-navigation-ui-ktx = { group = "androidx.navigation", name = "navigation-ui-ktx", version.ref = "navigation" }
+
+# AndroidX - Lifecycle & ViewModel (Esencial para arquitectura MVVM)
+androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-fragment-ktx = { group = "androidx.fragment", name = "fragment-ktx", version.ref = "fragmentKtx" }
+
+# AndroidX - Room (Base de datos local)
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-paging = { group = "androidx.room", name = "room-paging", version.ref = "room" } # Integración de Room con Paging
+
+# AndroidX - Paging 3 (Para listas eficientes y paginadas)
+androidx-paging-runtime-ktx = { group = "androidx.paging", name = "paging-runtime-ktx", version.ref = "paging" }
 
 # Firebase
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
-firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" } # No necesita version, la toma del BoM
-firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" } # No necesita version
-itext7-core = { module = "com.itextpdf:itext7-core", version.ref = "itext7Core" }
-layout = { module = "com.itextpdf:layout", version.ref = "layout" }
-play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" } # Google Sign-In
+firebase-auth-ktx = { group = "com.google.firebase", name = "firebase-auth-ktx" }
+firebase-firestore-ktx = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
+firebase-messaging-ktx = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
+firebase-analytics-ktx = { group = "com.google.firebase", name = "firebase-analytics-ktx" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version = "1.7.3" }
+
+# Utilidades
+itext7-core = { module = "com.itextpdf:itext7-core", version.ref = "itext7" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version = "4.3.0" }
+lottie = { group = "com.airbnb.android", name = "lottie", version = "5.2.0" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
+
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -47,15 +72,9 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 
 [plugins]
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlinKapt" }
-kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlinParcelize" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-# kotlin-compose = { id = "org.jetbrains.kotlin.compose", version.ref = "kotlin" }
 google-gms-google-services = { id = "com.google.gms.google-services", version.ref = "googleGmsGoogleServices" }
-# kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
+kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
 
-[bundles]
-# Puedes agrupar dependencias comunes si quieres
-# firebase = ["firebase-auth", "firebase-firestore"]
-# navigation = ["androidx-navigation-fragment-ktx", "androidx-navigation-ui-ktx"]

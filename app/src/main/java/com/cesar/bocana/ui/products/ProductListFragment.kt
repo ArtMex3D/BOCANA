@@ -1441,7 +1441,8 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                     reason = if (supplierName != null) "Compra a $supplierName" else "Compra sin proveedor",
                     stockAfterMatriz = newStockMatriz,
                     stockAfterCongelador04 = currentProduct.stockCongelador04,
-                    stockAfterTotal = newTotalStock
+                    stockAfterTotal = newTotalStock,
+                    affectedLotIds = listOf(newStockLotRef.id)
                 )
                 transaction.set(newMovementRef, movement)
 
@@ -1582,6 +1583,7 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
             var remainingToConsume = quantityToConsume
             val lotsToUpdateData = mutableMapOf<String, Map<String, Any>>()
             val affectedLotDetails = mutableListOf<String>()
+            val lotIdsToUpdate = mutableListOf<String>()
 
             for (lot in sortedLots) {
                 if (remainingToConsume <= 0.1) break
@@ -1595,6 +1597,7 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                         "currentQuantity" to newLotQuantity,
                         "isDepleted" to isNowDepleted
                     )
+                    lotIdsToUpdate.add(lot.id)
                     remainingToConsume -= quantityFromThisLot
                     affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", quantityFromThisLot)}")
                 }
@@ -1643,7 +1646,8 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                 stockAfterMatriz = newStockMatrizCalculated,
                 stockAfterCongelador04 = currentProduct.stockCongelador04,
                 stockAfterTotal = newTotalStockCalculated,
-                timestamp = Date()
+                timestamp = Date(),
+                affectedLotIds = lotIdsToUpdate.distinct()
             )
             transaction.set(newMovementRef, movement)
             // --- FIN ESCRITURAS ---
@@ -1756,6 +1760,7 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
             var remainingToDevolver = quantityToDevolver
             val lotsToUpdateData = mutableMapOf<String, Map<String, Any>>()
             val affectedLotDetails = mutableListOf<String>()
+            val lotIdsToUpdate = mutableListOf<String>()
 
             for (lot in sortedLots) {
                 if (remainingToDevolver <= 0.1) break
@@ -1769,6 +1774,7 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                         "currentQuantity" to newLotQuantity,
                         "isDepleted" to isNowDepleted
                     )
+                    lotIdsToUpdate.add(lot.id)
                     remainingToDevolver -= quantityFromThisLot
                     affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", quantityFromThisLot)}")
                 }
@@ -1813,7 +1819,8 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                 stockAfterMatriz = newStockMatrizCalculated,
                 stockAfterCongelador04 = currentProduct.stockCongelador04,
                 stockAfterTotal = newTotalStockCalculated,
-                timestamp = Date()
+                timestamp = Date(),
+                affectedLotIds = lotIdsToUpdate.distinct()
             )
             transaction.set(newMovementRef, movement)
 
@@ -2234,7 +2241,22 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
                             transaction.update(firestore.collection("inventoryLots").document(id), data)
                         }
                         transaction.update(productRef, mapOf("stockMatriz" to nuevoStockMatriz, "stockCongelador04" to nuevoStockC04, "updatedAt" to FieldValue.serverTimestamp(), "lastUpdatedByName" to currentUserName))
-                        val movement = StockMovement(id=movementId, userId=user.uid, userName=currentUserName, productId=product.id, productName=currentProduct.name, type=MovementType.TRASPASO_M_C04, quantity=quantityToTraspasarTotal, locationFrom=Location.MATRIZ, locationTo=Location.CONGELADOR_04, reason="Origen(M): ${idsLotesOrigenAfectadosConCantidad.joinToString()}; Destino(C04): ${idsLotesDestinoC04AfectadosConCantidad.joinToString()}", stockAfterMatriz=nuevoStockMatriz, stockAfterCongelador04=nuevoStockC04, stockAfterTotal=currentProduct.totalStock, timestamp=traspasoTimestamp)
+                        val movement = StockMovement(
+                            id=movementId,
+                         userId=user.uid,
+                          userName=currentUserName,
+                           productId=product.id,
+                            productName=currentProduct.name,
+                             type=MovementType.TRASPASO_M_C04, 
+                             quantity=quantityToTraspasarTotal,
+                         locationFrom=Location.MATRIZ,
+                         locationTo=Location.CONGELADOR_04, 
+                         reason="Origen(M): ${idsLotesOrigenAfectadosConCantidad.joinToString()}; Destino(C04): ${idsLotesDestinoC04AfectadosConCantidad.joinToString()}",
+                         stockAfterMatriz=nuevoStockMatriz, stockAfterCongelador04=nuevoStockC04,
+                         stockAfterTotal=currentProduct.totalStock,
+                          timestamp=traspasoTimestamp,
+                              affectedLotIds = lotesOrigenMatriz.map { it.id }
+                              )
                         transaction.set(newMovementRef, movement)
                         null
                     }.addOnSuccessListener {

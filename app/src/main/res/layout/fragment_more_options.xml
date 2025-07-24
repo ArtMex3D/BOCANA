@@ -7,22 +7,26 @@
     android:orientation="vertical"
     android:padding="16dp"
     tools:context=".ui.masopciones.MoreOptionsFragment">
-    <Button
-        android:id="@+id/button_history"
+
+    <!-- BOTÓN NUEVO AÑADIDO -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_advanced_history"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Historial de Movimientos"
-        android:layout_marginTop="16dp"
-        app:icon="@drawable/historial"/>
+        android:layout_marginTop="5dp"
+        android:text="Búsqueda Avanzada"
+        app:icon="@android:drawable/ic_menu_search"/>
+
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonNavToAjustes"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/pending_item_background"
         android:text="Ajuste Manual de Lote"
-        android:layout_marginBottom="8dp"
         app:icon="@drawable/ic_settings" />
 
     <com.google.android.material.button.MaterialButton
@@ -30,27 +34,39 @@
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:text="Generar Reporte PDF"
-        app:icon="@drawable/pdf"
-        android:layout_marginBottom="8dp"/>
+        app:icon="@drawable/pdf"/>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonNavToArchivedProducts"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/pending_item_background"
         android:text="Productos Archivados"
-        android:layout_marginBottom="8dp"
         app:icon="@drawable/guardar" />
 
-    <!-- NUEVO BOTÓN -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/buttonNavToPrintLabelsFeature"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:text="Imprimir Etiquetas"
-        app:icon="@drawable/imprimir"
-        android:layout_marginBottom="8dp"/>
+        app:icon="@drawable/imprimir"/>
 
-    </LinearLayout>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_history"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/pending_item_background"
+        android:text="Historial de Movimientos"
+        app:icon="@drawable/historial"/>
+
+
+
+
+</LinearLayout>

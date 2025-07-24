@@ -33,6 +33,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.itextpdf.kernel.colors.DeviceRgb
+import com.itextpdf.kernel.colors.Color
 
 object ReportGenerator {
 
@@ -90,11 +92,13 @@ object ReportGenerator {
             val row = mutableMapOf<ReportColumn, String>()
             row[ReportColumn.PRODUCT_NAME] = product.name
             config.columns.forEach { column ->
+                // --- CAMBIO AQUÍ: Se añade el caso para UNIT ---
                 when (column) {
                     ReportColumn.STOCK_MATRIZ -> row[column] = "%.2f".format(product.stockMatriz)
                     ReportColumn.STOCK_C04 -> row[column] = "%.2f".format(product.stockCongelador04)
                     ReportColumn.STOCK_TOTAL -> row[column] = "%.2f".format(product.totalStock)
                     ReportColumn.CONSUMO -> row[column] = "%.2f".format(consumptionData[product.id] ?: 0.0)
+                    ReportColumn.UNIT -> row[column] = product.unit // <-- AGREGADO
                     ReportColumn.ULTIMA_ACTUALIZACION -> row[column] = product.updatedAt?.let { dateTimeFormat.format(it) } ?: "N/A"
                     ReportColumn.PRODUCT_NAME -> { /* ya se agregó */ }
                 }
@@ -102,6 +106,7 @@ object ReportGenerator {
             row
         }
     }
+
 
     private suspend fun createPdfFile(context: Context, config: ReportConfig, data: List<Map<ReportColumn, String>>): File {
         return withContext(Dispatchers.IO) {
@@ -111,6 +116,22 @@ object ReportGenerator {
             val document = Document(pdfDocument, PageSize.A4)
             document.setMargins(36f, 36f, 36f, 36f)
 
+            // --- SECCIÓN DE PERSONALIZACIÓN DE COLORES ---
+            // Si quieres otro color, solo cambia los números RGB (Rojo, Verde, Azul) de 0 a 255
+            val productoHeaderBg: Color = DeviceRgb(3, 4, 94)      // Azul oscuro (#03045e)
+            val productoHeaderFont: Color = DeviceRgb(255, 255, 255) // Blanco
+
+            val totalHeaderBg: Color = DeviceRgb(3, 4, 94)          // Negro
+            val totalHeaderFont: Color = DeviceRgb(255, 255, 255)  // Verde brillante
+
+            val defaultHeaderBg: Color = DeviceGray(0.85f)         // Gris claro
+            val defaultHeaderFont: Color = DeviceRgb(0, 0, 0)      // Negro
+
+            // rosita tenue: val zebraColor: Color = DeviceRgb(255, 235, 240)
+            val zebraColor: Color = DeviceRgb(230, 240, 255)
+
+            // --- FIN DE SECCIÓN DE COLORES ---
+
             document.add(Paragraph(config.reportTitle).setTextAlignment(TextAlignment.CENTER).setBold().setFontSize(18f))
             document.add(Paragraph("Generado el: ${dateTimeFormat.format(Date())}").setTextAlignment(TextAlignment.CENTER).setFontSize(10f))
             if(config.dateRange != null && config.columns.contains(ReportColumn.CONSUMO)) {
@@ -119,22 +140,64 @@ object ReportGenerator {
                 document.add(Paragraph("").setMarginBottom(20f))
             }
 
-            val columnsInOrder = mutableListOf(ReportColumn.PRODUCT_NAME).apply { addAll(config.columns) }
-            val table = Table(UnitValue.createPercentArray(columnsInOrder.size)).useAllAvailableWidth()
+            val columnOrder = listOf(
+                ReportColumn.STOCK_MATRIZ, ReportColumn.STOCK_C04, ReportColumn.STOCK_TOTAL,
+                ReportColumn.CONSUMO, ReportColumn.UNIT, ReportColumn.ULTIMA_ACTUALIZACION
+            )
+            val sortedColumns = config.columns.filter { it != ReportColumn.PRODUCT_NAME }.sortedBy { columnOrder.indexOf(it) }
 
-            val headerColor = DeviceGray(0.75f)
-            columnsInOrder.forEach { columnType ->
-                table.addHeaderCell(Cell().add(Paragraph(columnType.title)).setBackgroundColor(headerColor).setBold())
+            val columnWidths = mutableListOf<Float>()
+            // Añadir siempre la columna de Producto primero
+            columnWidths.add(4f)
+            sortedColumns.forEach { column ->
+                when (column) {
+                    ReportColumn.UNIT -> columnWidths.add(1f)
+                    ReportColumn.ULTIMA_ACTUALIZACION -> columnWidths.add(3f)
+                    else -> columnWidths.add(2f)
+                }
             }
 
+            val table = Table(UnitValue.createPercentArray(columnWidths.toFloatArray())).useAllAvailableWidth()
+
+            // --- LÓGICA DE DIBUJADO DE CABECERAS CON ESTILOS ---
+            // 1. Cabecera "Producto" (estilo especial)
+            table.addHeaderCell(
+                Cell().add(Paragraph(ReportColumn.PRODUCT_NAME.title))
+                    .setBackgroundColor(productoHeaderBg)
+                    .setFontColor(productoHeaderFont)
+                    .setBold()
+            )
+
+            // 2. Resto de las cabeceras
+            sortedColumns.forEach { column ->
+                val headerCell = Cell().add(Paragraph(column.title)).setBold()
+                if (column == ReportColumn.STOCK_TOTAL) {
+                    // Estilo especial para "Stock Total"
+                    headerCell.setBackgroundColor(totalHeaderBg)
+                    headerCell.setFontColor(totalHeaderFont)
+                } else {
+                    // Estilo por defecto para las demás
+                    headerCell.setBackgroundColor(defaultHeaderBg)
+                    headerCell.setFontColor(defaultHeaderFont)
+                }
+                table.addHeaderCell(headerCell)
+            }
+
+            // --- DIBUJADO DE FILAS CON CEBRA MEJORADA ---
             var isZebra = false
-            val zebraColor = DeviceGray(0.95f)
             data.forEach { rowData ->
                 val bgColor = if (isZebra) zebraColor else null
-                columnsInOrder.forEach { columnType ->
-                    val cell = Cell().add(Paragraph(rowData[columnType] ?: ""))
+
+                table.addCell(Cell().add(Paragraph(rowData[ReportColumn.PRODUCT_NAME] ?: "")).also { if(bgColor!=null) it.setBackgroundColor(bgColor) })
+
+                sortedColumns.forEach { columnType ->
+                    val cellText = rowData[columnType] ?: ""
+                    val cell = Cell().add(Paragraph(cellText))
                     bgColor?.let { cell.setBackgroundColor(it) }
-                    if (columnType != ReportColumn.PRODUCT_NAME) {
+
+                    if (columnType == ReportColumn.UNIT) {
+                        cell.setTextAlignment(TextAlignment.CENTER)
+                    } else if (cellText.matches(Regex("-?\\d+(\\.\\d+)?"))) {
                         cell.setTextAlignment(TextAlignment.RIGHT)
                     }
                     table.addCell(cell)
@@ -146,7 +209,6 @@ object ReportGenerator {
             file
         }
     }
-
     private fun sharePdf(context: Context, file: File) {
         try {
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)

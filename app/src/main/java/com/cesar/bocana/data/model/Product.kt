@@ -1,15 +1,23 @@
 package com.cesar.bocana.data.model
 
 import android.os.Parcelable
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 import kotlin.jvm.JvmField
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.RawValue
+import androidx.room.Index
 
 @Parcelize
+@Entity(
+    tableName = "products",
+    indices = [Index(value = ["name"], unique = false)]  // Índice para búsqueda por nombre
+)
 data class Product(
+    @PrimaryKey
     @DocumentId
     val id: String = "",
     val name: String = "",
@@ -28,7 +36,6 @@ data class Product(
     val isActive: Boolean = true,
     @JvmField
     val requiresPackaging: Boolean = false,
-    // La anotación @RawValue es necesaria para que Parcelize ignore este campo complejo
     val labelConfig: @RawValue Map<String, Any>? = null
 ) : Parcelable {
     constructor() : this(

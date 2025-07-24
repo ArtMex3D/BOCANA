@@ -22,7 +22,7 @@ class ReportProductAdapter(
         Log.d("ReportAdapter", "setSelectedIds llamado con ${ids.size} IDs.")
         selectedProductIds.clear()
         selectedProductIds.addAll(ids)
-        notifyDataSetChanged()
+        notifyDataSetChanged() // Se usa para actualizar toda la lista de una vez
         onSelectionChanged(selectedProductIds)
     }
 
@@ -47,35 +47,28 @@ class ReportProductAdapter(
         private val nameTextView: TextView = itemView.findViewById(R.id.textview_product_name)
 
         init {
-            // Un solo listener en el contenedor de la fila es más eficiente y mejora la UX.
+            // Se asigna un listener a toda la fila para una mejor experiencia de usuario.
             itemView.setOnClickListener {
-                // Solo reaccionar si la posición es válida para evitar crashes
+                // Se asegura de que la posición del item sea válida antes de hacer algo.
                 if (adapterPosition != RecyclerView.NO_POSITION) {
                     val product = getItem(adapterPosition)
-                    toggleSelection(product)
+
+                    if (selectedProductIds.contains(product.id)) {
+                        selectedProductIds.remove(product.id)
+                    } else {
+                        selectedProductIds.add(product.id)
+                    }
+
+                    notifyItemChanged(adapterPosition)
+                    onSelectionChanged(selectedProductIds)
                 }
             }
         }
 
         fun bind(product: Product, isSelected: Boolean) {
             nameTextView.text = product.name
-            // Se asigna el estado visual del checkbox sin activar listeners
+            checkBox.isClickable = false
             checkBox.isChecked = isSelected
-        }
-
-        private fun toggleSelection(product: Product) {
-            val isCurrentlySelected = selectedProductIds.contains(product.id)
-            if (isCurrentlySelected) {
-                selectedProductIds.remove(product.id)
-                Log.d("ReportAdapter", "Producto QUITADO: ${product.name}. Total seleccionados: ${selectedProductIds.size}")
-            } else {
-                selectedProductIds.add(product.id)
-                Log.d("ReportAdapter", "Producto AÑADIDO: ${product.name}. Total seleccionados: ${selectedProductIds.size}")
-            }
-            // Notificar al fragmento sobre el cambio
-            onSelectionChanged(selectedProductIds)
-            // Actualizar la vista de este item específico para que el checkbox se redibuje
-            notifyItemChanged(adapterPosition)
         }
     }
 

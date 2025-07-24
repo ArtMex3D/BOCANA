@@ -9,7 +9,10 @@ data class User(
     val email: String = "",
     val name: String = "",
         val role: UserRole = UserRole.ADMIN,
-    val isAccountActive: Boolean = true
+    @JvmField // <--- AÑADE ESTA LÍNEA
+    val isAccountActive: Boolean = true,
+    val fcmToken: String? = null // <-- CAMPO AÑADIDO PARA SOLUCIONAR EL ERROR
+
 ) {
 
     constructor() : this("", "", "", UserRole.ADMIN, true)

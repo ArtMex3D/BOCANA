@@ -7,6 +7,7 @@ import com.cesar.bocana.data.local.Converters
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
+import androidx.room.Index
 
 // --- TU 'enum MovementType' RESTAURADO ---
 enum class MovementType {
@@ -18,7 +19,6 @@ enum class MovementType {
     AJUSTE_STOCK_C04,
     SALIDA_CONSUMO_C04,
     AJUSTE_MANUAL,
-    // Tipos que yo había propuesto, se mantienen por si los usas en algún lugar
     DEVOLUCION_PROVEEDOR,
     DEVOLUCION_CLIENTE,
     AJUSTE_POSITIVO,
@@ -26,7 +26,6 @@ enum class MovementType {
     BAJA_PRODUCTO
 }
 
-// --- TU 'object Location' RESTAURADO ---
 object Location {
     const val MATRIZ = "MATRIZ"
     const val CONGELADOR_04 = "CONGELADOR_04"
@@ -40,12 +39,19 @@ object Location {
  * para guardarla en la base de datos local.
  * NO se ha cambiado ningún nombre de campo.
  */
-@Entity(tableName = "stock_movements")
-@TypeConverters(Converters::class) // Le dice a Room cómo manejar Date y MovementType
+@Entity(
+    tableName = "stock_movements",
+    indices = [
+        Index(value = ["productId"]),
+        Index(value = ["timestamp"]),
+        Index(value = ["type"]),
+        Index(value = ["userName"]),
+        Index(value = ["supplierId"])
+    ]
+)@TypeConverters(Converters::class) // Le dice a Room cómo manejar Date y MovementType
 data class StockMovement(
     @PrimaryKey
     @DocumentId
-
     val id: String = "",
     @ServerTimestamp
     val timestamp: Date? = null,
@@ -53,22 +59,23 @@ data class StockMovement(
     val userName: String = "",
     val productId: String = "",
     val productName: String = "",
-
-    // Se mantiene tu enum original
     val type: MovementType = MovementType.AJUSTE_MANUAL,
-
     val quantity: Double = 0.0,
     val locationFrom: String? = null,
     val locationTo: String? = null,
     val reason: String? = null,
     val stockAfterMatriz: Double? = null,
     val stockAfterCongelador04: Double? = null,
-    val stockAfterTotal: Double? = null
+    val stockAfterTotal: Double? = null,
+    val affectedLotIds: List<String>? = null,
+    val supplierId: String? = null
+
 ) {
     // Tu constructor vacío original para Firestore
     constructor() : this(
         id = "", timestamp = null, userId = "", userName = "", productId = "", productName = "",
         type = MovementType.AJUSTE_MANUAL, quantity = 0.0, locationFrom = null, locationTo = null,
-        reason = null, stockAfterMatriz = null, stockAfterCongelador04 = null, stockAfterTotal = null
+        reason = null, stockAfterMatriz = null, stockAfterCongelador04 = null, stockAfterTotal = null,
+        affectedLotIds = null, supplierId = null
     )
 }

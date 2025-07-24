@@ -4,7 +4,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="12dp">
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="12dp">
 
     <View
         android:id="@+id/movement_color_indicator"
@@ -51,5 +54,20 @@
         app:layout_constraintStart_toStartOf="@id/movement_title"
         app:layout_constraintTop_toBottomOf="@id/movement_subtitle"
         tools:text="08/06/2025 a las 14:30" />
+
+    <TextView
+        android:id="@+id/movement_lots"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="12sp"
+        android:textStyle="italic"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/movement_title"
+        app:layout_constraintTop_toBottomOf="@id/movement_date"
+        tools:text="Lotes: ...a4f2, ...b7c1"
+        tools:visibility="visible" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

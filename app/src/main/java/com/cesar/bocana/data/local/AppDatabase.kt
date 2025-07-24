@@ -5,13 +5,23 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
+import com.cesar.bocana.data.model.Supplier
 
-@Database(entities = [StockMovement::class], version = 1, exportSchema = false)
+@Database(
+    entities = [StockMovement::class, Product::class, StockLot::class, Supplier::class],
+    version = 2, // Si cambias la estructura de las tablas en el futuro, deberás incrementar esta versión.
+    exportSchema = false
+)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun stockMovementDao(): StockMovementDao
+    abstract fun productDao(): ProductDao
+    abstract fun stockLotDao(): StockLotDao
+    abstract fun supplierDao(): SupplierDao
 
     companion object {
         @Volatile
@@ -24,8 +34,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bocana_database"
                 )
-                    // En una app real, aquí se añadirían migraciones.
-                    // Para desarrollo, fallbackToDestructiveMigration es útil.
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

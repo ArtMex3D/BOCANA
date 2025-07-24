@@ -6,5 +6,6 @@ enum class ReportColumn(val title: String) {
     STOCK_C04("Stock C-04"),
     STOCK_TOTAL("Stock Total"),
     CONSUMO("Consumo"),
+    UNIT("Unidad"),
     ULTIMA_ACTUALIZACION("Última Actualización")
 }
