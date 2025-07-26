@@ -16,7 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.paging.LoadState
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
-import com.cesar.bocana.data.InventoryRepository
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.MovementType
 import com.cesar.bocana.databinding.FragmentAdvancedHistoryBinding
@@ -74,7 +74,7 @@ class AdvancedHistoryFragment : Fragment() {
     private fun syncAndLoad() {
         lifecycleScope.launch {
             try {
-                repository.syncNewData()
+                repository.syncNewMovements()
                 Log.d("AdvancedHistory", "Sincronización inteligente completada.")
             } catch (e: Exception) {
                 if (isAdded) {

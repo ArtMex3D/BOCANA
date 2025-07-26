@@ -12,10 +12,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -24,16 +22,18 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.User
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.databinding.ActivityMainBinding
-import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.masopciones.MoreOptionsFragment
 import com.cesar.bocana.ui.packaging.PackagingFragment
 import com.cesar.bocana.ui.products.ProductListFragment
+import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -42,14 +42,12 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.firestore.ktx.toObject
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
-import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
     private val db = Firebase.firestore
     private var currentUserName: String? = null
+    private lateinit var repository: InventoryRepository
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
     private val LOCAL_NOTIFICATION_ID = 1001
@@ -65,10 +64,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
-            Log.d(TAG, "Permiso de notificación concedido.")
             getAndSaveFcmToken()
-        } else {
-            Log.w(TAG, "Permiso de notificación denegado.")
         }
     }
 
@@ -79,6 +75,9 @@ class MainActivity : AppCompatActivity() {
         auth = Firebase.auth
         setSupportActionBar(binding.toolbar)
 
+        val database = AppDatabase.getDatabase(applicationContext)
+        repository = InventoryRepository(database, db)
+
         createNotificationChannel()
 
         if (auth.currentUser == null) {
@@ -86,18 +85,22 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        repository.startFirestoreListeners()
+
         setupBottomNavigation()
         fetchUserInfoAndLoadInitialFragment(savedInstanceState)
         askNotificationPermission()
-
-        // Manejar el deep link si la actividad se crea desde cero
         handleDeepLink(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        repository.stopFirestoreListeners()
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        // Manejar el deep link si la actividad ya estaba abierta
-        setIntent(intent) // Actualizar el intent de la actividad
+        setIntent(intent)
         handleDeepLink(intent)
     }
 
@@ -113,26 +116,24 @@ class MainActivity : AppCompatActivity() {
         if (intent?.action != Intent.ACTION_VIEW) return
 
         val uri = intent.data
-        // Verificamos si es un enlace HTTPS de nuestro dominio
         if (uri != null && uri.scheme == "https" && uri.host == "bocana.netlify.app") {
             val pathSegments = uri.pathSegments
-            // El formato es /movimiento/ID_PRODUCTO
             if (pathSegments.size == 2 && pathSegments[0] == "movimiento") {
                 val productId = pathSegments[1]
-                Log.d("MainActivity", "App Link recibido para ID: $productId")
-                setIntent(Intent()) // Limpiar el intent
+                setIntent(Intent())
                 navigateToQuickMovementPanel(productId)
             }
         }
     }
-    // --- ESTA FUNCIÓN REEMPLAZA AL ANTIGUO `showProductActionsDialog` ---
+
     private fun navigateToQuickMovementPanel(productId: String) {
         val fragment = QuickMovementFragment.newInstance(productId)
         supportFragmentManager.beginTransaction()
             .replace(R.id.nav_host_fragment_content_main, fragment)
-            .addToBackStack(null) // Para poder volver atrás con el botón de retroceso
+            .addToBackStack(null)
             .commit()
     }
+
     private fun setupBottomNavigation() {
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             var selectedFragment: Fragment? = null
@@ -162,7 +163,6 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (selectedFragment != null) {
-                // Evitar recargar el mismo fragmento
                 val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
                 if (currentFragment?.javaClass != selectedFragment.javaClass) {
                     supportFragmentManager.beginTransaction()
@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            .addOnFailureListener { exception ->
+            .addOnFailureListener {
                 if (!isDestroyed && !isFinishing) {
                     showErrorAndLogout("Error conexión datos user.")
                 }
@@ -252,6 +252,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signOut() {
+        repository.stopFirestoreListeners()
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(getString(R.string.default_web_client_id))
             .requestEmail()
@@ -315,7 +316,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
     private suspend fun checkConditionsAndNotifyLocally() {
         val alertMessages = mutableListOf<String>()
         var lowStockCount = 0
@@ -362,7 +362,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "checkConditions - Error durante verificaciones", e)
-            alertMessages.add("Error verificando alertas")
         }
 
         if (alertMessages.isNotEmpty()) {

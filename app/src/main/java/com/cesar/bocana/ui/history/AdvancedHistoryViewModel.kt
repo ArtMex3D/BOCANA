@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.cesar.bocana.data.InventoryRepository
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.data.model.MovementType
 import com.cesar.bocana.data.model.StockMovement
 import kotlinx.coroutines.flow.*

@@ -14,7 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.cesar.bocana.data.InventoryRepository
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.databinding.FragmentHistoryBinding
 import com.cesar.bocana.ui.adapters.StockMovementAdapter
@@ -53,7 +53,7 @@ class HistoryFragment : Fragment() {
         lifecycleScope.launch {
             binding.progressBar.isVisible = true
             try {
-                repository.syncNewData()
+                repository.syncNewMovements()
                 Log.d("HistoryFragment", "Sincronización inteligente completada.")
 
                 // CORREGIDO: Se pasa 'null' para el nuevo parámetro 'lotIds'

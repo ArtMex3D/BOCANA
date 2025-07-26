@@ -9,7 +9,7 @@ import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.cesar.bocana.R
-import com.cesar.bocana.data.InventoryRepository
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.data.model.MovementType
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.databinding.ItemStockMovementBinding

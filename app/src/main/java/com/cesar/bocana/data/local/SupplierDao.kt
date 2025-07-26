@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.cesar.bocana.data.model.Supplier
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SupplierDao {
@@ -15,9 +16,6 @@ interface SupplierDao {
     @Query("DELETE FROM suppliers")
     suspend fun clearAll()
 
-    @Query("SELECT * FROM suppliers")
-    suspend fun getAllSuppliers(): List<Supplier>
-
-    @Query("SELECT * FROM suppliers WHERE name LIKE '%' || :query || '%'")
-    suspend fun findSuppliersByName(query: String): List<Supplier>
+    @Query("SELECT * FROM suppliers ORDER BY name ASC")
+    fun getAllSuppliersStream(): Flow<List<Supplier>>
 }

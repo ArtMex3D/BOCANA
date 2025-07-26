@@ -1,10 +1,14 @@
 package com.cesar.bocana.data.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
+@Entity(tableName = "pending_packaging")
 data class PendingPackagingTask(
+    @PrimaryKey
     @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",

@@ -82,7 +82,25 @@ import com.google.firebase.firestore.WriteBatch
 import java.util.Calendar
 import android.widget.DatePicker
 import android.app.DatePickerDialog
+import androidx.core.view.isVisible
+import com.cesar.bocana.data.repository.InventoryRepository
+import com.cesar.bocana.ui.ViewModelFactory
 import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
+import com.cesar.bocana.data.local.AppDatabase
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import android.view.*
+import androidx.fragment.app.viewModels
+import com.cesar.bocana.data.model.*
+import com.cesar.bocana.ui.dialogs.SalidaConsumoLotesDialogFragment
+import com.cesar.bocana.ui.dialogs.TraspasoMatrizC04DialogFragment
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.ktx.firestore
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+
 
     class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, AjusteSubloteC04DialogFragment.AjusteSubloteC04Listener {
 
@@ -97,6 +115,14 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
     private var productsListener: ListenerRegistration? = null
     private var currentUserRole: UserRole? = null
     private var isDialogOpen = false
+        private val viewModel: ProductListViewModel by viewModels {
+            ViewModelFactory(
+                InventoryRepository(
+                    AppDatabase.getDatabase(requireContext()),
+                    Firebase.firestore
+                )
+            )
+        }
 
 
         override fun onSubloteAjustado(productId: String) {
@@ -118,24 +144,35 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
+                                  savedInstanceState: Bundle?
     ): View {
         _binding = FragmentProductListBinding.inflate(inflater, container, false)
         firestore = Firebase.firestore
         auth = Firebase.auth
-        fetchCurrentUserRole { roleIsFetched ->
-            if (_binding != null && roleIsFetched) {
-                setupRecyclerView()
-                setupFab()
-                setupTabLayoutListener()
-                observeProducts()
-            } else if (_binding != null) {
-                Log.e(TAG, "No se pudo obtener el rol ADMIN en onCreateView.")
-                // Considerar mostrar un mensaje o impedir la carga de datos
-            }
+
+        fetchCurrentUserRole {
+            setupRecyclerView()
+            setupFab()
+            setupTabLayoutListener()
+            observeViewModel() // Llamamos a la nueva función para observar datos locales
         }
         return binding.root
     }
+
+        private fun observeViewModel() {
+            // Esta función reemplaza a la antigua `observeProducts`
+            showListLoading(true)
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewModel.products.collectLatest { products ->
+                    showListLoading(false)
+                    productAdapter.submitList(products)
+                    if (_binding != null) { // Chequeo de seguridad
+                        binding.textViewEmptyList.isVisible = products.isEmpty()
+                        binding.recyclerViewProducts.isVisible = products.isNotEmpty()
+                    }
+                }
+            }
+        }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -143,15 +180,14 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
         requireActivity().addMenuProvider(this, viewLifecycleOwner, Lifecycle.State.RESUMED)
         setupTabLayoutListener()
     }
-    override fun onTraspasoC04Clicked(product: Product, anchorView: View) {
-        if (isDialogOpen) {
-            Log.d(TAG, "Dialog or menu already open, ignoring Traspaso M->C04 click.")
-            return
+        override fun onTraspasoC04Clicked(product: Product, anchorView: View) {
+            if (isDialogOpen) {
+                Log.d(TAG, "Dialog or menu already open, ignoring Traspaso M->C04 click.")
+                return
+            }
+            TraspasoMatrizC04DialogFragment.newInstance(product)
+                .show(parentFragmentManager, TraspasoMatrizC04DialogFragment.TAG)
         }
-        isDialogOpen = true // Marcar que un diálogo se está abriendo
-        Log.d(TAG, "Action: Traspaso Matriz -> C04 para ${product.name}")
-        showTraspasoMatrizToC04Dialog(product)
-    }
 
     private fun showTraspasoMatrizToC04Dialog(product: Product) {
         val currentContext = context ?: run {
@@ -831,64 +867,6 @@ import com.cesar.bocana.ui.dialogs.AjusteSubloteC04DialogFragment
         }
     }
 
-
-    // --- REEMPLAZAR SOLO ESTA FUNCIÓN ---
-    private fun observeProducts() {
-        if (productsListener != null) { Log.w(TAG, "Listener de productos ya activo."); return }
-        Log.d(TAG, "Iniciando escucha de productos (orderBy name - FILTRADO EN APP)...")
-        // Usar la función correcta para mostrar el ProgressBar de la LISTA
-        showListLoading(true); // <-- CORREGIDO
-        if(_binding != null) binding.textViewEmptyList.visibility = View.GONE // Ocultar texto vacío
-
-        val query = firestore.collection("products")
-            .orderBy("name", Query.Direction.ASCENDING)
-
-        productsListener = query.addSnapshotListener { snapshots, error ->
-            if (_binding == null || !isAdded) { // Comprobar si el fragment sigue vivo
-                Log.w(TAG, "observeProducts: Snapshot recibido pero binding/fragment no válido")
-                productsListener?.remove(); productsListener = null
-                return@addSnapshotListener
-            }
-            // Usar la función correcta para ocultar el ProgressBar de la LISTA
-            showListLoading(false) // <-- CORREGIDO
-
-            if (error != null) {
-                Log.e(TAG, "Error escuchando productos", error)
-                binding.textViewEmptyList.text = "Error al cargar productos."
-                binding.textViewEmptyList.visibility = View.VISIBLE
-                binding.recyclerViewProducts.visibility = View.GONE
-                context?.let { // Usar contexto seguro para Toast
-                    if (error is FirebaseFirestoreException) {
-                        Toast.makeText(it, "Error Firestore: ${error.message}", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(it, "Error cargando productos", Toast.LENGTH_LONG).show()
-                    }
-                }
-                return@addSnapshotListener
-            }
-
-            if (snapshots != null) {
-                val allProducts = snapshots.toObjects(Product::class.java)
-                Log.d(TAG, "Snapshot recibido. Total productos: ${allProducts.size}")
-
-                val activeProducts = allProducts.filter { product -> product.isActive }
-                Log.d(TAG, "Productos activos (filtrados en app): ${activeProducts.size}")
-
-                if (::productAdapter.isInitialized) {
-                    productAdapter.submitList(activeProducts)
-                }
-                binding.textViewEmptyList.text = "No hay productos activos."
-                binding.textViewEmptyList.visibility = if (activeProducts.isEmpty()) View.VISIBLE else View.GONE
-                binding.recyclerViewProducts.visibility = if (activeProducts.isEmpty()) View.GONE else View.VISIBLE
-
-            } else {
-                Log.w(TAG, "Snapshot recibido pero es NULL")
-                binding.textViewEmptyList.text = "Error: No se recibieron datos."
-                binding.textViewEmptyList.visibility = View.VISIBLE
-                binding.recyclerViewProducts.visibility = View.GONE
-            }
-        }
-    }
 
     private fun showListLoading(isLoading: Boolean) {
         if (_binding != null) {

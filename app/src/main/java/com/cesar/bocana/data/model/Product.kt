@@ -3,6 +3,8 @@ package com.cesar.bocana.data.model
 import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.cesar.bocana.data.local.Converters
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
@@ -14,8 +16,9 @@ import androidx.room.Index
 @Parcelize
 @Entity(
     tableName = "products",
-    indices = [Index(value = ["name"], unique = false)]  // Índice para búsqueda por nombre
+    indices = [Index(value = ["name"], unique = false)]
 )
+@TypeConverters(Converters::class) // <- AÑADIMOS ESTO PARA AYUDAR A ROOM
 data class Product(
     @PrimaryKey
     @DocumentId
@@ -36,6 +39,8 @@ data class Product(
     val isActive: Boolean = true,
     @JvmField
     val requiresPackaging: Boolean = false,
+    // La anotación @RawValue es para Parcelize (navegación),
+    // el @TypeConverters que añadimos arriba es para Room (base de datos)
     val labelConfig: @RawValue Map<String, Any>? = null
 ) : Parcelable {
     constructor() : this(

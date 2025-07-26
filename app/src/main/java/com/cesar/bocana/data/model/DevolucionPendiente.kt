@@ -1,5 +1,9 @@
 package com.cesar.bocana.data.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.cesar.bocana.data.local.Converters
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
@@ -8,7 +12,10 @@ enum class DevolucionStatus {
     PENDIENTE, COMPLETADO
 }
 
+@Entity(tableName = "pending_devoluciones")
+@TypeConverters(Converters::class)
 data class DevolucionPendiente(
+    @PrimaryKey
     @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",
