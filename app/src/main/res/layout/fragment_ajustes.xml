@@ -12,27 +12,15 @@
         android:padding="16dp"
         tools:context=".ui.ajustes.AjustesFragment">
 
-        <TextView
-            android:id="@+id/textViewAjustesTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:text="Ajuste Manual"
-            android:textAlignment="center"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
-
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutAjusteProduct"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Seleccionar Producto"
+            android:hint="1. Seleccionar Producto"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewAjustesTitle">
+            app:layout_constraintTop_toTopOf="parent">
 
             <AutoCompleteTextView
                 android:id="@+id/autoCompleteTextViewAjusteProduct"
@@ -42,28 +30,14 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
-            android:id="@+id/textViewAjusteCurrentStocksProduct"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            android:visibility="gone"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteProduct"
-            tools:text="Stock Producto: Matriz=100.00 Kg, C04=50.00 Kg, Total=150.00 Kg"
-            tools:visibility="visible" />
-
-
-        <TextView
             android:id="@+id/textViewAjusteLocationLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Ubicación del lote a ajustar:"
+            android:text="2. Ubicación del lote a ajustar:"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewAjusteCurrentStocksProduct" />
+            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteProduct" />
 
         <RadioGroup
             android:id="@+id/radioGroupAjusteLocation"
@@ -97,8 +71,8 @@
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Seleccionar Lote unico"
+            android:layout_marginTop="8dp"
+            android:hint="3. Seleccionar Lote a editar"
             android:enabled="false"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -111,60 +85,82 @@
                 android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <TextView
-            android:id="@+id/textViewAjusteLoteInfo"
+        <LinearLayout
+            android:id="@+id/editFieldsContainer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            android:orientation="vertical"
+            android:layout_marginTop="24dp"
             android:visibility="gone"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
+            tools:visibility="visible"
             app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteLote"
-            tools:text="Lote Seleccionado: Rec: 10/05/24 - Prov: Juan - Actual: 50.0 Kg"
-            tools:visibility="visible" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutAjusteNewQuantity"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Nueva Cantidad EXACTA del Lote"
-            android:enabled="false"
-            app:helperText="Introduce el stock final correcto para el lote seleccionado"
-            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewAjusteLoteInfo">
+            app:layout_constraintEnd_toEndOf="parent">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextAjusteNewQuantity"
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="4. Editar Campos del Lote"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
+                android:layout_marginBottom="16dp"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutAjusteNewQuantity"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="numberDecimal" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:hint="Nueva Cantidad EXACTA">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutAjusteReason"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Motivo del Ajuste (Obligatorio)"
-            android:enabled="false"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteNewQuantity">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextAjusteNewQuantity"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextAjusteReason"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutAjusteProveedor"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textCapSentences|textMultiLine"
-                android:minLines="2"
-                android:gravity="top"/>
+                android:layout_marginTop="8dp"
+                android:hint="Nuevo Proveedor (o crear)">
 
-        </com.google.android.material.textfield.TextInputLayout>
+                <AutoCompleteTextView
+                    android:id="@+id/autoCompleteTextViewAjusteProveedor"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapWords" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonAjusteFecha"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Cambiar Fecha de Recepción"
+                app:icon="@android:drawable/ic_menu_today"/>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutAjusteReason"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Motivo del Ajuste (Obligatorio)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextAjusteReason"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapSentences|textMultiLine"
+                    android:minLines="2"
+                    android:gravity="top"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
+
 
         <Button
             android:id="@+id/buttonPerformAjuste"
@@ -175,7 +171,7 @@
             android:enabled="false"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutAjusteReason" />
+            app:layout_constraintTop_toBottomOf="@+id/editFieldsContainer" />
 
         <ProgressBar
             android:id="@+id/progressBarAjuste"

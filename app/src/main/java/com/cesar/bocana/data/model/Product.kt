@@ -18,7 +18,7 @@ import androidx.room.Index
     tableName = "products",
     indices = [Index(value = ["name"], unique = false)]
 )
-@TypeConverters(Converters::class) // <- AÑADIMOS ESTO PARA AYUDAR A ROOM
+@TypeConverters(Converters::class)
 data class Product(
     @PrimaryKey
     @DocumentId
@@ -39,8 +39,17 @@ data class Product(
     val isActive: Boolean = true,
     @JvmField
     val requiresPackaging: Boolean = false,
-    // La anotación @RawValue es para Parcelize (navegación),
-    // el @TypeConverters que añadimos arriba es para Room (base de datos)
+
+    // --- CAMPOS AÑADIDOS PARA EVITAR EL CRASH ---
+    val stockIdealC04: Double = 0.0,
+    val unidadDeEmpaque: String? = null,
+    val pesoPorUnidad: Double = 0.0,
+    val espacioExtraPDF: Double = 0.0,
+    @JvmField
+    val modoManualPDF: Boolean = false,
+    val ordenTraspaso: Int = 0,
+    val tipoDeEmpaque: String? = null,
+
     val labelConfig: @RawValue Map<String, Any>? = null
 ) : Parcelable {
     constructor() : this(
@@ -48,6 +57,8 @@ data class Product(
         stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
         createdAt = null, updatedAt = null, lastUpdatedByName = null, isActive = true,
         requiresPackaging = false,
+        stockIdealC04 = 0.0, unidadDeEmpaque = null, pesoPorUnidad = 0.0,
+        espacioExtraPDF = 0.0, modoManualPDF = false, ordenTraspaso = 0, tipoDeEmpaque = null,
         labelConfig = null
     )
 }

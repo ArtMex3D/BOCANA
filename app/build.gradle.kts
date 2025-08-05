@@ -27,10 +27,10 @@ android {
                 applicationId = "com.cesar.bocana"
                 versionNameSuffix = "-prod"
             }
-            create("dev") {
+            create("des") {
                 dimension = "environment"
-                applicationId = "com.cesar.bocana.dev"
-                versionNameSuffix = "-dev"
+                applicationId = "com.cesar.bocana.des"
+                versionNameSuffix = "-des"
             }
         }
 
@@ -43,6 +43,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
