@@ -17,8 +17,22 @@ android {
         versionCode = 5
         versionName = "5.1.15"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // El default_web_client_id ya no es necesario aquí si usas la última autenticación de Google
-        resValue("string", "default_web_client_id", "804757359228-o1kqe254ml8cfi9pd4fmeq9accvt2v4t.apps.googleusercontent.com")
+
+        flavorDimensions += "environment"
+
+        productFlavors {
+            // CORRECTO: Usar create("nombre") para cada flavor
+            create("prod") {
+                dimension = "environment"
+                applicationId = "com.cesar.bocana"
+                versionNameSuffix = "-prod"
+            }
+            create("dev") {
+                dimension = "environment"
+                applicationId = "com.cesar.bocana.dev"
+                versionNameSuffix = "-dev"
+            }
+        }
 
     }
 
