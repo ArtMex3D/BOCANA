@@ -1,222 +1,241 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/productCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="8dp"
-    android:layout_marginTop="4dp"
-    android:layout_marginEnd="8dp"
-    android:layout_marginBottom="4dp"
-    app:cardElevation="2dp">
+    android:layout_marginStart="12dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginBottom="6dp"
+    app:cardCornerRadius="15dp"
+    app:cardElevation="2dp"
+    app:strokeWidth="0dp"
+    app:strokeColor="@color/black">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp">
+        android:orientation="vertical"
+        android:padding="10dp">
 
-        <TextView
-            android:id="@+id/textViewProductName"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-            app:layout_constraintEnd_toStartOf="@+id/imageViewLowStockIndicator"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            tools:text="Nombre Producto" />
+            android:orientation="horizontal"
+            android:layout_marginBottom="5dp">
 
-        <ImageView
-            android:id="@+id/imageViewLowStockIndicator"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:src="@android:drawable/ic_dialog_alert"
-            android:visibility="gone"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@+id/textViewProductName"
-            app:layout_constraintBottom_toBottomOf="@+id/textViewProductName"
-            app:tint="@android:color/holo_orange_dark"
-            tools:visibility="visible"/>
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/textViewProductUnit"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewProductName"
-            tools:text="Kg" />
+                <TextView
+                    android:id="@+id/textViewProductName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#1e293b"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    tools:text="ALBARAN" />
 
-        <TextView
-            android:id="@+id/textViewMinStockLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="StockMin:"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewProductUnit"
-            app:layout_constraintStart_toEndOf="@+id/textViewProductUnit" />
+                <TextView
+                    android:id="@+id/textViewLocation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#64748b"
+                    android:textSize="12sp"
+                    tools:text="Congelador 04" />
+            </LinearLayout>
 
-        <TextView
-            android:id="@+id/textViewMinStockValue"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            android:textStyle="bold"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewMinStockLabel"
-            app:layout_constraintStart_toEndOf="@+id/textViewMinStockLabel"
-            tools:text="50.00" />
 
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/matriz_stock_container"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit"
-            app:layout_constraintStart_toStartOf="parent" >
-
-            <TextView
-                android:id="@+id/textViewStockMatrizLabel"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Matriz:"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                android:orientation="vertical"
+                android:gravity="end">
 
-            <TextView
-                android:id="@+id/textViewStockMatrizValue"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:id="@+id/textViewLastUpdate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#64748b"
+                    android:textSize="11sp"
+                    tools:text="Últ. act: 03/08/25" />
+
+                <TextView
+                    android:id="@+id/textViewMinStockValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#64748b"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="100.00 Bolsas" />
+            </LinearLayout>
+        </LinearLayout>
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@drawable/divider_sunken"
+            android:layout_marginTop="1dp"
+            android:layout_marginBottom="1dp" />
+
+        <LinearLayout
+            android:id="@+id/stock_row_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="3dp"
+            android:layout_marginBottom="3dp">
+
+            <LinearLayout
+                android:id="@+id/location_stock_container"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-                android:textStyle="bold"
-                app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockMatrizLabel"
-                app:layout_constraintStart_toEndOf="@+id/textViewStockMatrizLabel"
-                tools:text="150.00" />
+                android:layout_weight="1"
+                android:background="@drawable/bg_action_button"
+                android:padding="12dp"
+                android:orientation="vertical">
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+                <TextView
+                    android:id="@+id/textViewLocationStockLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#64748b"
+                    android:textSize="12sp"
+                    tools:text="Stock Matriz:"/>
 
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/c04_stock_container"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:layout_constraintTop_toBottomOf="@+id/textViewProductUnit"
-            app:layout_constraintStart_toStartOf="parent" >
-            <TextView
-                android:id="@+id/textViewStockC04Label"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:id="@+id/textViewLocationStockValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#7c3aed"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="690.00" />
+            </LinearLayout>
+
+            <View android:layout_width="12dp" android:layout_height="0dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="C-04:"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"/>
+                android:layout_weight="1"
+                android:background="@drawable/bg_stock_item"
+                android:padding="12dp"
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/textViewStockC04Value"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-                android:textStyle="bold"
-                app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockC04Label"
-                app:layout_constraintStart_toEndOf="@+id/textViewStockC04Label"
-                tools:text="50.00" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Stock Total:"
+                    android:textColor="#64748b"
+                    android:textSize="12sp" />
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+                <TextView
+                    android:id="@+id/textViewStockTotalValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#159c10"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="1000.00" />
+            </LinearLayout>
+        </LinearLayout>
 
-        <androidx.constraintlayout.widget.Barrier
-            android:id="@+id/stockLocationBarrier"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            app:barrierDirection="bottom"
-            app:constraint_referenced_ids="matriz_stock_container,c04_stock_container" />
-        <TextView
-            android:id="@+id/textViewStockTotalLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="StockTotal:"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/stockLocationBarrier" />
-        <TextView
-            android:id="@+id/textViewStockTotalValue"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-            android:textColor="@color/total_stock_green"
-            android:textStyle="bold"
-            app:layout_constraintBaseline_toBaselineOf="@+id/textViewStockTotalLabel"
-            app:layout_constraintStart_toEndOf="@+id/textViewStockTotalLabel"
-            tools:text="200.00" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@drawable/divider_sunken"
+            android:layout_marginTop="1dp"
+            android:layout_marginBottom="4dp" />
 
         <LinearLayout
             android:id="@+id/layoutActionButtons"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
             android:orientation="horizontal"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textViewStockTotalValue" >
+            android:visibility="gone"
+            tools:visibility="visible"
+            android:gravity="center">
 
-            <ImageButton
+            <Button
                 android:id="@+id/buttonAddCompra"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Registrar Compra"
-                android:src="@android:drawable/ic_input_add"
-                app:tint="#195200" />
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Compra"
+                android:textColor="#319200"
+                android:textSize="8sp"
+                app:icon="@drawable/cart"
+                app:iconTint="#319200"
+                app:iconGravity="textTop"/>
 
-            <ImageButton
+            <Button
                 android:id="@+id/buttonAddSalida"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Registrar Salida"
-                android:src="@drawable/remove_24"
-                app:tint="@android:color/holo_red_dark" />
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Salida"
+                android:textColor="#A80000"
+                android:textSize="8sp"
+                app:icon="@drawable/ic_sign_out"
+                app:iconTint="#A80000"
+                app:iconGravity="textTop"/>
 
-            <ImageButton
+            <Button
                 android:id="@+id/buttonAddTraspaso"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Traspasar a C04"
-                android:src="@drawable/traspaso"
-                app:tint="#0085B1" />
-
-            <ImageButton
-                android:id="@+id/buttonEditC04"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Ajustar Stock C04"
-                android:src="@drawable/editar"
-                app:tint="#930195" />
-
-            <ImageButton
-                android:id="@+id/buttonTraspasoC04M"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="16dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Regresar Traspaso a Matriz"
-                android:src="@drawable/traspaso"
-                app:tint="#0339DA" />
-
-
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Traspaso"
+                android:textColor="#001CA2"
+                android:textSize="8sp"
+                app:icon="@drawable/ic_exchange"
+                app:iconTint="#001CA2"
+                app:iconGravity="textTop"/>
         </LinearLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+        <LinearLayout
+            android:id="@+id/layoutActionButtonsC04"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="gone"
+            android:gravity="center">
 
+            <Button
+                android:id="@+id/buttonEditC04"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Ajustar"
+                android:textColor="#7c3aed"
+                android:textSize="8sp"
+                app:icon="@drawable/editar"
+                app:iconTint="#7c3aed"
+                app:iconGravity="textTop"/>
+
+            <Button
+                android:id="@+id/buttonTraspasoC04M"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Traspaso"
+                android:textColor="#64748b"
+                android:textSize="8sp"
+                app:icon="@drawable/traspaso"
+                app:iconTint="#64748b"
+                app:iconGravity="textTop"/>
+        </LinearLayout>
+    </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

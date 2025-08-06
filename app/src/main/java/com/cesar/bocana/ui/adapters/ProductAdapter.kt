@@ -1,8 +1,11 @@
 package com.cesar.bocana.ui.adapters
 
+import android.content.Context
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -12,6 +15,7 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
+import java.text.SimpleDateFormat
 import java.util.Locale
 
 interface ProductActionListener {
@@ -29,6 +33,7 @@ class ProductAdapter(
 ) : ListAdapter<Product, ProductAdapter.ProductViewHolder>(ProductDiffCallback()) {
 
     private var currentLocationContext: String = Location.MATRIZ
+    private val updateDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     fun setCurrentUserRole(role: UserRole?) {
         if (role != currentUserRole) {
@@ -36,6 +41,7 @@ class ProductAdapter(
             notifyDataSetChanged()
         }
     }
+
     fun setCurrentLocationContext(newContext: String) {
         if (newContext != currentLocationContext) {
             currentLocationContext = newContext
@@ -44,7 +50,7 @@ class ProductAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ProductViewHolder {
-        return ProductViewHolder.from(parent, currentUserRole)
+        return ProductViewHolder.from(parent, currentUserRole, updateDateFormat)
     }
 
     override fun onBindViewHolder(holder: ProductViewHolder, position: Int) {
@@ -53,89 +59,80 @@ class ProductAdapter(
 
     class ProductViewHolder private constructor(
         private val binding: ItemProductBinding,
-        private val userRole: UserRole?
+        private val userRole: UserRole?,
+        private val dateFormat: SimpleDateFormat
     ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(item: Product, listener: ProductActionListener, contextLocation: String) {
-            binding.textViewProductName.text = item.name
-            binding.textViewProductUnit.text = item.unit
-            val format = Locale.getDefault()
-            val formattedMinStock = String.format(format, "%.2f", item.minStock)
-            val formattedStockMatriz = String.format(format, "%.2f", item.stockMatriz)
-            val formattedStockC04 = String.format(format, "%.2f", item.stockCongelador04)
-            val formattedTotalStock = String.format(format, "%.2f", item.totalStock)
-
-            binding.textViewMinStockValue.text = formattedMinStock
-            binding.textViewStockMatrizValue.text = formattedStockMatriz
-            binding.textViewStockC04Value.text = formattedStockC04
-            binding.textViewStockTotalValue.text = formattedTotalStock
-
-            val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
             val context = binding.root.context
-            val lowStockColor = ContextCompat.getColor(context, R.color.low_stock_red)
-            val defaultTextColor = ContextCompat.getColor(context, android.R.color.tab_indicator_text)
-            binding.textViewMinStockValue.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
-            binding.textViewMinStockLabel.setTextColor(if (isLowStock) lowStockColor else defaultTextColor)
-            binding.imageViewLowStockIndicator.visibility = if (isLowStock) View.VISIBLE else View.GONE
-            val totalStockColor = ContextCompat.getColor(context, R.color.total_stock_green)
-            binding.textViewStockTotalValue.setTextColor(totalStockColor)
-
+            val format = Locale.getDefault()
             val canModify = userRole == UserRole.ADMIN
 
-            if (contextLocation == Location.MATRIZ) {
-                binding.matrizStockContainer.visibility = View.VISIBLE
-                binding.c04StockContainer.visibility = View.GONE
-                binding.textViewStockTotalLabel.visibility = View.VISIBLE
-                binding.textViewStockTotalValue.visibility = View.VISIBLE
-
-                binding.buttonAddCompra.visibility = View.VISIBLE
-                binding.buttonAddSalida.visibility = View.VISIBLE
-                binding.buttonAddTraspaso.visibility = View.VISIBLE
-                binding.buttonEditC04.visibility = View.GONE
-                binding.buttonTraspasoC04M.visibility = View.GONE
-
-                binding.buttonAddCompra.isEnabled = canModify
-                binding.buttonAddCompra.alpha = if(canModify) 1f else 0.5f
-                binding.buttonAddSalida.isEnabled = canModify
-                binding.buttonAddSalida.alpha = if(canModify) 1f else 0.5f
-                binding.buttonAddTraspaso.isEnabled = canModify
-                binding.buttonAddTraspaso.alpha = if(canModify) 1f else 0.5f
-            } else {
-                binding.matrizStockContainer.visibility = View.GONE
-                binding.c04StockContainer.visibility = View.VISIBLE
-                binding.textViewStockTotalLabel.visibility = View.GONE
-                binding.textViewStockTotalValue.visibility = View.GONE
-
-                binding.buttonAddCompra.visibility = View.GONE
-                binding.buttonAddSalida.visibility = View.GONE
-                binding.buttonAddTraspaso.visibility = View.GONE
-                binding.buttonEditC04.visibility = View.VISIBLE
-                binding.buttonTraspasoC04M.visibility = View.VISIBLE
-
-                binding.buttonEditC04.isEnabled = canModify
-                binding.buttonEditC04.alpha = if(canModify) 1f else 0.5f
-                binding.buttonTraspasoC04M.isEnabled = canModify
-                binding.buttonTraspasoC04M.alpha = if(canModify) 1f else 0.5f
+            // --- HEADER INFO ---
+            binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
+            binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
+            item.updatedAt?.let {
+                binding.textViewLastUpdate.text = "Últ. act: ${dateFormat.format(it)}"
+            } ?: run {
+                binding.textViewLastUpdate.text = ""
             }
-            binding.buttonTraspasoC04M.setOnClickListener {
-                if(canModify && contextLocation == Location.CONGELADOR_04) { // Doble chequeo por si acaso
-                    listener.onTraspasoC04MClicked(item)
+
+            // --- MIN STOCK & WARNING ---
+            val formattedMinStock = String.format(format, "%.2f", item.minStock)
+            val minStockText = "StockMin: $formattedMinStock ${item.unit}"
+            val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
+
+            if (isLowStock) {
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#EF4444")) // Red color
+                binding.textViewMinStockValue.text = "⚠️ $minStockText"
+                if (binding.textViewMinStockValue.animation == null) {
+                    val pulse = AnimationUtils.loadAnimation(context, R.anim.pulse_warning)
+                    binding.textViewMinStockValue.startAnimation(pulse)
                 }
+            } else {
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#64748b")) // Normal color
+                binding.textViewMinStockValue.text = minStockText
+                binding.textViewMinStockValue.clearAnimation()
             }
 
-            binding.buttonAddCompra.setOnClickListener { if(canModify) listener.onAddCompraClicked(item) }
-            binding.buttonAddSalida.setOnClickListener { view -> if(canModify) listener.onSalidaClicked(item, view) }
-            binding.buttonAddTraspaso.setOnClickListener { view -> if(canModify) listener.onTraspasoC04Clicked(item, view) }
-            binding.buttonEditC04.setOnClickListener { if(canModify) listener.onEditC04Clicked(item) }
-            binding.buttonTraspasoC04M.setOnClickListener { if(canModify) listener.onTraspasoC04MClicked(item) }
+            // --- STOCK VALUES ---
+            val stockValueToShow = if (contextLocation == Location.MATRIZ) item.stockMatriz else item.stockCongelador04
+            binding.textViewLocationStockLabel.text = if (contextLocation == Location.MATRIZ) "Stock Matriz:" else "Stock C-04:"
+            binding.textViewLocationStockValue.text = String.format(format, "%.2f", stockValueToShow)
+            binding.textViewStockTotalValue.text = String.format(format, "%.2f", item.totalStock)
+
+            // --- TOGGLE ACTION BUTTONS VISIBILITY ---
+            if (contextLocation == Location.MATRIZ) {
+                binding.layoutActionButtons.visibility = View.VISIBLE
+                binding.layoutActionButtonsC04.visibility = View.GONE
+            } else { // CONGELADOR_04
+                binding.layoutActionButtons.visibility = View.GONE
+                binding.layoutActionButtonsC04.visibility = View.VISIBLE
+            }
+
+            // --- ENABLE/DISABLE BUTTONS BASED ON ROLE ---
+            val alphaValue = if (canModify) 1.0f else 0.5f
+            binding.layoutActionButtons.alpha = alphaValue
+            binding.layoutActionButtonsC04.alpha = alphaValue
+
+            // --- SET LISTENERS ---
             binding.root.setOnClickListener { listener.onItemClicked(item) }
+
+            // Matriz buttons
+            binding.buttonAddCompra.setOnClickListener { if (canModify) listener.onAddCompraClicked(item) }
+            binding.buttonAddSalida.setOnClickListener { view -> if (canModify) listener.onSalidaClicked(item, view) }
+            binding.buttonAddTraspaso.setOnClickListener { view -> if (canModify) listener.onTraspasoC04Clicked(item, view) }
+
+            // C04 buttons
+            binding.buttonEditC04.setOnClickListener { if (canModify) listener.onEditC04Clicked(item) }
+            binding.buttonTraspasoC04M.setOnClickListener { if (canModify) listener.onTraspasoC04MClicked(item) }
         }
 
         companion object {
-            fun from(parent: ViewGroup, userRole: UserRole?): ProductViewHolder {
+            fun from(parent: ViewGroup, userRole: UserRole?, dateFormat: SimpleDateFormat): ProductViewHolder {
                 val layoutInflater = LayoutInflater.from(parent.context)
                 val binding = ItemProductBinding.inflate(layoutInflater, parent, false)
-                return ProductViewHolder(binding, userRole)
+                return ProductViewHolder(binding, userRole, dateFormat)
             }
         }
     }
