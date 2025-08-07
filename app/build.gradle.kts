@@ -36,6 +36,16 @@ android {
 
     }
 
+    signingConfigs {
+        create("release") {
+            // Asegúrate de que la ruta al archivo de tu llave sea correcta
+            storeFile = file("C:/Users/artme/Desktop/escritorio/bocana_keystore.jks")
+            storePassword = "Aarj890115"
+            keyAlias = "LaBocana"
+            keyPassword = "Aarj890115"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

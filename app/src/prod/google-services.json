@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "804757359228-omjckd1v5m0d9bb2ghbmivb5emuclebf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.cesar.bocana",
+            "certificate_hash": "7f8c504a268d26bf90f86e5b7af8c72098df4398"
+          }
+        },
+        {
           "client_id": "804757359228-rdc4eeohrgd0efk3ahq4jsdnf4cdfdrm.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
