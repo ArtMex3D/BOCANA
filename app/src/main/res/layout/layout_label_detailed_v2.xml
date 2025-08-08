@@ -182,7 +182,7 @@
                 android:layout_centerVertical="true"
                 android:text="Peso:"
                 android:textColor="@android:color/black"
-                android:textSize="18sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -192,7 +192,7 @@
                 android:layout_alignParentEnd="true"
                 android:layout_centerVertical="true"
                 android:textColor="@android:color/black"
-                android:textSize="18sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 tools:text="Unidad" />
         </RelativeLayout>
@@ -204,25 +204,28 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        app:layout_constraintGuide_percent="0.30" />
+        app:layout_constraintGuide_percent="0.35" />
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_h2"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        app:layout_constraintGuide_percent="0.35" />
+        app:layout_constraintGuide_percent="0.38" />
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_h3"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        app:layout_constraintGuide_percent="0.47" />
+        app:layout_constraintGuide_percent="0.49" />
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_h4"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        app:layout_constraintGuide_percent="0.60" />
+        app:layout_constraintGuide_percent="0.59" />
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_h5"
         android:layout_width="wrap_content"
