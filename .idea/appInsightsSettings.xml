@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="com.cesar.bocana" />
-                  <option name="mobileSdkAppId" value="1:804757359228:android:d5a51161d98373fcc197f9" />
-                  <option name="projectId" value="bocana-ec3c2" />
-                  <option name="projectNumber" value="804757359228" />
+                  <option name="appId" value="com.cesar.bocana.des" />
+                  <option name="mobileSdkAppId" value="1:853707770276:android:8ee98a12528ed755389931" />
+                  <option name="projectId" value="testserver-89" />
+                  <option name="projectNumber" value="853707770276" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

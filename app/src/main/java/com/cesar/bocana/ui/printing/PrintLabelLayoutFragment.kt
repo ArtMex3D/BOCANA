@@ -11,7 +11,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
@@ -22,11 +21,9 @@ import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
-import com.cesar.bocana.data.model.QrCodeOption
 import com.cesar.bocana.databinding.FragmentPrintLabelLayoutBinding
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.CoroutineScope
@@ -71,19 +68,10 @@ class PrintLabelLayoutFragment : Fragment() {
             return
         }
 
-        availableTemplates = if (labelData?.labelType == LabelType.SIMPLE) {
-            listOf(
-                LabelTemplate("10 por hoja (2x5)", 10, 2, 280f, 158f),
-                LabelTemplate("14 por hoja (2x7)", 14, 2, 280f, 110f),
-                LabelTemplate("18 por hoja (2x9)", 18, 2, 280f, 85f)
-            )
-        } else { // DETAILED
-            listOf(
-                LabelTemplate("6 por hoja (2x3)", 6, 2, 280f, 265f),
-                LabelTemplate("8 por hoja (2x4)", 8, 2, 280f, 198f),
-                LabelTemplate("10 por hoja (2x5)", 10, 2, 280f, 158f),
-                LabelTemplate("12 por hoja (3x4)", 12, 3, 185f, 198f)
-            )
+        availableTemplates = when(labelData?.labelType) {
+            LabelType.SIMPLE -> LabelTemplates.simpleTemplates
+            LabelType.DETAILED -> LabelTemplates.detailedTemplates
+            else -> emptyList()
         }
     }
 
@@ -108,7 +96,10 @@ class PrintLabelLayoutFragment : Fragment() {
 
     private fun generateAndSharePdfWithLayoutInflation() {
         val currentLabelData = labelData ?: return
-        val currentTemplate = selectedTemplate ?: return
+        val currentTemplate = selectedTemplate ?: run {
+            Toast.makeText(context, "Por favor, selecciona una plantilla.", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         binding.progressBarLayout.visibility = View.VISIBLE
         binding.buttonGeneratePdf.isEnabled = false
@@ -136,9 +127,7 @@ class PrintLabelLayoutFragment : Fragment() {
         val page = pdfDocument.startPage(pageInfo)
         val canvas = page.canvas
 
-        val (qrBitmapS, qrBitmapM) = generateQrBitmaps(data)
-
-        val labelView = createAndPopulateLabelView(requireContext(), data, qrBitmapS, qrBitmapM)
+        val labelView = createAndPopulateLabelView(requireContext(), data)
 
         val widthSpec = View.MeasureSpec.makeMeasureSpec(template.labelWidthPt.toInt(), View.MeasureSpec.EXACTLY)
         val heightSpec = View.MeasureSpec.makeMeasureSpec(template.labelHeightPt.toInt(), View.MeasureSpec.EXACTLY)
@@ -178,63 +167,41 @@ class PrintLabelLayoutFragment : Fragment() {
         }
     }
 
-    private suspend fun generateQrBitmaps(data: LabelData): Pair<Bitmap?, Bitmap?> {
-        return withContext(Dispatchers.Default) {
-            val qrS = if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) {
-                QRGenerator.generate("https://bocana.netlify.app/qr.html?id=${data.productId}", 150, 'S')
-            } else null
-            val qrM = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) {
-                QRGenerator.generate("https://bocana.netlify.app/movimiento/${data.productId}", 150, 'M')
-            } else null
-            qrS to qrM
-        }
-    }
-
-    // ##### INICIO DE LA FUNCIÓN MODIFICADA #####
-    private fun createAndPopulateLabelView(context: Context, data: LabelData, qrS: Bitmap?, qrM: Bitmap?): View {
+    private fun createAndPopulateLabelView(context: Context, data: LabelData): View {
         val inflater = LayoutInflater.from(context)
         val view: View
 
-        if (data.labelType == LabelType.DETAILED) {
-            view = inflater.inflate(R.layout.layout_label_detailed, null)
-            val productNameTv = view.findViewById<TextView>(R.id.label_product_name)
-            // CAMBIO: Se obtienen las referencias a los nuevos TextViews separados
-            val supplierTv = view.findViewById<TextView>(R.id.label_supplier)
-            val dateTv = view.findViewById<TextView>(R.id.label_date)
-            val weightTv = view.findViewById<TextView>(R.id.label_weight)
-            // CAMBIO: Solo necesitamos la referencia al QR 'M'
-            val qrMIv = view.findViewById<ImageView>(R.id.label_qr_m)
+        when (data.labelType) {
+            LabelType.DETAILED -> {
+                view = inflater.inflate(R.layout.layout_label_detailed_v2, null)
+                view.findViewById<TextView>(R.id.label_product_name).text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
+                view.findViewById<TextView>(R.id.label_supplier).text = data.supplierName ?: "PROVEEDOR"
+                view.findViewById<TextView>(R.id.label_date).text = simpleDateFormat.format(data.date)
+                val detailTv = view.findViewById<TextView>(R.id.label_detail)
+                detailTv.text = data.detail ?: ""
+                detailTv.visibility = if (data.detail.isNullOrBlank()) View.GONE else View.VISIBLE
 
-            productNameTv.text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
+                val predefinedWeightLayout = view.findViewById<TextView>(R.id.label_weight_predefined)
+                val manualWeightLayout = view.findViewById<ViewGroup>(R.id.layout_weight_manual)
 
-            // CAMBIO: Se asigna el texto directamente a cada TextView sin prefijos
-            supplierTv.text = data.supplierName ?: "PROVEEDOR"
-            dateTv.text = simpleDateFormat.format(data.date)
-
-            weightTv.text = if (data.weight == "Manual") "PESO: ____________ ${data.unit ?: ""}" else "PESO: ${data.weight} ${data.unit}"
-
-            qrMIv.setImageBitmap(qrM)
-            // CAMBIO: La visibilidad ahora solo depende del QR 'M'
-            qrMIv.visibility = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
-
-        } else { // LabelType.SIMPLE
-            view = inflater.inflate(R.layout.layout_label_simple, null)
-            val supplierTv = view.findViewById<TextView>(R.id.label_supplier_simple)
-            val dateTv = view.findViewById<TextView>(R.id.label_date_simple)
-            val qrSIv = view.findViewById<ImageView>(R.id.label_qr_s_simple)
-            val qrMIv = view.findViewById<ImageView>(R.id.label_qr_m_simple)
-
-            supplierTv.text = data.supplierName ?: "PROVEEDOR"
-            dateTv.text = simpleDateFormat.format(data.date)
-
-            qrSIv.setImageBitmap(qrS)
-            qrMIv.setImageBitmap(qrM)
-            qrSIv.visibility = if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
-            qrMIv.visibility = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
+                if (data.weight == "Manual") {
+                    predefinedWeightLayout.visibility = View.GONE
+                    manualWeightLayout.visibility = View.VISIBLE
+                    manualWeightLayout.findViewById<TextView>(R.id.label_weight_manual_unit).text = data.unit ?: ""
+                } else {
+                    predefinedWeightLayout.visibility = View.VISIBLE
+                    manualWeightLayout.visibility = View.GONE
+                    predefinedWeightLayout.text = "PESO: ${data.weight ?: ""} ${data.unit ?: ""}"
+                }
+            }
+            LabelType.SIMPLE -> {
+                view = inflater.inflate(R.layout.layout_label_simple, null)
+                view.findViewById<TextView>(R.id.label_supplier_simple).text = data.supplierName ?: "PROVEEDOR"
+                view.findViewById<TextView>(R.id.label_date_simple).text = simpleDateFormat.format(data.date)
+            }
         }
         return view
     }
-    // ##### FIN DE LA FUNCIÓN MODIFICADA #####
 
     private fun sharePdf(file: File) {
         if (!isAdded || !file.exists()) return

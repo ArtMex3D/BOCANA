@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
 
-<item
-    android:id="@+id/navigation_productos"
-    android:icon="@drawable/home"
-    android:title="Stocks" />
+    <item
+        android:id="@+id/navigation_productos"
+        android:icon="@drawable/home"
+        android:title="Stocks" />
 
-<item
-    android:id="@+id/navigation_proveedores"
-    android:icon="@drawable/ic_manage_users"
-    android:title="Proveedores"/>
+    <item
+        android:id="@+id/navigation_proveedores"
+        android:icon="@drawable/ic_manage_users"
+        android:title="Proveedores"/>
 
-<item
-    android:id="@+id/navigation_empaque"
-    android:icon="@drawable/pendiente"
-    android:title="Empacar"/>
+    <item
+        android:id="@+id/navigation_empaque"
+        android:icon="@drawable/pendiente"
+        android:title="Empacar"/>
 
-<item
-    android:id="@+id/navigation_devoluciones"
-    android:icon="@drawable/devolucion"
-    android:title="Devolución"/>
+    <item
+        android:id="@+id/navigation_etiquetas"
+        android:icon="@drawable/imprimir"
+        android:title="Etiquetas"/>
 
-<item
-    android:id="@+id/navigation_mas_opciones"
-    android:icon="@drawable/mas"
-    android:title="Más..."/>
+    <item
+        android:id="@+id/navigation_mas_opciones"
+        android:icon="@drawable/mas"
+        android:title="Más..."/>
 
 </menu>

@@ -9,6 +9,7 @@ import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentMoreOptionsBinding
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.archived.ArchivedProductsFragment
+import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment // <<<--- VOLVEMOS A IMPORTAR EL HISTORIAL ANTIGUO
 import com.cesar.bocana.ui.printing.PrintLabelMainFragment
@@ -69,10 +70,11 @@ class MoreOptionsFragment : Fragment() {
                 .commit()
         }
 
-        binding.buttonNavToPrintLabelsFeature.setOnClickListener {
+        // NUEVO: Listener para el botón de devoluciones
+        binding.buttonNavToDevoluciones.setOnClickListener {
             parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, PrintLabelMainFragment())
-                .addToBackStack("PrintLabelMainFragment")
+                .replace(R.id.nav_host_fragment_content_main, DevolucionesFragment())
+                .addToBackStack("DevolucionesFragment")
                 .commit()
         }
     }

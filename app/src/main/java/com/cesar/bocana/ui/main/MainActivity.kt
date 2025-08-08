@@ -32,6 +32,7 @@ import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.masopciones.MoreOptionsFragment
 import com.cesar.bocana.ui.packaging.PackagingFragment
+import com.cesar.bocana.ui.printing.EtiquetasMenuFragment
 import com.cesar.bocana.ui.products.ProductListFragment
 import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
@@ -152,9 +153,9 @@ class MainActivity : AppCompatActivity() {
                     selectedFragment = PackagingFragment()
                     title = "Pendiente Empacar"
                 }
-                R.id.navigation_devoluciones -> {
-                    selectedFragment = DevolucionesFragment()
-                    title = "Devoluciones"
+                R.id.navigation_etiquetas -> {
+                    selectedFragment = EtiquetasMenuFragment()
+                    title = "Etiquetas"
                 }
                 R.id.navigation_mas_opciones -> {
                     selectedFragment = MoreOptionsFragment()

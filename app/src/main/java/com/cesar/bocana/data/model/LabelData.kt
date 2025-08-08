@@ -21,5 +21,6 @@ data class LabelData(
     val supplierName: String? = null,
     val date: Date,
     val weight: String? = null,
-    val unit: String? = null
+    val unit: String? = null,
+    val detail: String? = null // NUEVO CAMPO AÑADIDO
 ) : Parcelable

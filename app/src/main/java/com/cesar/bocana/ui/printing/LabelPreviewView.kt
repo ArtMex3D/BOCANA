@@ -6,11 +6,10 @@ import android.graphics.Canvas
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.ImageView
+import android.view.ViewGroup
 import android.widget.TextView
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
-import com.cesar.bocana.data.model.QrCodeOption
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -23,7 +22,7 @@ class LabelPreviewView @JvmOverloads constructor(
     private var labelView: View? = null
 
     fun updateView(data: LabelData, qrS: Bitmap?, qrM: Bitmap?) {
-        labelView = createAndPopulateLabelView(context, data, qrS, qrM)
+        labelView = createAndPopulateLabelView(context, data)
         requestLayout()
         invalidate()
     }
@@ -44,50 +43,41 @@ class LabelPreviewView @JvmOverloads constructor(
         labelView?.draw(canvas)
     }
 
-    // ##### INICIO DE LA FUNCIÓN MODIFICADA #####
-    private fun createAndPopulateLabelView(context: Context, data: LabelData, qrS: Bitmap?, qrM: Bitmap?): View {
+    private fun createAndPopulateLabelView(context: Context, data: LabelData): View {
         val inflater = LayoutInflater.from(context)
         val simpleDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
         val view: View
 
-        if (data.labelType == LabelType.DETAILED) {
-            view = inflater.inflate(R.layout.layout_label_detailed, null)
-            val productNameTv = view.findViewById<TextView>(R.id.label_product_name)
-            // CAMBIO: Se obtienen las referencias a los nuevos TextViews separados
-            val supplierTv = view.findViewById<TextView>(R.id.label_supplier)
-            val dateTv = view.findViewById<TextView>(R.id.label_date)
-            val weightTv = view.findViewById<TextView>(R.id.label_weight)
-            // CAMBIO: Solo necesitamos la referencia al QR 'M'
-            val qrMIv = view.findViewById<ImageView>(R.id.label_qr_m)
+        when (data.labelType) {
+            LabelType.DETAILED -> {
+                view = inflater.inflate(R.layout.layout_label_detailed_v2, null)
+                view.findViewById<TextView>(R.id.label_product_name).text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
+                view.findViewById<TextView>(R.id.label_supplier).text = data.supplierName ?: "PROVEEDOR"
+                view.findViewById<TextView>(R.id.label_date).text = simpleDateFormat.format(data.date)
+                val detailTv = view.findViewById<TextView>(R.id.label_detail)
+                detailTv.text = data.detail ?: ""
+                detailTv.visibility = if (data.detail.isNullOrBlank()) View.GONE else View.VISIBLE
 
-            productNameTv.text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
+                // Lógica para mostrar el layout de peso correcto
+                val predefinedWeightLayout = view.findViewById<TextView>(R.id.label_weight_predefined)
+                val manualWeightLayout = view.findViewById<ViewGroup>(R.id.layout_weight_manual)
 
-            // CAMBIO: Se asigna el texto directamente a cada TextView sin prefijos
-            supplierTv.text = data.supplierName ?: "PROVEEDOR"
-            dateTv.text = simpleDateFormat.format(data.date)
-
-            weightTv.text = if (data.weight == "Manual") "PESO: ____________ ${data.unit ?: ""}" else "PESO: ${data.weight} ${data.unit}"
-
-            qrMIv.setImageBitmap(qrM)
-            // CAMBIO: La visibilidad ahora solo depende del QR 'M'
-            qrMIv.visibility = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
-
-        } else { // LabelType.SIMPLE
-            view = inflater.inflate(R.layout.layout_label_simple, null)
-            val supplierTv = view.findViewById<TextView>(R.id.label_supplier_simple)
-            val dateTv = view.findViewById<TextView>(R.id.label_date_simple)
-            val qrSIv = view.findViewById<ImageView>(R.id.label_qr_s_simple)
-            val qrMIv = view.findViewById<ImageView>(R.id.label_qr_m_simple)
-
-            supplierTv.text = data.supplierName ?: "PROVEEDOR"
-            dateTv.text = simpleDateFormat.format(data.date)
-
-            qrSIv.setImageBitmap(qrS)
-            qrMIv.setImageBitmap(qrM)
-            qrSIv.visibility = if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
-            qrMIv.visibility = if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) View.VISIBLE else View.GONE
+                if (data.weight == "Manual") {
+                    predefinedWeightLayout.visibility = View.GONE
+                    manualWeightLayout.visibility = View.VISIBLE
+                    manualWeightLayout.findViewById<TextView>(R.id.label_weight_manual_unit).text = data.unit ?: ""
+                } else {
+                    predefinedWeightLayout.visibility = View.VISIBLE
+                    manualWeightLayout.visibility = View.GONE
+                    predefinedWeightLayout.text = "PESO: ${data.weight ?: ""} ${data.unit ?: ""}"
+                }
+            }
+            LabelType.SIMPLE -> {
+                view = inflater.inflate(R.layout.layout_label_simple, null)
+                view.findViewById<TextView>(R.id.label_supplier_simple).text = data.supplierName ?: "PROVEEDOR"
+                view.findViewById<TextView>(R.id.label_date_simple).text = simpleDateFormat.format(data.date)
+            }
         }
         return view
     }
-    // ##### FIN DE LA FUNCIÓN MODIFICADA #####
 }

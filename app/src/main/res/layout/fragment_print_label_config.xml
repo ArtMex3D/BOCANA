@@ -44,13 +44,14 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
 
+        <!-- Campo de Producto, se ocultará para etiquetas simples -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutProduct"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:hint="Seleccionar Producto (para QR)"
+            android:hint="Seleccionar Producto"
             app:layout_constraintTop_toBottomOf="@id/previewView"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
@@ -80,6 +81,27 @@
                 android:inputType="textCapWords"/>
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- NUEVO: Campo de Detalle, se mostrará para etiquetas detalladas -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/textFieldLayoutDetail"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="Detalle (ej. 'Bolsa', 'Sin Bolsa', 'HO')"
+            android:visibility="gone"
+            tools:visibility="visible"
+            app:layout_constraintTop_toBottomOf="@id/textFieldLayoutSupplier"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editTextDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textCapSentences"/>
+        </com.google.android.material.textfield.TextInputLayout>
+
         <Button
             android:id="@+id/buttonSelectDate"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -90,10 +112,11 @@
             android:textAlignment="viewStart"
             android:paddingVertical="16dp"
             app:icon="@android:drawable/ic_menu_today"
-            app:layout_constraintTop_toBottomOf="@id/textFieldLayoutSupplier"
+            app:layout_constraintTop_toBottomOf="@id/textFieldLayoutDetail"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"/>
 
+        <!-- Sección de Peso, se ocultará para etiquetas simples -->
         <TextView
             android:id="@+id/textViewWeightLabel"
             android:layout_width="wrap_content"
@@ -175,6 +198,7 @@
             </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
+        <!-- Sección de QR, siempre oculta para los nuevos flujos -->
         <TextView
             android:id="@+id/textViewQrLabel"
             android:layout_width="wrap_content"
@@ -182,6 +206,7 @@
             android:text="Código QR en la Etiqueta:"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
             android:layout_marginTop="24dp"
+            android:visibility="gone"
             app:layout_constraintTop_toBottomOf="@id/layoutWeightAndUnit"
             app:layout_constraintStart_toStartOf="parent"/>
 
@@ -190,33 +215,12 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:visibility="gone"
             app:layout_constraintTop_toBottomOf="@id/textViewQrLabel"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
-
-            <RadioButton
-                android:id="@+id/radioQrNone"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Sin Código QR"
-                android:checked="true"/>
-            <RadioButton
-                android:id="@+id/radioQrStockWeb"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="QR de Stock (S)"/>
-            <RadioButton
-                android:id="@+id/radioQrMovementsApp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="QR de Movimientos (M)"/>
-            <RadioButton
-                android:id="@+id/radioQrBoth"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Ambos Códigos (S y M)"/>
-
-             </RadioGroup>
+            <!-- RadioButtons de QR eliminados para limpieza, ya no se usarán -->
+        </RadioGroup>
 
         <Button
             android:id="@+id/buttonConfigContinue"

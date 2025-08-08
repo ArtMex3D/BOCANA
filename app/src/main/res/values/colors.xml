@@ -14,7 +14,7 @@
     <color name="pending_item_yellow">#FFFDE7</color>
     <color name="stock_ok">#097801</color>
      <color name="low_stock_red_background">#FFEBEE</color>
-    <color name="pending_item_background">#E3F2FD</color>
+    <color name="pending_item_background">#FBBFFF</color>
     <color name="positive_green">#2E7D32</color>
     <color name="negative_red">#C62828</color>
     <color name="transfer_yellow">#FFAB00</color>

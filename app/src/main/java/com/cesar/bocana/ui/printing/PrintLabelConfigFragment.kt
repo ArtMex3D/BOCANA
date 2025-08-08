@@ -44,9 +44,6 @@ class PrintLabelConfigFragment : Fragment() {
     private var selectedProduct: Product? = null
     private val units = listOf("Kg", "Pzas", "Cajas", "Bolsas")
 
-    private var qrBitmapS: Bitmap? = null
-    private var qrBitmapM: Bitmap? = null
-
     companion object {
         private const val ARG_LABEL_TYPE = "label_type"
         fun newInstance(labelType: LabelType): PrintLabelConfigFragment {
@@ -90,8 +87,8 @@ class PrintLabelConfigFragment : Fragment() {
 
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
-            title = "Imprimir Etiquetas - Configuración"
-            subtitle = "Ajusta y previsualiza tu etiqueta"
+            title = "Configurar Etiqueta"
+            subtitle = "Ajusta y previsualiza"
         }
     }
 
@@ -99,11 +96,18 @@ class PrintLabelConfigFragment : Fragment() {
         binding.buttonSelectDate.text = dateFormat.format(Date())
         val isDetailed = labelType == LabelType.DETAILED
 
-        binding.textViewConfigTitle.text = if (isDetailed) "Configurar Etiqueta Detallada" else "Configurar Etiqueta Simple"
+        binding.textViewConfigTitle.text = if (isDetailed) "Etiqueta Detallada" else "Etiqueta Simple"
 
+        // Visibilidad de campos basada en el tipo de etiqueta
+        binding.textFieldLayoutProduct.isVisible = isDetailed
+        binding.textFieldLayoutDetail.isVisible = isDetailed
         binding.textViewWeightLabel.isVisible = isDetailed
         binding.radioGroupWeightType.isVisible = isDetailed
-        binding.layoutWeightAndUnit.isVisible = false
+        binding.layoutWeightAndUnit.isVisible = false // Se activa con el radio button
+
+        // Ocultar siempre la sección de QR
+        binding.textViewQrLabel.isVisible = false
+        binding.radioGroupQrType.isVisible = false
 
         setupUnitSpinner()
     }
@@ -127,10 +131,6 @@ class PrintLabelConfigFragment : Fragment() {
             updatePreview()
         }
 
-        binding.radioGroupQrType.setOnCheckedChangeListener { _, _ ->
-            updatePreview()
-        }
-
         val textWatcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -139,6 +139,7 @@ class PrintLabelConfigFragment : Fragment() {
             override fun afterTextChanged(s: Editable?) {}
         }
         binding.editTextSupplier.addTextChangedListener(textWatcher)
+        binding.editTextDetail.addTextChangedListener(textWatcher)
         binding.editTextWeight.addTextChangedListener(textWatcher)
         binding.autoCompleteUnit.addTextChangedListener(textWatcher)
 
@@ -198,12 +199,7 @@ class PrintLabelConfigFragment : Fragment() {
     }
 
     private fun getCurrentLabelData(): LabelData {
-        val qrOption = when (binding.radioGroupQrType.checkedRadioButtonId) {
-            R.id.radioQrStockWeb -> QrCodeOption.STOCK_WEB
-            R.id.radioQrMovementsApp -> QrCodeOption.MOVEMENTS_APP
-            R.id.radioQrBoth -> QrCodeOption.BOTH
-            else -> QrCodeOption.NONE
-        }
+        val qrOption = QrCodeOption.NONE // QR siempre deshabilitado para los nuevos flujos
 
         var weight: String? = null
         var unit: String? = null
@@ -225,50 +221,21 @@ class PrintLabelConfigFragment : Fragment() {
             supplierName = binding.editTextSupplier.text.toString().trim(),
             date = selectedDateCalendar.time,
             weight = weight,
-            unit = unit
+            unit = unit,
+            detail = binding.editTextDetail.text.toString().trim().ifEmpty { null }
         )
     }
 
     private fun updatePreview() {
         if (_binding == null) return
-
         val data = getCurrentLabelData()
-
-        lifecycleScope.launch {
-            qrBitmapS?.recycle()
-            qrBitmapM?.recycle()
-            qrBitmapS = null
-            qrBitmapM = null
-
-            if (!data.productId.isNullOrEmpty()) {
-                if (data.qrCodeOption == QrCodeOption.STOCK_WEB || data.qrCodeOption == QrCodeOption.BOTH) {
-                    qrBitmapS = withContext(Dispatchers.Default) {
-                        QRGenerator.generate("https://bocana.netlify.app/qr.html?id=${data.productId}", 150, 'S')
-                    }
-                }
-                if (data.qrCodeOption == QrCodeOption.MOVEMENTS_APP || data.qrCodeOption == QrCodeOption.BOTH) {
-                    qrBitmapM = withContext(Dispatchers.Default) {
-                        QRGenerator.generate("bocana-app-movements://${data.productId}", 150, 'M')
-                    }
-                }
-            }
-
-            // --- LLAMADA CORREGIDA ---
-            // Ahora se le pasan los 3 parámetros que la función `updateView` espera.
-            binding.previewView.updateView(data, qrBitmapS, qrBitmapM)
-        }
+        // Como no hay QR, los bitmaps siempre serán null
+        binding.previewView.updateView(data, null, null)
     }
 
     private fun validateAndNavigate() {
         val data = getCurrentLabelData()
         var isValid = true
-
-        if (data.qrCodeOption != QrCodeOption.NONE && data.productId.isNullOrEmpty()) {
-            binding.textFieldLayoutProduct.error = "Selecciona un producto para el QR"
-            isValid = false
-        } else {
-            binding.textFieldLayoutProduct.error = null
-        }
 
         if (data.supplierName.isNullOrEmpty()) {
             binding.textFieldLayoutSupplier.error = "Proveedor es obligatorio"
@@ -278,6 +245,13 @@ class PrintLabelConfigFragment : Fragment() {
         }
 
         if (data.labelType == LabelType.DETAILED) {
+            if (data.productName.isNullOrEmpty()) {
+                binding.textFieldLayoutProduct.error = "Producto es obligatorio"
+                isValid = false
+            } else {
+                binding.textFieldLayoutProduct.error = null
+            }
+
             if (data.unit.isNullOrEmpty()) {
                 binding.textFieldLayoutUnit.error = "Unidad requerida"
                 isValid = false
@@ -309,8 +283,6 @@ class PrintLabelConfigFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        qrBitmapS?.recycle()
-        qrBitmapM?.recycle()
         _binding = null
     }
 }
