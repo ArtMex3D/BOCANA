@@ -5,9 +5,10 @@
         <item name="android:navigationBarColor">@color/brand_purple</item>
     </style>
 
-    <style name="Theme.Bocana.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@drawable/splash_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
-        <item name="postSplashScreenTheme">@style/Theme.Bocana</item>
+    <style name="Theme.Bocana.SplashScreen" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/brand_purple</item>
+        <item name="android:navigationBarColor">@color/brand_purple</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>

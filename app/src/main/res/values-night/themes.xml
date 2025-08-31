@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Bocana" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/brand_purple</item>
+        <item name="android:navigationBarColor">@color/brand_purple</item>
+    </style>
+
+    <style name="Theme.Bocana.SplashScreen" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/brand_purple</item>
+        <item name="android:navigationBarColor">@color/brand_purple</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 </resources>

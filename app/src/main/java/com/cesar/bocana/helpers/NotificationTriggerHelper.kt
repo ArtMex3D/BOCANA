@@ -68,7 +68,7 @@ object NotificationTriggerHelper {
             - Stock Actual: $currentStockStr $unitStr
             - Stock Mínimo: $minStockStr $unitStr
 
-            Por favor, revisa el inventario para tomar las acciones necesarias.
+            Por favor, los productos para tomar las acciones necesarias.
             
             Fecha de Alerta: ${Date()}
         """.trimIndent()
