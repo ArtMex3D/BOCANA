@@ -162,7 +162,7 @@
             android:gravity="center"
             android:textColor="@android:color/black"
             android:textStyle="bold"
-            app:autoSizeMaxTextSize="48sp"
+            app:autoSizeMaxTextSize="38sp"
             app:autoSizeMinTextSize="20sp"
             app:autoSizeTextType="uniform"
             tools:text="50 KG" />

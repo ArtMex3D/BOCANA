@@ -5,8 +5,10 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
+import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.databinding.FragmentEtiquetasMenuBinding
 
 class EtiquetasMenuFragment : Fragment() {
@@ -24,37 +26,66 @@ class EtiquetasMenuFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setupToolbar()
+        setupListeners()
+    }
 
+    private fun setupToolbar() {
+        (activity as? AppCompatActivity)?.supportActionBar?.apply {
+            title = "Impresión de Etiquetas"
+            subtitle = "Selecciona una opción"
+            setDisplayHomeAsUpEnabled(false)
+        }
+    }
+
+    private fun setupListeners() {
+        // --- ETIQUETAS SIMPLES (CORREGIDO) ---
         binding.cardEtiquetasSimples.setOnClickListener {
-            val fragment = PrintLabelMainFragment.newInstance(LabelFlowType.SIMPLE)
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, fragment)
-                .addToBackStack(null)
-                .commit()
+            // CORRECCIÓN: Navegar a la pantalla de configuración PRIMERO,
+            // sin una plantilla preseleccionada, para que el usuario ingrese los datos.
+            navigateToConfigScreen(LabelType.SIMPLE, null)
         }
 
-        binding.cardEtiquetasFijas.setOnClickListener {
-            val fragment = PrintLabelMainFragment.newInstance(LabelFlowType.FIXED_DETAILED)
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, fragment)
-                .addToBackStack(null)
-                .commit()
+        // --- ETIQUETAS DETALLADAS FIJAS ---
+        binding.cardFijasx8.setOnClickListener {
+            val template = LabelTemplates.detailedTemplates.find { it.description.contains("8 por hoja") }
+            if (template != null) {
+                navigateToConfigScreen(LabelType.DETAILED, template)
+            }
         }
 
-        binding.cardEtiquetasVariables.setOnClickListener {
-            val fragment = PrintLabelMultiConfigFragment.newInstance()
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, fragment)
-                .addToBackStack(null)
-                .commit()
+        binding.cardFijasx6.setOnClickListener {
+            val template = LabelTemplates.detailedTemplates.find { it.description.contains("6 por hoja") }
+            if (template != null) {
+                navigateToConfigScreen(LabelType.DETAILED, template)
+            }
         }
 
+        // --- ETIQUETAS VARIABLES (FUTURO) ---
         val proximamenteListener = View.OnClickListener {
             Toast.makeText(context, "Esta función estará disponible próximamente.", Toast.LENGTH_SHORT).show()
         }
-        binding.cardQr1.setOnClickListener(proximamenteListener)
-        binding.cardQr2.setOnClickListener(proximamenteListener)
-        binding.cardQr3.setOnClickListener(proximamenteListener)
+        binding.cardEtiquetasVariablesX8.setOnClickListener(proximamenteListener)
+        binding.cardEtiquetasVariablesX6.setOnClickListener(proximamenteListener)
+        binding.cardEditableSuperDetalle.setOnClickListener(proximamenteListener)
+    }
+
+    private fun navigateToConfigScreen(type: LabelType, preselectedTemplate: LabelTemplate?) {
+        val fragment = PrintLabelConfigFragment.newInstance(type, preselectedTemplate)
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    // Esta función ya no es llamada directamente desde el menú de etiquetas simples.
+    private fun navigateToLayoutSelectionScreen(type: LabelType) {
+        val data = LabelData(labelType = type)
+        val fragment = PrintLabelLayoutFragment.newInstance(data)
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 
     override fun onDestroyView() {

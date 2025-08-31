@@ -1,7 +1,8 @@
 package com.cesar.bocana.ui.printing
 
 import android.app.DatePickerDialog
-import android.graphics.Bitmap
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -12,15 +13,17 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.data.model.Product
-import com.cesar.bocana.data.model.QrCodeOption
 import com.cesar.bocana.databinding.FragmentPrintLabelConfigBinding
+import com.cesar.bocana.ui.printing.pdf.PdfGenerator
 import com.cesar.bocana.utils.FirestoreCollections
 import com.cesar.bocana.utils.ProductFields
 import com.google.firebase.firestore.ktx.firestore
@@ -29,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -38,6 +42,7 @@ class PrintLabelConfigFragment : Fragment() {
     private val binding get() = _binding!!
 
     private var labelType: LabelType? = null
+    private var preselectedTemplate: LabelTemplate? = null
     private val selectedDateCalendar = Calendar.getInstance()
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private var productsList = listOf<Product>()
@@ -46,9 +51,12 @@ class PrintLabelConfigFragment : Fragment() {
 
     companion object {
         private const val ARG_LABEL_TYPE = "label_type"
-        fun newInstance(labelType: LabelType): PrintLabelConfigFragment {
+        private const val ARG_PRESELECTED_TEMPLATE = "preselected_template"
+
+        fun newInstance(labelType: LabelType, template: LabelTemplate? = null): PrintLabelConfigFragment {
             val args = Bundle()
             args.putSerializable(ARG_LABEL_TYPE, labelType)
+            template?.let { args.putParcelable(ARG_PRESELECTED_TEMPLATE, it) }
             val fragment = PrintLabelConfigFragment()
             fragment.arguments = args
             return fragment
@@ -59,6 +67,7 @@ class PrintLabelConfigFragment : Fragment() {
         super.onCreate(savedInstanceState)
         arguments?.let {
             labelType = it.getSerializable(ARG_LABEL_TYPE) as? LabelType
+            preselectedTemplate = it.getParcelable(ARG_PRESELECTED_TEMPLATE)
         }
     }
 
@@ -75,7 +84,9 @@ class PrintLabelConfigFragment : Fragment() {
         setupToolbar()
         setupUIForLabelType()
         setupListeners()
-        loadProducts()
+        if (labelType == LabelType.DETAILED) {
+            loadProducts()
+        }
         updatePreview()
 
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
@@ -88,7 +99,8 @@ class PrintLabelConfigFragment : Fragment() {
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
             title = "Configurar Etiqueta"
-            subtitle = "Ajusta y previsualiza"
+            subtitle = preselectedTemplate?.description ?: "Ajusta los datos"
+            setDisplayHomeAsUpEnabled(true)
         }
     }
 
@@ -97,17 +109,13 @@ class PrintLabelConfigFragment : Fragment() {
         val isDetailed = labelType == LabelType.DETAILED
 
         binding.textViewConfigTitle.text = if (isDetailed) "Etiqueta Detallada" else "Etiqueta Simple"
+        binding.buttonConfigContinue.text = if (preselectedTemplate != null) "Generar PDF" else "Continuar a Diseño"
 
-        // Visibilidad de campos basada en el tipo de etiqueta
         binding.textFieldLayoutProduct.isVisible = isDetailed
         binding.textFieldLayoutDetail.isVisible = isDetailed
         binding.textViewWeightLabel.isVisible = isDetailed
         binding.radioGroupWeightType.isVisible = isDetailed
-        binding.layoutWeightAndUnit.isVisible = false // Se activa con el radio button
-
-        // Ocultar siempre la sección de QR
-        binding.textViewQrLabel.isVisible = false
-        binding.radioGroupQrType.isVisible = false
+        binding.layoutWeightAndUnit.isVisible = false
 
         setupUnitSpinner()
     }
@@ -143,7 +151,6 @@ class PrintLabelConfigFragment : Fragment() {
         binding.editTextWeight.addTextChangedListener(textWatcher)
         binding.autoCompleteUnit.addTextChangedListener(textWatcher)
 
-
         binding.buttonConfigContinue.setOnClickListener {
             validateAndNavigate()
         }
@@ -168,11 +175,6 @@ class PrintLabelConfigFragment : Fragment() {
                 }
             } catch (e: Exception) {
                 Log.e("PrintLabelConfig", "Error cargando productos", e)
-                withContext(Dispatchers.Main) {
-                    if (context != null) {
-                        Toast.makeText(context, "Error al cargar productos", Toast.LENGTH_SHORT).show()
-                    }
-                }
             }
         }
     }
@@ -199,8 +201,6 @@ class PrintLabelConfigFragment : Fragment() {
     }
 
     private fun getCurrentLabelData(): LabelData {
-        val qrOption = QrCodeOption.NONE // QR siempre deshabilitado para los nuevos flujos
-
         var weight: String? = null
         var unit: String? = null
 
@@ -215,8 +215,6 @@ class PrintLabelConfigFragment : Fragment() {
 
         return LabelData(
             labelType = labelType!!,
-            qrCodeOption = qrOption,
-            productId = selectedProduct?.id,
             productName = selectedProduct?.name ?: binding.autoCompleteProduct.text.toString(),
             supplierName = binding.editTextSupplier.text.toString().trim(),
             date = selectedDateCalendar.time,
@@ -229,7 +227,6 @@ class PrintLabelConfigFragment : Fragment() {
     private fun updatePreview() {
         if (_binding == null) return
         val data = getCurrentLabelData()
-        // Como no hay QR, los bitmaps siempre serán null
         binding.previewView.updateView(data, null, null)
     }
 
@@ -251,14 +248,12 @@ class PrintLabelConfigFragment : Fragment() {
             } else {
                 binding.textFieldLayoutProduct.error = null
             }
-
             if (data.unit.isNullOrEmpty()) {
                 binding.textFieldLayoutUnit.error = "Unidad requerida"
                 isValid = false
             } else {
                 binding.textFieldLayoutUnit.error = null
             }
-
             if (binding.radioGroupWeightType.checkedRadioButtonId == R.id.radioButtonPredefinedWeight) {
                 if (data.weight.isNullOrEmpty() || (data.weight.toDoubleOrNull() ?: 0.0) <= 0.0) {
                     binding.textFieldLayoutWeight.error = "Peso inválido"
@@ -274,12 +269,69 @@ class PrintLabelConfigFragment : Fragment() {
             return
         }
 
-        val fragment = PrintLabelLayoutFragment.newInstance(data)
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, fragment)
-            .addToBackStack(null)
-            .commit()
+        if (preselectedTemplate != null) {
+            // CORRECCIÓN: Llamar a la función local para generar el PDF
+            generateAndSharePdf(data, preselectedTemplate!!)
+        } else {
+            val fragment = PrintLabelLayoutFragment.newInstance(data)
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, fragment)
+                .addToBackStack(null)
+                .commit()
+        }
     }
+
+    // --- NUEVAS FUNCIONES AÑADIDAS ---
+    private fun generateAndSharePdf(data: LabelData, template: LabelTemplate) {
+        val currentContext = context ?: return
+
+        binding.progressBarConfig.isVisible = true
+        binding.buttonConfigContinue.isEnabled = false
+        Toast.makeText(currentContext, "Generando PDF...", Toast.LENGTH_SHORT).show()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val pdfFile = withContext(Dispatchers.IO) {
+                    PdfGenerator.createSingleLabelPdf(currentContext, data, template)
+                }
+                sharePdf(currentContext, pdfFile)
+            } catch (e: Exception) {
+                Log.e("PDF_CRASH", "Error capturado al generar PDF", e)
+                showErrorDialog(currentContext, e)
+            } finally {
+                if (isAdded && _binding != null) {
+                    binding.progressBarConfig.isVisible = false
+                    binding.buttonConfigContinue.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun sharePdf(context: Context, file: File) {
+        if (!isAdded || !file.exists()) return
+        try {
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Compartir etiquetas PDF..."))
+        } catch (e: Exception) {
+            Log.e("SharePdf", "Error al compartir PDF", e)
+            Toast.makeText(context, "No se pudo compartir el archivo.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showErrorDialog(context: Context, e: Exception) {
+        if (!isAdded) return
+        AlertDialog.Builder(context)
+            .setTitle("¡Oops! Ocurrió un error")
+            .setMessage(e.stackTraceToString())
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+    // --- FIN DE FUNCIONES AÑADIDAS ---
 
     override fun onDestroyView() {
         super.onDestroyView()

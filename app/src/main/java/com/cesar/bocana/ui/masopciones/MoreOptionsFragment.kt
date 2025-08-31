@@ -12,7 +12,6 @@ import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment // <<<--- VOLVEMOS A IMPORTAR EL HISTORIAL ANTIGUO
-import com.cesar.bocana.ui.printing.PrintLabelMainFragment
 
 class MoreOptionsFragment : Fragment() {
 
