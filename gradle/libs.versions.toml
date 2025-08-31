@@ -59,6 +59,7 @@ play-services-auth = { group = "com.google.android.gms", name = "play-services-a
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version = "1.7.3" }
 
 # Utilidades
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.0.1" }
 itext7-core = { module = "com.itextpdf:itext7-core", version.ref = "itext7" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version = "4.3.0" }

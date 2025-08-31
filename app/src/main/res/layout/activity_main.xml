@@ -42,8 +42,8 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:menu="@menu/bottom_nav_menu"
-        app:itemTextColor="@color/intense_black"
-        app:itemIconTint="@color/intense_black"
+        app:itemTextColor="@color/pending_item_yellow"
+        app:itemIconTint="@color/purple_700"
         android:background="@color/brand_purple"
         app:labelVisibilityMode="labeled"/>
 </androidx.constraintlayout.widget.ConstraintLayout>

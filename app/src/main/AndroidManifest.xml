@@ -27,7 +27,7 @@
     <activity
         android:name=".ui.auth.LoginActivity"
         android:exported="true"
-        android:theme="@style/Theme.Bocana">
+        android:theme="@style/Theme.Bocana.Splash">
         <intent-filter>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -44,7 +44,6 @@
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
-            <!-- Le decimos a Android que somos dueños de este tipo de enlace -->
             <data android:scheme="https" android:host="bocana.netlify.app" android:pathPrefix="/movimiento" />
         </intent-filter>
 

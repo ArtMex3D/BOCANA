@@ -59,14 +59,17 @@ object NotificationTriggerHelper {
         val minStockStr = String.format(format, "%.2f", product.minStock)
         val unitStr = product.unit ?: ""
 
-        val subject = "🚨 Alerta Stock Bajo: ${product.name}"
+        val subject = "🚨 Alerta de Stock Bajo: ${product.name}"
         val messageText = """
-            ¡Alerta de Stock Bajo!
+            ¡Alerta de Inventario!
 
-            Producto: ${product.name} (ID: ${product.id})
-            Stock Actual: $currentStockStr $unitStr
-            Stock Mínimo: $minStockStr $unitStr
+            El producto '${product.name}' ha alcanzado un nivel de stock bajo.
 
+            - Stock Actual: $currentStockStr $unitStr
+            - Stock Mínimo: $minStockStr $unitStr
+
+            Por favor, revisa el inventario para tomar las acciones necesarias.
+            
             Fecha de Alerta: ${Date()}
         """.trimIndent()
 
@@ -92,14 +95,4 @@ object NotificationTriggerHelper {
             Log.e(TAG, "Error adding low stock notification request to queue for ${product.name}", e)
         }
     }
-
-    // Placeholder functions remain unchanged for now
-    suspend fun triggerOverduePackagingNotification(/* ... */) {
-        Log.d(TAG, "Placeholder: Triggering overdue packaging notification...")
-    }
-
-    suspend fun triggerPendingReturnsNotification(/* ... */) {
-        Log.d(TAG, "Placeholder: Triggering pending returns notification...")
-    }
-
 }

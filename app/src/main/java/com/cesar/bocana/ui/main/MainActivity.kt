@@ -59,7 +59,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var repository: InventoryRepository
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
-    private val LOCAL_NOTIFICATION_ID = 1001
+    // IDs únicos para cada tipo de notificación
+    private val LOW_STOCK_NOTIFICATION_ID = 1001
+    private val DEVOLUCION_NOTIFICATION_ID = 1002
+    private val PACKAGING_NOTIFICATION_ID = 1003
+
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -318,35 +322,46 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun checkConditionsAndNotifyLocally() {
-        val alertMessages = mutableListOf<String>()
-        var lowStockCount = 0
-        var foundPendingDevo = false
-        var foundOverduePack = false
-
         try {
+            // Chequeo de Stock Bajo
             val lowStockSnapshot = db.collection("products")
                 .whereEqualTo("isActive", true)
                 .get()
                 .await()
 
-            lowStockCount = lowStockSnapshot.documents.count { doc ->
+            val lowStockProducts = lowStockSnapshot.documents.mapNotNull { doc ->
                 val product = doc.toObject(Product::class.java)
-                product != null && product.minStock > 0.0 && product.totalStock <= product.minStock
+                if (product != null && product.minStock > 0.0 && product.totalStock <= product.minStock) {
+                    product
+                } else {
+                    null
+                }
             }
-            if (lowStockCount > 0) {
-                alertMessages.add("$lowStockCount prod. stock bajo")
+            if (lowStockProducts.isNotEmpty()) {
+                val title = "🚨 Alerta de Stock Bajo"
+                val content = if (lowStockProducts.size == 1) {
+                    "El producto '${lowStockProducts.first().name}' tiene stock bajo."
+                } else {
+                    "${lowStockProducts.size} productos tienen stock bajo."
+                }
+                showLocalNotification(title, content, LOW_STOCK_NOTIFICATION_ID)
             }
 
+            // Chequeo de Devoluciones Pendientes
             val pendingDevoSnapshot = db.collection("pendingDevoluciones")
                 .whereEqualTo("status", DevolucionStatus.PENDIENTE.name)
                 .limit(1)
                 .get()
                 .await()
-            foundPendingDevo = !pendingDevoSnapshot.isEmpty
-            if (foundPendingDevo) {
-                alertMessages.add("Devoluciones P.")
+            if (!pendingDevoSnapshot.isEmpty) {
+                showLocalNotification(
+                    "📝 Tienes Devoluciones Pendientes",
+                    "Hay devoluciones que requieren tu atención. Revisa la sección correspondiente.",
+                    DEVOLUCION_NOTIFICATION_ID
+                )
             }
 
+            // Chequeo de Empaques Atrasados
             val threeDaysAgoMillis = Date().time - (3 * 24 * 60 * 60 * 1000)
             val threeDaysAgoTimestamp = Timestamp(Date(threeDaysAgoMillis))
 
@@ -355,23 +370,22 @@ class MainActivity : AppCompatActivity() {
                 .limit(1)
                 .get()
                 .await()
-            foundOverduePack = !overduePackSnapshot.isEmpty
-            if (foundOverduePack) {
-                alertMessages.add("Empaque Atrasado")
+            if (!overduePackSnapshot.isEmpty) {
+                showLocalNotification(
+                    "📦 ¡Empaque Atrasado!",
+                    "Hay productos recibidos hace más de 3 días que aún no se han empacado.",
+                    PACKAGING_NOTIFICATION_ID
+                )
             }
 
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.e(TAG, "checkConditions - Error durante verificaciones", e)
         }
-
-        if (alertMessages.isNotEmpty()) {
-            val notificationText = alertMessages.joinToString(" / ")
-            showLocalNotification("Alertas Pendientes Bocana", notificationText)
-        }
     }
 
-    private fun showLocalNotification(title: String, content: String) {
+
+    private fun showLocalNotification(title: String, content: String, notificationId: Int) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 return
@@ -389,7 +403,8 @@ class MainActivity : AppCompatActivity() {
         val pendingIntent: PendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setSmallIcon(R.drawable.ic_robot_notification)
+            .setColor(ContextCompat.getColor(this, R.color.brand_purple))
             .setContentTitle(title)
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
@@ -398,7 +413,7 @@ class MainActivity : AppCompatActivity() {
             .setAutoCancel(true)
 
         try {
-            NotificationManagerCompat.from(this).notify(LOCAL_NOTIFICATION_ID, builder.build())
+            NotificationManagerCompat.from(this).notify(notificationId, builder.build())
         } catch (e: SecurityException) {
             Log.e(TAG, "SecurityException mostrando notificación.", e)
         }

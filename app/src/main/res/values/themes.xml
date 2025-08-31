@@ -2,5 +2,12 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Bocana" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:statusBarColor">@color/brand_purple</item>
+        <item name="android:navigationBarColor">@color/brand_purple</item>
+    </style>
+
+    <style name="Theme.Bocana.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@drawable/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Bocana</item>
     </style>
 </resources>
