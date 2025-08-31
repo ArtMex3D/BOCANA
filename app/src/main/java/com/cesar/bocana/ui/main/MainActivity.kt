@@ -403,7 +403,7 @@ class MainActivity : AppCompatActivity() {
         val pendingIntent: PendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_robot_notification)
+            .setSmallIcon(R.drawable.ray)
             .setColor(ContextCompat.getColor(this, R.color.brand_purple))
             .setContentTitle(title)
             .setContentText(content)
