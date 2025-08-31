@@ -8,7 +8,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.cesar.bocana.R
+import com.cesar.bocana.data.model.IndividualLabelConfig
 import com.cesar.bocana.data.model.LabelData
+import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.ui.printing.LabelTemplate
 import com.cesar.bocana.ui.printing.LabelType
 import kotlinx.coroutines.Dispatchers
@@ -23,34 +25,63 @@ object PdfGenerator {
     private const val PAGE_HEIGHT_A4_POINTS = 842
     private val simpleDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
+    // --- FUNCIÓN PARA ETIQUETAS FIJAS (EXISTENTE, MODIFICADA LIGERAMENTE) ---
     suspend fun createSingleLabelPdf(context: Context, data: LabelData, template: LabelTemplate): File {
+        return withContext(Dispatchers.IO) {
+            val pdfDocument = PdfDocument()
+            val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH_A4_POINTS, PAGE_HEIGHT_A4_POINTS, 1).create()
+            val page = pdfDocument.startPage(pageInfo)
+
+            // Convertimos el LabelData antiguo al nuevo formato para reutilizar la lógica de inflado
+            val individualConfig = data.toIndividualConfig()
+            val labelView = createAndPopulateLabelView(context, individualConfig, data.labelType)
+
+            drawLabelsOnCanvas(page.canvas, labelView, template)
+            pdfDocument.finishPage(page)
+            savePdf(context, pdfDocument)
+        }
+    }
+
+    // --- NUEVA FUNCIÓN PARA ETIQUETAS VARIABLES ---
+    suspend fun createMultiLabelPdf(context: Context, configs: List<IndividualLabelConfig?>, template: LabelTemplate): File {
         return withContext(Dispatchers.IO) {
             val pdfDocument = PdfDocument()
             val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH_A4_POINTS, PAGE_HEIGHT_A4_POINTS, 1).create()
             val page = pdfDocument.startPage(pageInfo)
             val canvas = page.canvas
 
-            val labelView = createAndPopulateLabelView(context, data)
+            for (i in configs.indices) {
+                val config = configs[i]
+                if (config != null) {
+                    val labelView = createAndPopulateLabelView(context, config, LabelType.DETAILED)
+                    val widthSpec = View.MeasureSpec.makeMeasureSpec(template.labelWidthPt.toInt(), View.MeasureSpec.EXACTLY)
+                    val heightSpec = View.MeasureSpec.makeMeasureSpec(template.labelHeightPt.toInt(), View.MeasureSpec.EXACTLY)
+                    labelView.measure(widthSpec, heightSpec)
+                    labelView.layout(0, 0, labelView.measuredWidth, labelView.measuredHeight)
 
-            val widthSpec = View.MeasureSpec.makeMeasureSpec(template.labelWidthPt.toInt(), View.MeasureSpec.EXACTLY)
-            val heightSpec = View.MeasureSpec.makeMeasureSpec(template.labelHeightPt.toInt(), View.MeasureSpec.EXACTLY)
-            labelView.measure(widthSpec, heightSpec)
-            labelView.layout(0, 0, labelView.measuredWidth, labelView.measuredHeight)
+                    val row = i / template.columns
+                    val col = i % template.columns
+                    val x = template.pageMarginPt + col * (template.labelWidthPt + template.horizontalSpacingPt)
+                    val y = template.pageMarginPt + row * (template.labelHeightPt + template.verticalSpacingPt)
 
-            drawLabelsOnCanvas(canvas, labelView, template)
-
-            pdfDocument.finishPage(page)
-
-            val file = File(context.cacheDir, "bocana_etiquetas.pdf")
-            FileOutputStream(file).use { outputStream ->
-                pdfDocument.writeTo(outputStream)
+                    canvas.save()
+                    canvas.translate(x, y)
+                    labelView.draw(canvas)
+                    canvas.restore()
+                }
             }
-            pdfDocument.close()
-            file
+            pdfDocument.finishPage(page)
+            savePdf(context, pdfDocument)
         }
     }
 
+
     private fun drawLabelsOnCanvas(canvas: Canvas, labelView: View, template: LabelTemplate) {
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(template.labelWidthPt.toInt(), View.MeasureSpec.EXACTLY)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(template.labelHeightPt.toInt(), View.MeasureSpec.EXACTLY)
+        labelView.measure(widthSpec, heightSpec)
+        labelView.layout(0, 0, labelView.measuredWidth, labelView.measuredHeight)
+
         for (i in 0 until template.totalLabels) {
             val row = i / template.columns
             val col = i % template.columns
@@ -63,40 +94,63 @@ object PdfGenerator {
         }
     }
 
-    private fun createAndPopulateLabelView(context: Context, data: LabelData): View {
+    private fun createAndPopulateLabelView(context: Context, config: IndividualLabelConfig, type: LabelType): View {
         val inflater = LayoutInflater.from(context)
         val view: View
 
-        if (data.labelType == LabelType.DETAILED) {
-            // CORRECCIÓN 1: Usar el layout v2, que es el correcto y moderno.
+        if (type == LabelType.DETAILED) {
             view = inflater.inflate(R.layout.layout_label_detailed_v2, null)
-
-            view.findViewById<TextView>(R.id.label_product_name).text = data.productName?.uppercase(Locale.ROOT) ?: "PRODUCTO"
-            view.findViewById<TextView>(R.id.label_supplier).text = data.supplierName ?: "PROVEEDOR"
-            view.findViewById<TextView>(R.id.label_date).text = simpleDateFormat.format(data.date)
-
+            view.findViewById<TextView>(R.id.label_product_name).text = config.product.name.uppercase(Locale.ROOT)
+            view.findViewById<TextView>(R.id.label_supplier).text = config.supplierName
+            view.findViewById<TextView>(R.id.label_date).text = simpleDateFormat.format(config.date)
             val detailTv = view.findViewById<TextView>(R.id.label_detail)
-            detailTv.text = data.detail ?: ""
-            detailTv.visibility = if (data.detail.isNullOrBlank()) View.GONE else View.VISIBLE
+            detailTv.text = config.detail ?: ""
+            detailTv.visibility = if (config.detail.isNullOrBlank()) View.GONE else View.VISIBLE
 
-            // CORRECCIÓN 2: Lógica idéntica a la previsualización para manejar los dos tipos de layouts de peso.
             val predefinedWeightLayout = view.findViewById<TextView>(R.id.label_weight_predefined)
             val manualWeightLayout = view.findViewById<ViewGroup>(R.id.layout_weight_manual)
 
-            if (data.weight == "Manual") {
+            if (config.weight == "Manual") {
                 predefinedWeightLayout.visibility = View.GONE
                 manualWeightLayout.visibility = View.VISIBLE
-                manualWeightLayout.findViewById<TextView>(R.id.label_weight_manual_unit).text = data.unit ?: ""
+                manualWeightLayout.findViewById<TextView>(R.id.label_weight_manual_unit).text = config.unit
             } else {
                 predefinedWeightLayout.visibility = View.VISIBLE
                 manualWeightLayout.visibility = View.GONE
-                predefinedWeightLayout.text = "PESO: ${data.weight ?: ""} ${data.unit ?: ""}"
+                predefinedWeightLayout.text = "PESO: ${config.weight ?: ""} ${config.unit}"
             }
         } else { // LabelType.SIMPLE
             view = inflater.inflate(R.layout.layout_label_simple, null)
-            view.findViewById<TextView>(R.id.label_supplier_simple).text = data.supplierName ?: ""
-            view.findViewById<TextView>(R.id.label_date_simple).text = simpleDateFormat.format(data.date)
+            view.findViewById<TextView>(R.id.label_supplier_simple).text = config.supplierName
+            view.findViewById<TextView>(R.id.label_date_simple).text = simpleDateFormat.format(config.date)
         }
         return view
+    }
+
+
+    private fun savePdf(context: Context, pdfDocument: PdfDocument): File {
+        val file = File(context.cacheDir, "bocana_etiquetas.pdf")
+        FileOutputStream(file).use { outputStream ->
+            pdfDocument.writeTo(outputStream)
+        }
+        pdfDocument.close()
+        return file
+    }
+
+    private fun LabelData.toIndividualConfig(): IndividualLabelConfig {
+        // En el flujo simple, el producto no se selecciona, así que creamos uno dummy.
+        val product = if (this.labelType == LabelType.SIMPLE) {
+            Product(name = this.productName ?: "")
+        } else {
+            Product(id = this.productId ?: "", name = this.productName ?: "")
+        }
+        return IndividualLabelConfig(
+            product = product,
+            supplierName = this.supplierName ?: "",
+            date = this.date,
+            weight = this.weight,
+            unit = this.unit ?: "",
+            detail = this.detail
+        )
     }
 }

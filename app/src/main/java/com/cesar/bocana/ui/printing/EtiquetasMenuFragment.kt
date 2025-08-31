@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.cesar.bocana.R
-import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.databinding.FragmentEtiquetasMenuBinding
 
 class EtiquetasMenuFragment : Fragment() {
@@ -39,10 +38,8 @@ class EtiquetasMenuFragment : Fragment() {
     }
 
     private fun setupListeners() {
-        // --- ETIQUETAS SIMPLES (CORREGIDO) ---
+        // --- ETIQUETAS SIMPLES ---
         binding.cardEtiquetasSimples.setOnClickListener {
-            // CORRECCIÓN: Navegar a la pantalla de configuración PRIMERO,
-            // sin una plantilla preseleccionada, para que el usuario ingrese los datos.
             navigateToConfigScreen(LabelType.SIMPLE, null)
         }
 
@@ -61,13 +58,24 @@ class EtiquetasMenuFragment : Fragment() {
             }
         }
 
-        // --- ETIQUETAS VARIABLES (FUTURO) ---
-        val proximamenteListener = View.OnClickListener {
+        // --- ETIQUETAS VARIABLES (HABILITADO) ---
+        binding.cardEtiquetasVariablesX8.setOnClickListener {
+            val template = LabelTemplates.detailedTemplates.find { it.description.contains("8 por hoja") }
+            if (template != null) {
+                navigateToMultiConfigScreen(template)
+            }
+        }
+        binding.cardEtiquetasVariablesX6.setOnClickListener {
+            val template = LabelTemplates.detailedTemplates.find { it.description.contains("6 por hoja") }
+            if (template != null) {
+                navigateToMultiConfigScreen(template)
+            }
+        }
+
+        // --- PRÓXIMAMENTE ---
+        binding.cardEditableSuperDetalle.setOnClickListener {
             Toast.makeText(context, "Esta función estará disponible próximamente.", Toast.LENGTH_SHORT).show()
         }
-        binding.cardEtiquetasVariablesX8.setOnClickListener(proximamenteListener)
-        binding.cardEtiquetasVariablesX6.setOnClickListener(proximamenteListener)
-        binding.cardEditableSuperDetalle.setOnClickListener(proximamenteListener)
     }
 
     private fun navigateToConfigScreen(type: LabelType, preselectedTemplate: LabelTemplate?) {
@@ -78,10 +86,8 @@ class EtiquetasMenuFragment : Fragment() {
             .commit()
     }
 
-    // Esta función ya no es llamada directamente desde el menú de etiquetas simples.
-    private fun navigateToLayoutSelectionScreen(type: LabelType) {
-        val data = LabelData(labelType = type)
-        val fragment = PrintLabelLayoutFragment.newInstance(data)
+    private fun navigateToMultiConfigScreen(template: LabelTemplate) {
+        val fragment = PrintLabelMultiConfigFragment.newInstance(template)
         parentFragmentManager.beginTransaction()
             .replace(R.id.nav_host_fragment_content_main, fragment)
             .addToBackStack(null)
