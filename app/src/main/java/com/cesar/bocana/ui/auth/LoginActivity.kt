@@ -63,8 +63,8 @@ class LoginActivity : AppCompatActivity() {
                 showLoading(false)
             }
         }
-        binding.signInButton.setOnClickListener { signIn() }
-        // Al iniciar, no mostramos la carga, sino el botón de login
+        binding.customSignInButton.setOnClickListener { signIn() }
+
         showLoading(false)
     }
 
@@ -118,8 +118,10 @@ class LoginActivity : AppCompatActivity() {
 
     private fun showLoading(isLoading: Boolean) {
         binding.loadingViewContainer.root.visibility = if (isLoading) View.VISIBLE else View.GONE
-        binding.signInButton.visibility = if (!isLoading) View.VISIBLE else View.GONE
-        binding.signInButton.isEnabled = !isLoading
+        // ===== CAMBIO CLAVE AQUÍ =====
+        // Gestionamos la visibilidad del nuevo botón
+        binding.customSignInButton.visibility = if (!isLoading) View.VISIBLE else View.GONE
+        binding.customSignInButton.isEnabled = !isLoading
     }
 
     private fun signOutCleanup() {

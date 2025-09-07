@@ -14,12 +14,12 @@
     <color name="pending_item_yellow">#FFFDE7</color>
     <color name="stock_ok">#097801</color>
      <color name="low_stock_red_background">#FFEBEE</color>
-    <color name="pending_item_background">#FBBFFF</color>
+    <color name="pending_item_background">#FFBED9</color>
     <color name="positive_green">#2E7D32</color>
     <color name="negative_red">#C62828</color>
     <color name="transfer_yellow">#FFAB00</color>
     <color name="gray_400">#BDBDBD</color>
-    <color name="brand_purple">#C237DB</color>
+    <color name="brand_purple">#E8005E</color>
     <color name="intense_black">#000000</color>
 
 </resources>
