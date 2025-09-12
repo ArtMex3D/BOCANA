@@ -67,7 +67,7 @@
         android:text="Historial de Movimientos"
         app:icon="@drawable/historial"/>
 
-    <!-- borra para Descomentar para activar -->
+    <!-- borra para Descomentar para activar
     <com.google.android.material.button.MaterialButton
         android:id="@+id/button_migrate_data"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -89,6 +89,6 @@
         android:textColor="@android:color/holo_orange_dark"
         android:text="Sincronización Forzada"
         app:icon="@android:drawable/stat_notify_sync"/>
-        <!-- borrar esta linea para descomentar -->
+        // borrar esta linea para descomentar -->
 
 </LinearLayout>
