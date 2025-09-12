@@ -134,7 +134,10 @@ class ProductAdapter(
             }
 
             // --- SET LISTENERS ---
-            binding.root.setOnClickListener { listener.onItemClicked(item) }
+            binding.root.setOnLongClickListener {
+                listener.onItemClicked(item) // La navegación a editar ocurre aquí ahora.
+                true // Importante: Devuelve true para indicar que el evento fue consumido.
+            }
 
             binding.buttonAddCompra.setOnClickListener { if (canPerformWriteAction) listener.onAddCompraClicked(item) else offlineClickListener.onClick(it) }
             binding.buttonAddSalida.setOnClickListener { view -> if (canPerformWriteAction) listener.onSalidaClicked(item, view) else offlineClickListener.onClick(view) }

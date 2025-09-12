@@ -27,81 +27,58 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="textCapWords" />
-
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutProductUnit"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+        <LinearLayout
+            android:id="@+id/layoutStocks"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:orientation="horizontal"
             android:layout_marginTop="16dp"
-            android:layout_marginEnd="8dp"
-            android:hint="Unidad"
-            app:layout_constraintEnd_toStartOf="@+id/textFieldLayoutMinStock"
-            app:layout_constraintHorizontal_weight="1"
+            app:layout_constraintTop_toBottomOf="@id/textFieldLayoutProductName"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProductName">
+            app:layout_constraintEnd_toEndOf="parent">
 
-            <AutoCompleteTextView
-                android:id="@+id/autoCompleteTextViewUnit"
-                android:layout_width="match_parent"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutMinStock"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:inputType="none" />
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:hint="Stock Mínimo General (Kg)">
 
-        </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextMinStock"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutMinStock"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:hint="Stock Mínimo"
-            app:layout_constraintBottom_toBottomOf="@+id/textFieldLayoutProductUnit"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintHorizontal_weight="1"
-            app:layout_constraintStart_toEndOf="@+id/textFieldLayoutProductUnit"
-            app:layout_constraintTop_toTopOf="@+id/textFieldLayoutProductUnit">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextMinStock"
-                android:layout_width="match_parent"
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutStockIdealC04"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:inputType="numberDecimal" />
+                android:layout_weight="1"
+                android:hint="Stock Ideal C-04 (Kg)">
 
-        </com.google.android.material.textfield.TextInputLayout>
-
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutProviderDetails"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Detalles / Proveedor"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProductUnit">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextProviderDetails"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textCapSentences|textMultiLine"
-                android:minLines="2"
-                android:gravity="top"/>
-
-        </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextStockIdealC04"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
 
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switchRequiresPackaging"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Requiere Empaque (si se recibe a granel)"
+            android:text="Requiere empaque (si se recibe a granel)"
             android:textAppearance="?attr/textAppearanceBody1"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProviderDetails"
+            app:layout_constraintTop_toBottomOf="@id/layoutStocks"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 

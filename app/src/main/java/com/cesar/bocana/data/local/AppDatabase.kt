@@ -21,7 +21,7 @@ import com.cesar.bocana.data.model.Supplier
         PendingPackagingTask::class,
         DevolucionPendiente::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

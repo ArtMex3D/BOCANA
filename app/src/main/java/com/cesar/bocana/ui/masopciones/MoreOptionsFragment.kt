@@ -145,143 +145,119 @@ class MoreOptionsFragment : Fragment() {
                 .setNegativeButton("Cancelar", null)
                 .show()
         }
-        private fun runMigrationScript() {
-            val progressDialog = AlertDialog.Builder(requireContext())
-                .setTitle("Reparando y Actualizando...")
-                .setMessage("Corrigiendo estructura de datos. Por favor, espera.")
-                .setCancelable(false)
-                // .setView(R.layout.layout_loading_animation) // Opcional: si tienes una animación de carga
-                .create()
+    private fun runMigrationScript() {
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle("Reparando y Actualizando...")
+            .setMessage("Este proceso puede tardar unos minutos. Por favor, espera.")
+            .setCancelable(false)
+            .create()
 
-            progressDialog.show()
-            binding.buttonMigrateData.isEnabled = false
+        progressDialog.show()
+        binding.buttonMigrateData.isEnabled = false
 
-            viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    // Lista de campos válidos según tu Product.kt y la lista de Firestore
-                    val validFields = setOf(
-                        "id", "name", "unit", "minStock", "providerDetails",
-                        "stockMatriz", "stockCongelador04", "totalStock", "createdAt",
-                        "updatedAt", "lastUpdatedByName", "isActive", "requiresPackaging",
-                        "stockIdealC04", "unidadDeEmpaque", "pesoPorUnidad",
-                        "espacioExtraPDF", "modoManualPDF", "ordenTraspaso",
-                        "tipoDeEmpaque", "labelConfig"
-                    )
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // --- FASE 1: Limpiar y Estandarizar la Colección 'products' ---
+                val validProductFields = setOf(
+                    "id", "name", "unit", "minStock", "stockIdealC04", "stockMatriz",
+                    "stockCongelador04", "totalStock", "createdAt", "updatedAt",
+                    "lastUpdatedByName", "isActive", "requiresPackaging", "ordenTraspaso",
+                    "modoManualPDF", "espacioExtraPDF", "labelConfig"
+                )
+                val productsCollection = firestore.collection("products")
+                val productsSnapshot = productsCollection.get().await()
+                var batch = firestore.batch()
+                var productsProcessed = 0
+                var batchCounter = 0
 
-                    val productsCollection = firestore.collection("products")
-                    val productsSnapshot = productsCollection.get().await()
-                    var batch = firestore.batch()
-                    var productsProcessed = 0
-                    var batchCounter = 0
-                    val errors = mutableListOf<String>()
+                for (document in productsSnapshot.documents) {
+                    val productRef = document.reference
+                    val data = document.data ?: continue
+                    val updates = mutableMapOf<String, Any?>()
 
-                    for (document in productsSnapshot.documents) {
-                        try {
-                            val productRef = document.reference
-                            val data = document.data ?: continue
-                            val updates = mutableMapOf<String, Any?>()
-
-                            // --- LIMPIEZA DE CAMPOS OBSOLETOS ---
-                            data.keys.forEach { key ->
-                                if (key !in validFields) {
-                                    updates[key] = FieldValue.delete()
-                                }
-                            }
-
-                            // --- ESTABLECER VALORES POR DEFECTO PARA CAMPOS FALTANTES ---
-                            val defaultValues = mapOf(
-                                "unit" to "Kg",
-                                "minStock" to 0.0,
-                                "providerDetails" to "",
-                                "isActive" to true,
-                                "requiresPackaging" to false,
-                                "stockIdealC04" to 0.0,
-                                "unidadDeEmpaque" to null,
-                                "pesoPorUnidad" to 0.0,
-                                "espacioExtraPDF" to 0.0,
-                                "modoManualPDF" to false,
-                                "ordenTraspaso" to 999, // Un número alto para que aparezcan al final
-                                "tipoDeEmpaque" to null,
-                                "labelConfig" to null
-                            )
-
-                            defaultValues.forEach { (field, defaultValue) ->
-                                if (!data.containsKey(field)) {
-                                    updates[field] = defaultValue
-                                }
-                            }
-
-                            // --- CORRECCIÓN DE TIPOS DE DATOS (Ejemplo) ---
-                            // Asegurarse que los campos numéricos sean Double o Long, no String.
-                            listOf("minStock", "stockMatriz", "stockCongelador04", "totalStock", "stockIdealC04", "pesoPorUnidad", "espacioExtraPDF").forEach { field ->
-                                if (data[field] is String) {
-                                    updates[field] = (data[field] as String).toDoubleOrNull() ?: 0.0
-                                    errors.add("${data["name"]}: Campo '$field' era String y se convirtió a número.")
-                                }
-                            }
-                            if (data["ordenTraspaso"] is String) {
-                                updates["ordenTraspaso"] = (data["ordenTraspaso"] as String).toIntOrNull() ?: 999
-                                errors.add("${data["name"]}: Campo 'ordenTraspaso' era String y se convirtió a número.")
-                            }
-
-
-                            if (updates.isNotEmpty()) {
-                                batch.update(productRef, updates)
-                                productsProcessed++
-                                batchCounter++
-                            }
-
-                            if (batchCounter >= 400) {
-                                batch.commit().await()
-                                batch = firestore.batch()
-                                batchCounter = 0
-                                withContext(Dispatchers.Main) {
-                                    progressDialog.setMessage("Procesados $productsProcessed productos...")
-                                }
-                            }
-
-                        } catch (e: Exception) {
-                            errors.add("Error procesando doc ${document.id}: ${e.message}")
+                    // Limpieza segura: elimina solo los campos que ya no están en el modelo
+                    data.keys.forEach { key ->
+                        if (key !in validProductFields) {
+                            updates[key] = FieldValue.delete()
                         }
                     }
 
-                    if (batchCounter > 0) {
+                    // Adición segura: añade campos clave si no existen
+                    if (!data.containsKey("requiresPackaging")) {
+                        updates["requiresPackaging"] = false
+                    }
+                    if (!data.containsKey("stockIdealC04")) {
+                        updates["stockIdealC04"] = 0.0
+                    }
+
+                    if (updates.isNotEmpty()) {
+                        batch.update(productRef, updates)
+                        productsProcessed++
+                        batchCounter++
+                    }
+
+                    if (batchCounter >= 400) {
                         batch.commit().await()
+                        batch = firestore.batch()
+                        batchCounter = 0
                     }
+                }
+                if (batchCounter > 0) {
+                    batch.commit().await()
+                }
 
-                    withContext(Dispatchers.Main) {
-                        progressDialog.dismiss()
-                        val message = buildString {
-                            append(if (productsProcessed > 0) "¡Mantenimiento completado! " else "No se necesitaron cambios. ")
-                            append("$productsProcessed productos actualizados/verificados.")
-                            if (errors.isNotEmpty()) {
-                                append("\nSe encontraron y corrigieron ${errors.size} problemas menores.")
-                            }
-                        }
+                // --- FASE 2: Adaptar Lotes Existentes ---
+                batch = firestore.batch() // Reiniciar batch
+                batchCounter = 0
+                val lotsCollection = firestore.collection("inventoryLots")
+                val lotsSnapshot = lotsCollection.get().await()
+                var lotsProcessed = 0
 
-                        AlertDialog.Builder(requireContext())
-                            .setTitle("Resultado del Mantenimiento")
-                            .setMessage(message)
-                            .setPositiveButton("Aceptar", null)
-                            .apply {
-                                if (errors.isNotEmpty()) {
-                                    setNeutralButton("Ver Detalles") { _, _ -> showFullErrorLog(errors) }
-                                }
-                            }
-                            .show()
+                for (document in lotsSnapshot.documents) {
+                    val lotRef = document.reference
+                    val data = document.data ?: continue
+                    val lotUpdates = mutableMapOf<String, Any?>()
 
-                        binding.buttonMigrateData.isEnabled = true
+                    // Añade los nuevos campos como null si no existen
+                    if (!data.containsKey("unidadDeEmpaque")) lotUpdates["unidadDeEmpaque"] = null
+                    if (!data.containsKey("pesoPorUnidad")) lotUpdates["pesoPorUnidad"] = null
+                    if (!data.containsKey("cantidadInicialUnidades")) lotUpdates["cantidadInicialUnidades"] = null
+
+                    if (lotUpdates.isNotEmpty()) {
+                        batch.update(lotRef, lotUpdates)
+                        lotsProcessed++
+                        batchCounter++
                     }
-
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        progressDialog.dismiss()
-                        Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
-                        binding.buttonMigrateData.isEnabled = true
+                    if (batchCounter >= 400) {
+                        batch.commit().await()
+                        batch = firestore.batch()
+                        batchCounter = 0
                     }
+                }
+                if (batchCounter > 0) {
+                    batch.commit().await()
+                }
+
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    val message = "Mantenimiento completado:\n- $productsProcessed productos verificados/actualizados.\n- $lotsProcessed lotes preparados para la nueva versión."
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("¡Éxito!")
+                        .setMessage(message)
+                        .setPositiveButton("Aceptar", null)
+                        .show()
+                    binding.buttonMigrateData.isEnabled = true
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
+                    binding.buttonMigrateData.isEnabled = true
                 }
             }
         }
+    }
         private fun showFullErrorLog(errors: List<String>) {
             val errorText = errors.joinToString("\n\n")
 

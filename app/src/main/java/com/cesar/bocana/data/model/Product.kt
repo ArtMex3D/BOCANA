@@ -24,41 +24,41 @@ data class Product(
     @DocumentId
     val id: String = "",
     val name: String = "",
-    val unit: String = "",
-    val minStock: Double = 0.0,
-    val providerDetails: String = "",
+    val unit: String = "Kg", // Unidad de inventario principal SIEMPRE será Kg
+
+    // --- CAMPOS ESENCIALES ---
+    val minStock: Double = 0.0,      // Stock mínimo general en Kg
+    val stockIdealC04: Double = 0.0, // Stock objetivo en C-04, siempre en Kg
+
+    // --- CAMPOS DE CONFIGURACIÓN GENERAL ---
+    @JvmField
+    val requiresPackaging: Boolean = false, // Define si el producto (ej. "A Granel") necesita pasar por la pantalla de Empaque
+    val ordenTraspaso: Int = 999,
+    @JvmField
+    val modoManualPDF: Boolean = false,
+    val espacioExtraPDF: Double = 0.0,
+    val labelConfig: @RawValue Map<String, Any>? = null,
+
+
+    // --- CAMPOS DE ESTADO (se mantienen) ---
     val stockMatriz: Double = 0.0,
     val stockCongelador04: Double = 0.0,
     val totalStock: Double = 0.0,
+    @JvmField
+    val isActive: Boolean = true,
     @ServerTimestamp
     val createdAt: Date? = null,
     @ServerTimestamp
     val updatedAt: Date? = null,
-    val lastUpdatedByName: String? = null,
-    @JvmField
-    val isActive: Boolean = true,
-    @JvmField
-    val requiresPackaging: Boolean = false,
+    val lastUpdatedByName: String? = null
 
-    // --- CAMPOS AÑADIDOS PARA EVITAR EL CRASH ---
-    val stockIdealC04: Double = 0.0,
-    val unidadDeEmpaque: String? = null,
-    val pesoPorUnidad: Double = 0.0,
-    val espacioExtraPDF: Double = 0.0,
-    @JvmField
-    val modoManualPDF: Boolean = false,
-    val ordenTraspaso: Int = 0,
-    val tipoDeEmpaque: String? = null,
-
-    val labelConfig: @RawValue Map<String, Any>? = null
 ) : Parcelable {
+    // Constructor vacío para Firestore
     constructor() : this(
-        id = "", name = "", unit = "", minStock = 0.0, providerDetails = "",
-        stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
-        createdAt = null, updatedAt = null, lastUpdatedByName = null, isActive = true,
-        requiresPackaging = false,
-        stockIdealC04 = 0.0, unidadDeEmpaque = null, pesoPorUnidad = 0.0,
-        espacioExtraPDF = 0.0, modoManualPDF = false, ordenTraspaso = 0, tipoDeEmpaque = null,
-        labelConfig = null
+        id = "", name = "", unit = "Kg", minStock = 0.0,
+        stockIdealC04 = 0.0, requiresPackaging = false,
+        ordenTraspaso = 999, modoManualPDF = false, espacioExtraPDF = 0.0,
+        labelConfig = null, stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
+        isActive = true, createdAt = null, updatedAt = null, lastUpdatedByName = null
     )
 }

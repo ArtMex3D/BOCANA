@@ -11,8 +11,8 @@ import androidx.room.Index
 @Entity(
     tableName = "stock_lots",
     indices = [
-        Index(value = ["productId"], unique = false),  // Para JOINs con Product
-        Index(value = ["supplierId"], unique = false)   // Para JOINs con Supplier
+        Index(value = ["productId"], unique = false),
+        Index(value = ["supplierId"], unique = false)
     ]
 )
 data class StockLot(
@@ -29,8 +29,13 @@ data class StockLot(
     @ServerTimestamp val receivedAt: Date? = null,
     val movementIdIn: String = "",
 
-    val initialQuantity: Double = 0.0,
-    var currentQuantity: Double = 0.0,
+    val initialQuantity: Double = 0.0, // Siempre en la unidad base (Kg)
+    var currentQuantity: Double = 0.0, // Siempre en la unidad base (Kg)
+
+    // --- NUEVOS CAMPOS PARA TRAZABILIDAD DE EMPAQUE ---
+    val unidadDeEmpaque: String? = null,      // "Caja", "Bolsa", "Costal", etc.
+    val pesoPorUnidad: Double? = null,       // Ej: 4.54 (el peso de UNA caja de este lote)
+    val cantidadInicialUnidades: Double? = null, // Ej: 20.5 (el número de cajas que ingresaron) puede ser decimal
 
     val lotNumber: String? = null,
     val expirationDate: Date? = null,
@@ -51,6 +56,8 @@ data class StockLot(
         id = "", productId = "", productName = "", unit = "", location = Location.MATRIZ,
         supplierId = null, supplierName = null, receivedAt = null, movementIdIn = "",
         initialQuantity = 0.0, currentQuantity = 0.0,
+        // Valores por defecto para nuevos campos
+        unidadDeEmpaque = null, pesoPorUnidad = null, cantidadInicialUnidades = null,
         lotNumber = null, expirationDate = null,
         isDepleted = false, isPackaged = false,
         originalLotId = null, originalReceivedAt = null,

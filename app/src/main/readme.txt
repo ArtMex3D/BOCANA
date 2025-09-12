@@ -1,85 +1,45 @@
 // plan oficial
 
 Plan de Implementación Titánico v3.1: Guía de Ejecución
-Misión: Evolucionar la aplicación hacia un sistema de inventario inteligente, ejecutando una migración de datos segura y mejorando la experiencia de usuario en puntos clave.
+FASE 0: Cimientos de la Experiencia de Usuario y Datos
+Objetivo: Refactorizar la interacción principal con los productos y adaptar la creación/edición a la nueva estructura de datos, preparando el terreno para el módulo de traspasos.
 
-FASE 0: FUNDACIÓN Y MIGRACIÓN (El Cimiento)
-Objetivo: Establecer el nuevo ADN de los productos y adaptar la base de datos existente para que sea 100% compatible.
-
-Paso 0.1: Modelo de Datos Definitivo.
-
-Acción: Reemplazar Product.kt con la versión final que hemos definido. Esta es la base de todo.
-
-Paso 0.2: Construir el Script de Migración "Mágico".
-
-Acción: Añadir un botón temporal en MoreOptionsFragment llamado "Mantenimiento de Datos".
-
-Lógica del Script (Aclarada): El script NO adivinará pesos. Su única misión es añadir los nuevos campos con valores por defecto seguros (manejoDeStock = "POR_PESO_GRANEL", pesoEquivalenteKg = null, etc.) y corregir tipos de datos (como espacioExtraPDF de número a booleano).
-
-Paso 0.3: Proceso de Despliegue Seguro.
-
-Implementar y probar exhaustivamente el script en el entorno de desarrollo.
-
-Lanzar la actualización a producción.
-
-Ejecutar el script una sola vez desde el botón de mantenimiento.
-
-Configurar manualmente los 2-3 productos especiales (los de "POR_UNIDAD_FIJA").
-
-Eliminar el botón en una futura actualización.
-
+Paso 0.1: Implementar Edición por Pulsación Larga
+Acción: Modificar ProductAdapter.kt.
+Detalle: El evento para navegar a la pantalla de edición se cambiará de un clic simple a una pulsación larga (onLongClickListener). Un clic normal ya no tendrá efecto, previniendo ediciones accidentales y mejorando la fluidez de la lista.
+Paso 0.2: Unificar Mensajes con Snackbar
+Acción: Reemplazar todos los Toast en los flujos de ProductListFragment y AddEditProductFragment por Snackbar.
+Detalle: Esto crea una experiencia de usuario más moderna, integrada y menos intrusiva.
+Paso 0.3: Añadir Mensaje de Ayuda Contextual
+Acción: Modificar AddEditProductFragment.kt.
+Detalle: Tras guardar un producto nuevo, se mostrará un Snackbar informativo con el mensaje: "Producto guardado. Para editarlo, mantén presionado el item en la lista." Esto guiará al usuario sobre la nueva mecánica de edición.
+Paso 0.4 (Siguiente Prioridad): Potenciar el Diálogo de Compra
+Acción: Modificar la lógica de compra en ProductListFragment.kt.
+Detalle: Al registrar una compra de un producto "Empacado", se podrá configurar su unidadDeEmpaque y pesoPorUnidad directamente, actualizando el "ADN" del producto en Firestore.
 FASE 1: MEJORAS DE UI Y EXPERIENCIA DE USUARIO (UX)
 Objetivo: Adaptar la interfaz para la nueva lógica y hacerla más robusta y amigable.
-
 Paso 1.1: Mejorar Pantalla "Añadir/Editar Producto".
-
 Acción: Rediseñar fragment_add_edit_product.xml para incluir los nuevos campos de configuración con su lógica de visibilidad condicional.
-
 Paso 1.2: Potenciar el Diálogo de Compra.
-
 Acción: Modificar la lógica de compra para que, al registrar un producto "Empacado", se pueda configurar su pesoEquivalenteKg directamente, actualizando el "ADN" del producto.
-
 Paso 1.3 (NUEVO): Implementar Edición por Pulsación Larga.
-
-Acción: Modificar ProductAdapter.kt.
-
-Cambiar el onItemClicked a un onItemLongClickListener para la navegación a la pantalla de edición.
-
-Un clic normal ya no hará nada, previniendo ediciones accidentales.
-
+Acción: Modificar ProductAdapter.kt. Cambiar el onItemClicked a un onItemLongClickListener para la navegación a la pantalla de edición. Un clic normal ya no hará nada, previniendo ediciones accidentales.
 Paso 1.4 (NUEVO): Añadir Mensaje de Ayuda.
-
-Acción: Modificar AddEditProductFragment.kt.
-
-Después de guardar un producto nuevo con éxito, mostrar un Toast o Snackbar informativo que diga: "Producto guardado. Para editarlo, mantén presionado el item en la lista."
-
+Acción: Modificar AddEditProductFragment.kt. Después de guardar un producto nuevo con éxito, mostrar un Toast o Snackbar informativo que diga: "Producto guardado. Para editarlo, mantén presionado el item en la lista."
 FASE 2: EL MÓDULO DE TRASPASOS INTELIGENTE
 Objetivo: Construir el núcleo del nuevo sistema de traspasos.
-
 Paso 2.1: Pantalla de Configuración de Traspasos.
-
 Acción: Crear el nuevo fragmento en "Más Opciones" con la lista de productos para configurar stockIdealC04enKg y las opciones de PDF. Implementar el Drag & Drop para ordenTraspaso.
-
 Paso 2.2 (NUEVO): Crear Diálogo de Carga Reutilizable.
-
 Acción: Diseñar un DialogFragment simple que muestre la animación Lottie de "cargando". Este diálogo se llamará antes de operaciones pesadas (como la confirmación del traspaso) y se cerrará al finalizar.
-
 Paso 2.3: Pantalla de "Planificar Traspaso".
-
 Acción: Construir la interfaz que calcula y muestra las sugerencias de traspaso en las unidades del usuario, permite la edición y la selección de lotes.
-
 Paso 2.4: Generación del PDF de Trabajo.
-
 Acción: Implementar la lógica en PdfGenerator.kt para crear el PDF horizontal basado en la planificación, guardando el plan en una nueva colección traspasos_planificados en Firestore con estado "PENDIENTE".
-
 Paso 2.5: Pantalla de "Confirmar Traspaso".
-
 Acción: Construir la interfaz que lee los planes "PENDIENTES" y permite al usuario ingresar las cantidades finales (en unidades o en Kg, según corresponda).
-
 Paso 2.6: La Transacción Atómica de Confirmación.
-
 Acción: Implementar la lógica del botón "Ejecutar Traspaso" dentro de una runTransaction de Firestore para garantizar la integridad de los datos. Mostrar el diálogo de carga Lottie durante esta operación.
-
 
 //////////////////////
 ideas anteriores pero detalladas para agregar a mi plan principales
@@ -114,7 +74,7 @@ data class Product(
     val stockIdealC04: Double = 0.0, // Stock objetivo en C-04, siempre en Kg
     val ordenTraspaso: Int = 999, // Orden en la lista de traspasos (menor = más arriba)
     val modoManualPDF: Boolean = false, // Imprime campos en blanco en el PDF
-    val espacioExtraPDF: Boolean = false, // Da más altura a la fila en el PDF
+    val espacioExtraPDF: Double = 0.0, // Confirmado como numérico
     // --- FIN NUEVOS CAMPOS ---
 
     // --- CAMPOS EXISTENTES (se mantienen) ---
