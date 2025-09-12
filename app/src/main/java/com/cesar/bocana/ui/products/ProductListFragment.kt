@@ -95,6 +95,7 @@ import android.view.*
 import androidx.fragment.app.viewModels
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.ui.dialogs.SalidaConsumoLotesDialogFragment
+import com.cesar.bocana.ui.dialogs.SalidaDevolucionLotesDialogFragment
 import com.cesar.bocana.ui.dialogs.TraspasoMatrizC04DialogFragment
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore
@@ -126,8 +127,8 @@ import kotlinx.coroutines.launch
 
 
         override fun onSubloteAjustado(productId: String) {
-            Log.d(TAG, "Ajuste de sublote C04 completado para producto ID: $productId y notificado por el diálogo.")
-        }
+            Log.d(TAG, "Ajuste de sublote C04 completado para producto ID: $productId. El fragmento ha sido notificado.")
+             }
 
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
         Log.d(TAG, "onCreateMenu (ProductListFragment)")
@@ -159,6 +160,16 @@ import kotlinx.coroutines.launch
         return binding.root
     }
 
+        /**
+         * Notifica al fragmento sobre cambios en el estado de la red.
+         * Esto permite al adaptador actualizar su UI (ej. habilitar/deshabilitar botones).
+         */
+        fun onNetworkStatusChanged(isOnline: Boolean) {
+            if (::productAdapter.isInitialized) {
+                productAdapter.setOnlineStatus(isOnline)
+            }
+        }
+
         private fun observeViewModel() {
             // Esta función reemplaza a la antigua `observeProducts`
             showListLoading(true)
@@ -189,126 +200,6 @@ import kotlinx.coroutines.launch
                 .show(parentFragmentManager, TraspasoMatrizC04DialogFragment.TAG)
         }
 
-    private fun showTraspasoMatrizToC04Dialog(product: Product) {
-        val currentContext = context ?: run {
-            isDialogOpen = false
-            return
-        }
-
-        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_traspaso_matriz_c04, null)
-        val titleTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoTitleInfo)
-        val subtitleTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoSubtitle)
-
-        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
-        val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
-        val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)
-        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadTraspaso)
-        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoAceptar)
-        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoCancelar)
-
-        titleTextView.text = "Traspaso: ${product.name}"
-        subtitleTextView.text = "Matriz  ----->  C-04"
-
-
-        val lotAdapter = LotSelectionAdapter() // Reutiliza tu LotSelectionAdapter
-        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
-        recyclerViewLotes.adapter = lotAdapter
-
-        val builder = AlertDialog.Builder(currentContext)
-        // No usamos setCustomTitle para este, el título está en el layout.
-        builder.setView(dialogViewInflated)
-
-        val alertDialog = builder.create()
-        alertDialog.setOnDismissListener { isDialogOpen = false }
-
-        buttonCancelar.setOnClickListener {
-            alertDialog.dismiss()
-        }
-
-        buttonAceptar.setOnClickListener {
-            val quantityString = inputQuantityNet.text.toString()
-            val quantityToTraspasar = quantityString.toDoubleOrNull()
-            val selectedLotIds = lotAdapter.getSelectedLotIds()
-            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
-
-            var validationError = false
-            inputQuantityNet.error = null
-
-            if (quantityToTraspasar == null || quantityToTraspasar <= 0.0) {
-                inputQuantityNet.error = "Cantidad > 0.0"
-                validationError = true
-            }
-            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
-                Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
-                validationError = true
-            }
-            // Usar un pequeño épsilon para la comparación de doubles
-            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && quantityToTraspasar > selectedLotsTotalNetQuantity + 0.1) {
-                inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
-                validationError = true
-            }
-
-            if (!validationError && quantityToTraspasar != null) {
-                if (lotAdapter.currentList.isEmpty() && quantityToTraspasar > 0.0) {
-                    Toast.makeText(context, "No hay lotes disponibles en Matriz para traspasar.", Toast.LENGTH_SHORT).show()
-                } else if (selectedLotIds.isNotEmpty()){
-                    performTraspasoMatrizToC04(product, quantityToTraspasar, selectedLotIds)
-                    alertDialog.dismiss()
-                } else if (lotAdapter.currentList.isEmpty() && quantityToTraspasar <= 0.0){
-                    alertDialog.dismiss() // No hay nada que hacer
-                } else {
-                    Toast.makeText(context, "Verifica cantidad y selección de lotes.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        // Cargar lotes de Matriz
-        progressBarLotes.visibility = View.VISIBLE
-        textViewNoLotes.visibility = View.GONE
-        recyclerViewLotes.visibility = View.GONE
-
-        val lotsQuery = firestore.collection("inventoryLots")
-            .whereEqualTo("productId", product.id)
-            .whereEqualTo("location", Location.MATRIZ)
-            .whereEqualTo("isDepleted", false)
-            .orderBy("receivedAt", Query.Direction.ASCENDING)
-
-        lotsQuery.get()
-            .addOnSuccessListener { snapshot ->
-                if (!isAdded || _binding == null) {
-                    isDialogOpen = false // Asegurar reset si el fragmento ya no está
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnSuccessListener
-                }
-                progressBarLotes.visibility = View.GONE
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val loadedLots = snapshot.documents.mapNotNull { doc ->
-                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
-                        catch (e: Exception) { null }
-                    }
-                    lotAdapter.submitList(loadedLots)
-                    textViewNoLotes.visibility = View.GONE
-                    recyclerViewLotes.visibility = View.VISIBLE
-                } else {
-                    textViewNoLotes.text = "No hay lotes disponibles en Matriz."
-                    textViewNoLotes.visibility = View.VISIBLE
-                    recyclerViewLotes.visibility = View.GONE
-                }
-            }
-            .addOnFailureListener { e ->
-                if (!isAdded || _binding == null) {
-                    isDialogOpen = false
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnFailureListener
-                }
-                progressBarLotes.visibility = View.GONE
-                textViewNoLotes.text = "Error al cargar lotes."
-                textViewNoLotes.visibility = View.VISIBLE
-                recyclerViewLotes.visibility = View.GONE
-                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        alertDialog.show()
-    }
 
     override fun onDestroyView() {
         super.onDestroyView()
@@ -320,10 +211,9 @@ import kotlinx.coroutines.launch
 
         override fun onEditC04Clicked(product: Product) {
             if (isDialogOpen) {
-                Log.d(TAG, "onEditC04Clicked: Diálogo o menú ya abierto, ignorando clic en Editar C04.")
+                Log.d(TAG, "onEditC04Clicked: Diálogo o menú ya abierto, ignorando clic.")
                 return
             }
-
             Log.d(TAG, "onEditC04Clicked: Mostrando AjusteSubloteC04DialogFragment para ${product.name}")
             val dialogFragment = AjusteSubloteC04DialogFragment.newInstance(product.id)
             dialogFragment.show(parentFragmentManager, AjusteSubloteC04DialogFragment.TAG)
@@ -378,190 +268,7 @@ import kotlinx.coroutines.launch
             isDialogOpen = false
         }
     }
-    private fun showSalidaDevolucionDialog(product: Product, allSuppliers: List<Supplier>) {
-        if (isDialogOpen) {
-            Log.d(TAG, "Dialog for Devolucion already open or opening.")
-            return
-        }
-        isDialogOpen = true
 
-        val currentContext = context ?: run {
-            isDialogOpen = false
-            return
-        }
-
-        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_salida_devolucion_lotes, null)
-        val titleView = TextView(currentContext)
-        titleView.text = "Devolución: ${product.name}"
-        titleView.setPadding(60, 40, 60, 20) // Ajusta el padding según necesites
-        titleView.textSize = 18f // Ajusta el tamaño del texto
-        titleView.setTextColor(ContextCompat.getColor(currentContext, android.R.color.black)) // Color del texto
-
-        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesDevolucionDialog)
-        val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesDevolucionDialog)
-        val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesDevolucionDialog)
-        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadDevolucion)
-        val inputLayoutProveedor = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutProveedorDevolucion)
-        val autoCompleteProveedor = dialogViewInflated.findViewById<AutoCompleteTextView>(R.id.autoCompleteTextViewProveedorDevolucion)
-        val inputLayoutMotivo = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutMotivoDevolucion)
-        val inputMotivo = dialogViewInflated.findViewById<EditText>(R.id.editTextMotivoDevolucion)
-        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogDevolucionAceptar)
-        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogDevolucionCancelar)
-
-        val lotAdapter = LotSelectionAdapter() // Reutiliza tu LotSelectionAdapter
-        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
-        recyclerViewLotes.adapter = lotAdapter
-
-        val activeSupplierNames = allSuppliers.filter { it.isActive }.map { it.name }
-        val supplierSpinnerAdapter = ArrayAdapter(currentContext, android.R.layout.simple_dropdown_item_1line, activeSupplierNames)
-        autoCompleteProveedor.setAdapter(supplierSpinnerAdapter)
-        autoCompleteProveedor.threshold = 0
-
-
-        val builder = AlertDialog.Builder(currentContext)
-        builder.setCustomTitle(titleView)
-        builder.setView(dialogViewInflated)
-        // No usar setPositive/NegativeButton aquí, ya que los botones están en el layout.
-
-        val alertDialog = builder.create()
-        alertDialog.setOnDismissListener { isDialogOpen = false }
-
-
-        buttonCancelar.setOnClickListener {
-            alertDialog.dismiss()
-        }
-
-        buttonAceptar.setOnClickListener {
-            val quantityString = inputQuantityNet.text.toString()
-            val quantityToDevolver = quantityString.toDoubleOrNull()
-            val selectedLotIds = lotAdapter.getSelectedLotIds()
-            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
-            val proveedorNameInput = autoCompleteProveedor.text.toString().trim()
-            val motivoInput = inputMotivo.text.toString().trim()
-
-            var validationError = false
-            inputQuantityNet.error = null
-            inputLayoutProveedor.error = null
-            inputLayoutMotivo.error = null
-
-            if (quantityToDevolver == null || quantityToDevolver <= 0.0) {
-                inputQuantityNet.error = "Cantidad > 0.0"
-                validationError = true
-            }
-            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
-                Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
-                validationError = true
-            }
-            if (quantityToDevolver != null && lotAdapter.currentList.isNotEmpty() && quantityToDevolver > selectedLotsTotalNetQuantity + 0.1) { //  epsilon
-                inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
-                validationError = true
-            }
-            if (proveedorNameInput.isEmpty()) {
-                inputLayoutProveedor.error = "Proveedor obligatorio"
-                validationError = true
-            }
-            if (motivoInput.isEmpty()) {
-                inputLayoutMotivo.error = "Motivo obligatorio"
-                validationError = true
-            }
-
-            if (!validationError && quantityToDevolver != null) {
-                if (lotAdapter.currentList.isEmpty() && quantityToDevolver > 0.0) {
-                    Toast.makeText(context, "No hay lotes disponibles de donde devolver.", Toast.LENGTH_SHORT).show()
-                } else if (selectedLotIds.isNotEmpty()){
-                    // Verificar si el proveedor existe o es nuevo
-                    val matchedSupplier = allSuppliers.find { it.name.equals(proveedorNameInput, ignoreCase = true) && it.isActive }
-                    performSalidaDevolucion(product, quantityToDevolver, selectedLotIds, proveedorNameInput, matchedSupplier, motivoInput, allSuppliers)
-                    alertDialog.dismiss()
-                } else if (lotAdapter.currentList.isEmpty() && quantityToDevolver <= 0.0){
-                    alertDialog.dismiss() // No hay nada que hacer
-                } else {
-                    Toast.makeText(context, "Verifica cantidad y selección de lotes.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        // Cargar lotes
-        progressBarLotes.visibility = View.VISIBLE
-        textViewNoLotes.visibility = View.GONE
-        recyclerViewLotes.visibility = View.GONE
-
-        val lotsQuery = firestore.collection("inventoryLots")
-            .whereEqualTo("productId", product.id)
-            .whereEqualTo("location", Location.MATRIZ)
-            .whereEqualTo("isDepleted", false)
-            .orderBy("receivedAt", Query.Direction.ASCENDING)
-
-        lotsQuery.get()
-            .addOnSuccessListener { snapshot ->
-                if (!isAdded || _binding == null) { // Comprobar también _binding
-                    isDialogOpen = false
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnSuccessListener
-                }
-                progressBarLotes.visibility = View.GONE
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val loadedLots = snapshot.documents.mapNotNull { doc ->
-                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
-                        catch (e: Exception) { null }
-                    }
-                    lotAdapter.submitList(loadedLots)
-                    textViewNoLotes.visibility = View.GONE
-                    recyclerViewLotes.visibility = View.VISIBLE
-                } else {
-                    textViewNoLotes.text = "No hay lotes disponibles en Matriz."
-                    textViewNoLotes.visibility = View.VISIBLE
-                    recyclerViewLotes.visibility = View.GONE
-                }
-            }
-            .addOnFailureListener { e ->
-                if (!isAdded || _binding == null) {
-                    isDialogOpen = false
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnFailureListener
-                }
-                progressBarLotes.visibility = View.GONE
-                textViewNoLotes.text = "Error al cargar lotes."
-                textViewNoLotes.visibility = View.VISIBLE
-                recyclerViewLotes.visibility = View.GONE
-                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
-                // No cerramos el diálogo aquí, el usuario puede reintentar o cancelar
-            }
-        alertDialog.show()
-    }
-
-    private fun loadSuppliersAndShowSalidaDevolucionDialog(product: Product) {
-        if (_binding == null || !isAdded) return
-
-        showListLoading(true) // Muestra un ProgressBar general si es necesario
-        Log.d(TAG, "Cargando proveedores para diálogo de devolución...")
-
-        firestore.collection("suppliers")
-            .orderBy("name")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (_binding == null || !isAdded) return@addOnSuccessListener
-                showListLoading(false)
-
-                val allSuppliers = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        doc.toObject(Supplier::class.java)?.copy(id = doc.id)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error convirtiendo proveedor: ${doc.id}", e)
-                        null
-                    }
-                }
-                Log.d(TAG, "${allSuppliers.size} proveedores cargados para devolución.")
-                showSalidaDevolucionDialog(product, allSuppliers)
-            }
-            .addOnFailureListener { e ->
-                if (_binding == null || !isAdded) return@addOnFailureListener
-                showListLoading(false)
-                Log.e(TAG, "Error cargando proveedores para devolución", e)
-                Toast.makeText(context, "Error al cargar proveedores.", Toast.LENGTH_SHORT).show()
-                isDialogOpen = false // Asegurar que se resetea si falla la carga
-            }
-    }
 
     private fun performTraspasoC04ToMatriz(
         productArgument: Product,
@@ -968,136 +675,21 @@ import kotlinx.coroutines.launch
             isDialogOpen = false
             when (menuItem.itemId) {
                 R.id.action_salida_consumo -> {
-                    showSalidaConsumoDialog(product) // Esta ya existe y maneja su propio isDialogOpen
+                    // Ahora simplemente mostramos el DialogFragment moderno.
+                    SalidaConsumoLotesDialogFragment.newInstance(product)
+                        .show(parentFragmentManager, SalidaConsumoLotesDialogFragment.TAG)
                     true
                 }
                 R.id.action_salida_devolucion -> {
-                    // Cargar proveedores y luego mostrar diálogo de devolución
-                    loadSuppliersAndShowSalidaDevolucionDialog(product)
+                    // Ahora simplemente mostramos el DialogFragment dedicado.
+                    SalidaDevolucionLotesDialogFragment.newInstance(product)
+                        .show(parentFragmentManager, SalidaDevolucionLotesDialogFragment.TAG)
                     true
                 }
                 else -> false
             }
         }
         popup.show()
-    }
-
-
-    private fun showSalidaConsumoDialog(product: Product) {
-        val currentContext = context ?: run {
-            isDialogOpen = false
-            return
-        }
-
-        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_salida_consumo_lotes, null)
-        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadConsumo)
-        val progressBarLotesDialog = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesDialog)
-        val textViewNoLotesDialog = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesDialog)
-        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesDialog)
-        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogAceptar)
-        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogCancelar)
-
-        val lotAdapter = LotSelectionAdapter()
-        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
-        recyclerViewLotes.adapter = lotAdapter
-
-        val builder = AlertDialog.Builder(currentContext)
-        val titleView = TextView(currentContext)
-        titleView.text = "Consumo: ${product.name}"
-        titleView.setPadding(60, 40, 60, 20)
-        titleView.textSize = 18f
-        titleView.setTextColor(ContextCompat.getColor(currentContext, android.R.color.black))
-        builder.setCustomTitle(titleView)
-        builder.setView(dialogViewInflated)
-
-        progressBarLotesDialog.visibility = View.VISIBLE
-        textViewNoLotesDialog.visibility = View.GONE
-        recyclerViewLotes.visibility = View.GONE
-        inputQuantityNet.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-
-        val alertDialog = builder.create()
-
-        buttonCancelar.setOnClickListener {
-            alertDialog.dismiss()
-        }
-
-        buttonAceptar.setOnClickListener {
-            val quantityString = inputQuantityNet.text.toString()
-            val quantityToConsume = quantityString.toDoubleOrNull()
-            val selectedLotIds = lotAdapter.getSelectedLotIds()
-            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
-
-            var validationError = false
-            if (quantityToConsume == null || quantityToConsume <= 0.0) {
-                inputQuantityNet.error = "Cantidad > 0.0"
-                validationError = true
-            }
-            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
-                Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
-                validationError = true
-            } else if (quantityToConsume != null && lotAdapter.currentList.isNotEmpty() && quantityToConsume > selectedLotsTotalNetQuantity + 0.1) {
-                inputQuantityNet.error = "Excede stock lotes selecc. (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
-                validationError = true
-            }
-
-            if (!validationError && quantityToConsume != null) {
-                if (lotAdapter.currentList.isEmpty() && quantityToConsume > 0.0) {
-                    Toast.makeText(context, "No hay lotes disponibles de donde consumir.", Toast.LENGTH_SHORT).show()
-                } else if (selectedLotIds.isNotEmpty()){
-                    performSalidaConsumo(product, quantityToConsume, selectedLotIds) // Llamada a la lógica de transacción
-                    alertDialog.dismiss()
-                } else if (lotAdapter.currentList.isEmpty() && quantityToConsume <= 0.0){
-                    alertDialog.dismiss()
-                } else {
-                    Toast.makeText(context, "Verifica cantidad y selección.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        val lotsQuery = firestore.collection("inventoryLots")
-            .whereEqualTo("productId", product.id)
-            .whereEqualTo("location", Location.MATRIZ)
-            .whereEqualTo("isDepleted", false)
-            .orderBy("receivedAt", Query.Direction.ASCENDING)
-
-        lotsQuery.get()
-            .addOnSuccessListener { snapshot ->
-                if (!isAdded || context == null || _binding == null) {
-                    isDialogOpen = false
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnSuccessListener
-                }
-                progressBarLotesDialog.visibility = View.GONE
-
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val loadedLots = snapshot.documents.mapNotNull { doc ->
-                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
-                        catch (e: Exception) { null }
-                    }
-                    lotAdapter.submitList(loadedLots)
-                    textViewNoLotesDialog.visibility = View.GONE
-                    recyclerViewLotes.visibility = View.VISIBLE
-                } else {
-                    textViewNoLotesDialog.text = "No hay lotes disponibles en Matriz."
-                    textViewNoLotesDialog.visibility = View.VISIBLE
-                    recyclerViewLotes.visibility = View.GONE
-                }
-            }
-            .addOnFailureListener { e ->
-                if (!isAdded || context == null) {
-                    isDialogOpen = false
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    return@addOnFailureListener
-                }
-                progressBarLotesDialog.visibility = View.GONE
-                textViewNoLotesDialog.text = "Error al cargar lotes."
-                textViewNoLotesDialog.visibility = View.VISIBLE
-                recyclerViewLotes.visibility = View.GONE
-                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
-                isDialogOpen = false
-                if(alertDialog.isShowing) alertDialog.dismiss()
-            }
-        showDebouncedDialogWithCustomView(alertDialog)
     }
 
     override fun onTraspasoC04MClicked(product: Product) { // SIN anchorView
@@ -1658,193 +1250,6 @@ import kotlinx.coroutines.launch
     }
 
 
-    private fun performSalidaDevolucion(
-        product: Product,
-        quantityToDevolver: Double,
-        selectedLotIds: List<String>,
-        proveedorNameInput: String,
-        matchedSupplier: Supplier?,
-        motivo: String,
-        allSuppliers: List<Supplier> // Para crear nuevo proveedor si es necesario
-    ) {
-        val user = auth.currentUser ?: run {
-            Toast.makeText(context, "Error de autenticación.", Toast.LENGTH_SHORT).show()
-            isDialogOpen = false
-            return
-        }
-        val currentUserName = user.displayName ?: user.email ?: "Unknown"
-
-        if (_binding != null) showListLoading(true)
-
-        firestore.runTransaction { transaction ->
-            // --- LECTURAS PRIMERO ---
-            val productSnapshot = transaction.get(firestore.collection("products").document(product.id))
-            val currentProduct = productSnapshot.toObject(Product::class.java)
-                ?: throw FirebaseFirestoreException("Producto no encontrado: ${product.name}", FirebaseFirestoreException.Code.ABORTED)
-
-            val lotObjects = mutableListOf<StockLot>()
-            for (lotId in selectedLotIds) {
-                val lotRef = firestore.collection("inventoryLots").document(lotId)
-                val lotSnapshot = transaction.get(lotRef)
-                if (!lotSnapshot.exists()) throw FirebaseFirestoreException("Lote $lotId no encontrado.", FirebaseFirestoreException.Code.ABORTED)
-                val stockLot = lotSnapshot.toObject(StockLot::class.java)?.copy(id = lotSnapshot.id)
-                    ?: throw FirebaseFirestoreException("Error convirtiendo lote $lotId.", FirebaseFirestoreException.Code.ABORTED)
-                lotObjects.add(stockLot)
-            }
-            val sortedLots = lotObjects.sortedBy { it.receivedAt ?: Date(0) }
-            // --- FIN LECTURAS ---
-
-            // --- VALIDACIONES Y CÁLCULOS ---
-            val totalSelectedStockNet = sortedLots.sumOf { it.currentQuantity }
-            if (quantityToDevolver > totalSelectedStockNet + 0.1) {
-                throw FirebaseFirestoreException("Stock neto insuficiente en lotes (${String.format("%.2f", totalSelectedStockNet)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
-            }
-
-            var supplierIdToUse: String? = matchedSupplier?.id
-            var supplierNameToUse: String = proveedorNameInput
-
-            // Si no hay match exacto con un proveedor activo, y el nombre no está vacío, se crea uno nuevo
-            if (matchedSupplier == null && proveedorNameInput.isNotBlank()) {
-                val existingAnyCase = allSuppliers.find { it.name.equals(proveedorNameInput, ignoreCase = true) }
-                if (existingAnyCase != null) { // Existe pero quizás inactivo o caso diferente
-                    if (!existingAnyCase.isActive) {
-                        // Si existe inactivo, se podría decidir reactivarlo aquí o manejarlo como error/advertencia
-                        // Por ahora, para simplificar, si no es activo, crearemos uno nuevo con el nombre exacto ingresado
-                        // O se puede lanzar una excepción para que el usuario lo active primero.
-                        // Optamos por crear uno nuevo si el activo no coincide exactamente.
-                        Log.w(TAG, "Proveedor '${existingAnyCase.name}' encontrado pero inactivo. Se creará uno nuevo si no hay match activo.")
-                        // Si la lógica es crear nuevo si no hay activo con ese nombre:
-                        val newSupplierRef = firestore.collection("suppliers").document()
-                        val newSupplier = Supplier(id = newSupplierRef.id, name = proveedorNameInput, isActive = true, createdAt = Date(), updatedAt = Date())
-                        transaction.set(newSupplierRef, newSupplier)
-                        supplierIdToUse = newSupplierRef.id
-                        supplierNameToUse = proveedorNameInput // Ya es el nombre ingresado
-                    } else { // Existe y está activo, pero el case no coincidió, usamos el de la BD
-                        supplierIdToUse = existingAnyCase.id
-                        supplierNameToUse = existingAnyCase.name // Usar el nombre canónico de la BD
-                    }
-
-                } else { // No existe en absoluto
-                    val newSupplierRef = firestore.collection("suppliers").document()
-                    val newSupplier = Supplier(id = newSupplierRef.id, name = proveedorNameInput, isActive = true, createdAt = Date(), updatedAt = Date())
-                    transaction.set(newSupplierRef, newSupplier)
-                    supplierIdToUse = newSupplierRef.id
-                }
-            } else if (matchedSupplier != null) { // Hubo match con un proveedor activo
-                supplierNameToUse = matchedSupplier.name // Usar nombre canónico
-            }
-
-
-            var remainingToDevolver = quantityToDevolver
-            val lotsToUpdateData = mutableMapOf<String, Map<String, Any>>()
-            val affectedLotDetails = mutableListOf<String>()
-            val lotIdsToUpdate = mutableListOf<String>()
-
-            for (lot in sortedLots) {
-                if (remainingToDevolver <= 0.1) break
-
-                val quantityFromThisLot = kotlin.math.min(remainingToDevolver, lot.currentQuantity)
-                if (quantityFromThisLot > 0.1) {
-                    val newLotQuantity = lot.currentQuantity - quantityFromThisLot
-                    val isNowDepleted = newLotQuantity <= 0.1 // Epsilon
-
-                    lotsToUpdateData[lot.id] = mapOf(
-                        "currentQuantity" to newLotQuantity,
-                        "isDepleted" to isNowDepleted
-                    )
-                    lotIdsToUpdate.add(lot.id)
-                    remainingToDevolver -= quantityFromThisLot
-                    affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", quantityFromThisLot)}")
-                }
-            }
-            if (lotsToUpdateData.isEmpty() && quantityToDevolver > 0.1) {
-                throw FirebaseFirestoreException("Error al calcular descuento de lotes para devolución.", FirebaseFirestoreException.Code.ABORTED)
-            }
-
-
-            val newStockMatrizCalculated = currentProduct.stockMatriz - quantityToDevolver
-            val newTotalStockCalculated = currentProduct.totalStock - quantityToDevolver
-
-            if (newStockMatrizCalculated < -0.1 || newTotalStockCalculated < -0.1) { // Epsilon
-                throw FirebaseFirestoreException("Error de consistencia en stock producto post-cálculo.", FirebaseFirestoreException.Code.ABORTED)
-            }
-            // --- FIN VALIDACIONES Y CÁLCULOS ---
-
-            // --- ESCRITURAS ---
-            for ((lotId, updateData) in lotsToUpdateData) {
-                transaction.update(firestore.collection("inventoryLots").document(lotId), updateData)
-            }
-
-            transaction.update(firestore.collection("products").document(product.id), mapOf(
-                "stockMatriz" to newStockMatrizCalculated,
-                "totalStock" to newTotalStockCalculated,
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName
-            ))
-
-            val newMovementRef = firestore.collection("stockMovements").document()
-            val movement = StockMovement(
-                id = newMovementRef.id,
-                userId = user.uid,
-                userName = currentUserName,
-                productId = product.id,
-                productName = currentProduct.name,
-                type = MovementType.SALIDA_DEVOLUCION,
-                quantity = quantityToDevolver,
-                locationFrom = Location.MATRIZ,
-                locationTo = Location.PROVEEDOR, // O el ID del proveedor si lo tienes
-                reason = "Lotes: ${affectedLotDetails.joinToString()} | Motivo: $motivo",
-                stockAfterMatriz = newStockMatrizCalculated,
-                stockAfterCongelador04 = currentProduct.stockCongelador04,
-                stockAfterTotal = newTotalStockCalculated,
-                timestamp = Date(),
-                affectedLotIds = lotIdsToUpdate.distinct()
-            )
-            transaction.set(newMovementRef, movement)
-
-            val newDevolucionPendienteRef = firestore.collection("pendingDevoluciones").document()
-            val devolucionPendiente = DevolucionPendiente(
-                id = newDevolucionPendienteRef.id,
-                productId = product.id,
-                productName = currentProduct.name,
-                quantity = quantityToDevolver,
-                unit = currentProduct.unit, // Añadir unidad
-                provider = supplierNameToUse, // Nombre del proveedor
-                reason = motivo,
-                userId = user.uid,
-                registeredAt = Date(), // Usar fecha actual para el registro de la devolución
-                status = DevolucionStatus.PENDIENTE
-                // completedAt se establece cuando se completa
-            )
-            transaction.set(newDevolucionPendienteRef, devolucionPendiente)
-            // --- FIN ESCRITURAS ---
-
-            null // La transacción retorna null en éxito
-        }.addOnSuccessListener {
-            if (_binding != null) showListLoading(false)
-            Toast.makeText(context, "Devolución registrada: -${String.format("%.2f", quantityToDevolver)} ${product.unit}", Toast.LENGTH_SHORT).show()
-            firestore.collection("products").document(product.id).get().addOnSuccessListener { updatedDoc ->
-                if (isAdded && context != null) {
-                    updatedDoc.toObject(Product::class.java)?.let { updatedProduct ->
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            NotificationTriggerHelper.triggerLowStockNotification(updatedProduct)
-                        }
-                    }
-                }
-            }
-            isDialogOpen = false
-        }.addOnFailureListener { e ->
-            if (_binding != null) showListLoading(false)
-            val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
-                e.message ?: "Error de datos durante la devolución."
-            } else {
-                "Error registrando devolución: ${e.message}"
-            }
-            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            isDialogOpen = false
-        }
-    }
-
     private fun showTraspasoC04ToMatrizDialog(product: Product) {
         val currentContext = context ?: run {
             isDialogOpen = false
@@ -2225,10 +1630,10 @@ import kotlinx.coroutines.launch
                           userName=currentUserName,
                            productId=product.id,
                             productName=currentProduct.name,
-                             type=MovementType.TRASPASO_M_C04, 
+                             type=MovementType.TRASPASO_M_C04,
                              quantity=quantityToTraspasarTotal,
                          locationFrom=Location.MATRIZ,
-                         locationTo=Location.CONGELADOR_04, 
+                         locationTo=Location.CONGELADOR_04,
                          reason="Origen(M): ${idsLotesOrigenAfectadosConCantidad.joinToString()}; Destino(C04): ${idsLotesDestinoC04AfectadosConCantidad.joinToString()}",
                          stockAfterMatriz=nuevoStockMatriz, stockAfterCongelador04=nuevoStockC04,
                          stockAfterTotal=currentProduct.totalStock,

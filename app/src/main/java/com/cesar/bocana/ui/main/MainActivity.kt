@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -36,6 +37,8 @@ import com.cesar.bocana.ui.printing.EtiquetasMenuFragment
 import com.cesar.bocana.ui.products.ProductListFragment
 import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
+import com.cesar.bocana.utils.ConnectivityObserver
+import com.cesar.bocana.utils.NetworkStatus
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.Timestamp
@@ -45,10 +48,12 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
+
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,9 +62,10 @@ class MainActivity : AppCompatActivity() {
     private val db = Firebase.firestore
     private var currentUserName: String? = null
     private lateinit var repository: InventoryRepository
+    private lateinit var connectivityObserver: ConnectivityObserver
+
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
-    // IDs únicos para cada tipo de notificación
     private val LOW_STOCK_NOTIFICATION_ID = 1001
     private val DEVOLUCION_NOTIFICATION_ID = 1002
     private val PACKAGING_NOTIFICATION_ID = 1003
@@ -90,6 +96,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // Iniciar observador de conectividad
+        connectivityObserver = ConnectivityObserver(applicationContext)
+        observeNetworkStatus()
+
+        // Iniciar listeners y sincronización automática
+        lifecycleScope.launch {
+            repository.syncNewMovements() // Sincronización inteligente al inicio
+        }
         repository.startFirestoreListeners()
 
         setupBottomNavigation()
@@ -97,6 +111,23 @@ class MainActivity : AppCompatActivity() {
         askNotificationPermission()
         handleDeepLink(intent)
     }
+
+    private fun observeNetworkStatus() {
+        lifecycleScope.launch {
+            connectivityObserver.observe().collect { isOnline ->
+                NetworkStatus.isOnline = isOnline // Actualizar el estado global
+                runOnUiThread {
+                    binding.textViewOfflineBanner.visibility = if (isOnline) View.GONE else View.VISIBLE
+                    // Notificar al fragmento actual sobre el cambio de red
+                    val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
+                    if (currentFragment is ProductListFragment) {
+                        currentFragment.onNetworkStatusChanged(isOnline)
+                    }
+                }
+            }
+        }
+    }
+
 
     override fun onDestroy() {
         super.onDestroy()
@@ -323,7 +354,6 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun checkConditionsAndNotifyLocally() {
         try {
-            // Chequeo de Stock Bajo
             val lowStockSnapshot = db.collection("products")
                 .whereEqualTo("isActive", true)
                 .get()
@@ -347,7 +377,6 @@ class MainActivity : AppCompatActivity() {
                 showLocalNotification(title, content, LOW_STOCK_NOTIFICATION_ID)
             }
 
-            // Chequeo de Devoluciones Pendientes
             val pendingDevoSnapshot = db.collection("pendingDevoluciones")
                 .whereEqualTo("status", DevolucionStatus.PENDIENTE.name)
                 .limit(1)
@@ -361,7 +390,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            // Chequeo de Empaques Atrasados
             val threeDaysAgoMillis = Date().time - (3 * 24 * 60 * 60 * 1000)
             val threeDaysAgoTimestamp = Timestamp(Date(threeDaysAgoMillis))
 

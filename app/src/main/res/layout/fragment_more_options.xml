@@ -67,6 +67,28 @@
         android:text="Historial de Movimientos"
         app:icon="@drawable/historial"/>
 
+    <!-- borra para Descomentar para activar -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_migrate_data"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:strokeColor="@android:color/holo_red_dark"
+        android:textColor="@android:color/holo_red_dark"
+        android:text="Mantenimiento de Datos v3.0"
+        app:icon="@android:drawable/ic_dialog_alert"/>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_force_sync"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:strokeColor="@android:color/holo_orange_dark"
+        android:textColor="@android:color/holo_orange_dark"
+        android:text="Sincronización Forzada"
+        app:icon="@android:drawable/stat_notify_sync"/>
+        <!-- borrar esta linea para descomentar -->
 
 </LinearLayout>

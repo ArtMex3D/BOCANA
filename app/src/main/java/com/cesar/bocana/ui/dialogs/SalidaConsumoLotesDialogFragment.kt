@@ -4,7 +4,6 @@ import android.app.Dialog
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.LayoutInflater
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
@@ -25,6 +24,7 @@ import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.helpers.NotificationTriggerHelper
 import com.cesar.bocana.ui.adapters.LotSelectionAdapter
+import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -120,11 +120,9 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
 
             if (!validationError && quantityToConsume != null) {
                 performSalidaConsumo(currentProduct, quantityToConsume, selectedLotIds)
-                dialog.dismiss()
             }
         }
 
-        // Cargar lotes
         progressBar.isVisible = true
         noLotesTextView.isVisible = false
         val lotsQuery = firestore.collection("inventoryLots")
@@ -217,13 +215,17 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
 
             currentProduct.copy(stockMatriz = newStockMatriz, totalStock = newTotalStock)
         }.addOnSuccessListener { updatedProduct ->
-            Toast.makeText(context, "Salida por consumo registrada.", Toast.LENGTH_SHORT).show()
+            if (!isAdded) return@addOnSuccessListener
+            Snackbar.make(requireActivity().findViewById(android.R.id.content), "Salida por consumo registrada.", Snackbar.LENGTH_LONG).show()
             updatedProduct?.let {
                 lifecycleScope.launch { NotificationTriggerHelper.triggerLowStockNotification(it) }
             }
+            dismiss()
         }.addOnFailureListener { e ->
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            if (!isAdded) return@addOnFailureListener
+            Snackbar.make(requireActivity().findViewById(android.R.id.content), "Error: ${e.message}", Snackbar.LENGTH_LONG).show()
             Log.e(TAG, "Error en transacción de salida consumo", e)
+            dismiss()
         }
     }
 }

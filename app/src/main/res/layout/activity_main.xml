@@ -22,6 +22,21 @@
             android:background="@color/brand_purple"
             app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
 
+        <!-- Banner para mostrar cuando no hay conexión -->
+        <TextView
+            android:id="@+id/textViewOfflineBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#000000"
+            android:gravity="center"
+            android:padding="2dp"
+            android:text="**  MODO DESCONEXIÓN  **"
+            android:textColor="@color/ic_launcher_background"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.fragment.app.FragmentContainerView

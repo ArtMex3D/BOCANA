@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AnimationUtils
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -15,6 +16,7 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
+import com.cesar.bocana.utils.NetworkStatus.isOnline
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -34,11 +36,19 @@ class ProductAdapter(
 
     private var currentLocationContext: String = Location.MATRIZ
     private val updateDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
+    private var isOnline: Boolean = true // Estado de la conexión
+
 
     fun setCurrentUserRole(role: UserRole?) {
         if (role != currentUserRole) {
             currentUserRole = role
             notifyDataSetChanged()
+        }
+    }
+    fun setOnlineStatus(online: Boolean) {
+        if (isOnline != online) {
+            isOnline = online
+            notifyDataSetChanged() // Redibujar todos los items visibles
         }
     }
 
@@ -110,22 +120,27 @@ class ProductAdapter(
                 binding.layoutActionButtonsC04.visibility = View.VISIBLE
             }
 
-            // --- ENABLE/DISABLE BUTTONS BASED ON ROLE ---
-            val alphaValue = if (canModify) 1.0f else 0.5f
+            // Habilitar/deshabilitar botones según rol Y estado de conexión
+            val canPerformWriteAction = canModify && isOnline
+            val alphaValue = if (canPerformWriteAction) 1.0f else 0.5f
+
             binding.layoutActionButtons.alpha = alphaValue
             binding.layoutActionButtonsC04.alpha = alphaValue
+
+            val offlineClickListener = View.OnClickListener {
+                if (!isOnline) {
+                    Toast.makeText(context, "Esta acción requiere conexión a internet.", Toast.LENGTH_SHORT).show()
+                }
+            }
 
             // --- SET LISTENERS ---
             binding.root.setOnClickListener { listener.onItemClicked(item) }
 
-            // Matriz buttons
-            binding.buttonAddCompra.setOnClickListener { if (canModify) listener.onAddCompraClicked(item) }
-            binding.buttonAddSalida.setOnClickListener { view -> if (canModify) listener.onSalidaClicked(item, view) }
-            binding.buttonAddTraspaso.setOnClickListener { view -> if (canModify) listener.onTraspasoC04Clicked(item, view) }
-
-            // C04 buttons
-            binding.buttonEditC04.setOnClickListener { if (canModify) listener.onEditC04Clicked(item) }
-            binding.buttonTraspasoC04M.setOnClickListener { if (canModify) listener.onTraspasoC04MClicked(item) }
+            binding.buttonAddCompra.setOnClickListener { if (canPerformWriteAction) listener.onAddCompraClicked(item) else offlineClickListener.onClick(it) }
+            binding.buttonAddSalida.setOnClickListener { view -> if (canPerformWriteAction) listener.onSalidaClicked(item, view) else offlineClickListener.onClick(view) }
+            binding.buttonAddTraspaso.setOnClickListener { view -> if (canPerformWriteAction) listener.onTraspasoC04Clicked(item, view) else offlineClickListener.onClick(view) }
+            binding.buttonEditC04.setOnClickListener { if (canPerformWriteAction) listener.onEditC04Clicked(item) else offlineClickListener.onClick(it) }
+            binding.buttonTraspasoC04M.setOnClickListener { if (canPerformWriteAction) listener.onTraspasoC04MClicked(item) else offlineClickListener.onClick(it) }
         }
 
         companion object {

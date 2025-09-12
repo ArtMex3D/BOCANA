@@ -8,10 +8,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout // <--- (Opcional, puede que Android Studio lo agregue solo)
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -22,6 +24,7 @@ import com.cesar.bocana.helpers.NotificationTriggerHelper
 import com.cesar.bocana.ui.adapters.GroupableListItem
 import com.cesar.bocana.ui.adapters.SubloteC04SelectionAdapter
 import com.cesar.bocana.ui.adapters.SubloteC04SelectionListener
+import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.*
@@ -53,7 +56,6 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
     private lateinit var subloteAdapter: SubloteC04SelectionAdapter
     private var subloteSeleccionadoPorUsuario: StockLot? = null
     private val shortDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-    // private val fullDateTimeFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault()) // No se usa aquí
 
     interface AjusteSubloteC04Listener {
         fun onSubloteAjustado(productId: String)
@@ -103,17 +105,17 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                     if(productArgument != null && this::recyclerViewSubLotes.isInitialized) {
                         loadSublotesFromC04()
                     } else if (productArgument == null) {
-                        Toast.makeText(context, "Error al cargar datos del producto.", Toast.LENGTH_LONG).show()
+                        showSnackbar("Error al cargar datos del producto.", true)
                         dismissAllowingStateLoss()
                     }
                 } else {
-                    Toast.makeText(context, "Error: Producto no encontrado para ajuste.", Toast.LENGTH_LONG).show()
+                    showSnackbar("Error: Producto no encontrado para ajuste.", true)
                     dismissAllowingStateLoss()
                 }
             }
             .addOnFailureListener {
                 if (!isAdded || context == null) return@addOnFailureListener
-                Toast.makeText(context, "Error de conexión al cargar producto.", Toast.LENGTH_LONG).show()
+                showSnackbar("Error de conexión al cargar producto.", true)
                 dismissAllowingStateLoss()
             }
     }
@@ -132,6 +134,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         editTextNuevaCantidad = view.findViewById(R.id.editTextNuevaCantidadSubLote)
         buttonAceptar = view.findViewById(R.id.buttonDialogAjusteSubLoteAceptar)
         buttonCancelar = view.findViewById(R.id.buttonDialogAjusteSubLoteCancelar)
+
 
         if (productArgument != null) {
             titleProductTextView.text = "Ajustar Lote C04: ${productArgument!!.name}"
@@ -152,6 +155,17 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         val dialog = builder.create()
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         return dialog
+    }
+
+    private fun showSnackbar(message: String, isError: Boolean = false) {
+        val view = activity?.findViewById<View>(android.R.id.content)
+        if (view != null && isAdded) {
+            val snackbar = Snackbar.make(view, message, Snackbar.LENGTH_LONG)
+            if (isError) {
+                snackbar.setBackgroundTint(ContextCompat.getColor(requireContext(), R.color.negative_red))
+            }
+            snackbar.show()
+        }
     }
 
     private fun setupRecyclerView() {
@@ -180,7 +194,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 inputLayoutNuevaCantidad.hint = "Nueva Cant. (${selectedLot.unit})"
                 inputLayoutNuevaCantidad.isEnabled = true
                 buttonAceptar.isEnabled = true
-                editTextNuevaCantidad.setText(String.format(Locale.getDefault(), "%.2f", selectedLot.currentQuantity)) // Mostrar sin unidad aquí
+                editTextNuevaCantidad.setText(String.format(Locale.getDefault(), "%.2f", selectedLot.currentQuantity))
                 editTextNuevaCantidad.requestFocus()
                 editTextNuevaCantidad.selectAll()
             }
@@ -190,6 +204,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
     }
 
     private fun loadSublotesFromC04() {
+        // ... (el resto del código no cambia)
         val currentProduct = productArgument ?: return
         progressBarSubLotes.visibility = View.VISIBLE
         textViewNoSubLotes.visibility = View.GONE
@@ -226,7 +241,9 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                             val loteProvInfo = sublote.lotNumber?.let { ", LoteP: $it" } ?: ""
                             headerTitle = "Lote C04: $supplierName ($dateStr)$loteProvInfo"
                         } else {
-                            headerTitle = "Lote C04 ID:...${sublote.id.takeLast(4)}"
+                            val dateStr = sublote.receivedAt?.let { shortDateFormat.format(it) } ?: "Sin Fecha"
+                            val loteProvInfo = sublote.lotNumber?.let { ", LoteP: $it" } ?: ""
+                            headerTitle = "Sin Proveedor ($dateStr)$loteProvInfo"
                         }
                         groups.getOrPut(headerTitle) { mutableListOf() }.add(sublote)
                     }
@@ -252,7 +269,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 textViewNoSubLotes.text = "Error al cargar lotes C-04."
                 textViewNoSubLotes.visibility = View.VISIBLE
                 recyclerViewSubLotes.visibility = View.GONE
-                Toast.makeText(context, "Error cargando lotes: ${e.message}", Toast.LENGTH_LONG).show()
+                showSnackbar("Error cargando lotes: ${e.message}", true)
             }
     }
 
@@ -263,11 +280,11 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         val currentProduct = productArgument
 
         if (currentProduct == null) {
-            Toast.makeText(context, "Error: Producto no disponible.", Toast.LENGTH_SHORT).show()
+            showSnackbar("Error: Producto no disponible.", true)
             return
         }
         if (subloteActual == null) {
-            Toast.makeText(context, "Selecciona un lote.", Toast.LENGTH_SHORT).show()
+            showSnackbar("Selecciona un lote.", true)
             return
         }
         if (nuevaCantidadNeta == null || nuevaCantidadNeta < 0.0) {
@@ -285,7 +302,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
 
         val consumoNeto = subloteActual.currentQuantity - nuevaCantidadNeta
         if (kotlin.math.abs(consumoNeto) <= stockEpsilon && kotlin.math.abs(subloteActual.currentQuantity - nuevaCantidadNeta) <= stockEpsilon) {
-            Toast.makeText(context, "No se requiere ajuste.", Toast.LENGTH_SHORT).show()
+            showSnackbar("No se requiere ajuste.")
             dismiss()
             return
         }
@@ -298,7 +315,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         nuevaCantidadNetaSublote: Double
     ) {
         val currentUser = auth.currentUser ?: run {
-            Toast.makeText(context, "Error de autenticación.", Toast.LENGTH_SHORT).show()
+            showSnackbar("Error de autenticación.", true)
             return
         }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
@@ -367,8 +384,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
             progressBarSubLotes.visibility = View.GONE
             val consumoNetoReal = subloteAActualizar.currentQuantity - nuevaCantidadNetaSublote
             val msg = if (consumoNetoReal > stockEpsilon) "Lote ajustado. Consumo: ${String.format(Locale.getDefault(), "%.2f", consumoNetoReal)} ${product.unit}" else "Lote ajustado."
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-
+            showSnackbar(msg)
             productForNotification?.let { prod ->
                 lifecycleScope.launch { NotificationTriggerHelper.triggerLowStockNotification(prod) }
             }
@@ -383,7 +399,8 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 e.message ?: "Error de datos durante el ajuste."
             } else { "Error ajustando lote: ${e.message}" }
             Log.e(TAG, "Error en transacción de ajuste C04: ", e)
-            Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+            showSnackbar(errorMsg, true)
         }
     }
 }
+

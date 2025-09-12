@@ -22,6 +22,7 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.ui.adapters.LotSelectionAdapter
+import com.google.android.material.snackbar.Snackbar // <-- IMPORTACIÓN AÑADIDA
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -29,6 +30,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
@@ -117,17 +119,14 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
             }
 
             if (!validationError && quantityToTraspasar != null) {
-                // Se deshabilita el botón para evitar clics duplicados mientras la operación se ejecuta
                 aceptarButton.isEnabled = false
                 cancelarButton.isEnabled = false
                 progressBar.isVisible = true
 
-                // La función performTraspasoMatrizToC04 ahora se encarga de cerrar el diálogo
                 performTraspasoMatrizToC04(currentProduct, quantityToTraspasar, selectedLotIds)
             }
         }
 
-        // Cargar lotes
         progressBar.isVisible = true
         noLotesTextView.isVisible = false
         val lotsQuery = firestore.collection("inventoryLots")
@@ -143,7 +142,7 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                 noLotesTextView.text = "No hay lotes con stock en Matriz."
                 noLotesTextView.isVisible = true
             } else {
-                val lotes = snapshot.toObjects(StockLot::class.java).map { it.copy(id = it.id) }
+                val lotes = snapshot.toObjects(StockLot::class.java)
                 lotAdapter.submitList(lotes)
                 recyclerView.isVisible = true
             }
@@ -171,9 +170,8 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
             try {
                 val productRef = firestore.collection("products").document(product.id)
 
-                // --- MEJORA: LEER DATOS NECESARIOS ANTES DE LA TRANSACCIÓN ---
                 val lotesOrigenMatriz = selectedLotIdsFromMatriz.map { lotId ->
-                    async {
+                    async(Dispatchers.IO) {
                         val lotSnapshot = firestore.collection("inventoryLots").document(lotId).get().await()
                         val stockLot = lotSnapshot.toObject(StockLot::class.java)?.copy(id = lotSnapshot.id)
                         if (stockLot == null || stockLot.location != Location.MATRIZ || stockLot.isDepleted) {
@@ -188,21 +186,19 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                     throw FirebaseFirestoreException("Stock insuficiente en lotes seleccionados (${String.format("%.2f", totalDisponible)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
                 }
 
-                // --- MEJORA: BUSCAR SUBLOTES EXISTENTES ---
                 val sublotesExistentesData = lotesOrigenMatriz.map { loteOrigen ->
-                    async {
+                    async(Dispatchers.IO) {
                         val query = firestore.collection("inventoryLots")
                             .whereEqualTo("productId", loteOrigen.productId)
                             .whereEqualTo("location", Location.CONGELADOR_04)
                             .whereEqualTo("isDepleted", false)
-                            .whereEqualTo("originalLotId", loteOrigen.id) // La clave para agrupar
+                            .whereEqualTo("originalLotId", loteOrigen.id)
                             .limit(1)
                         val snapshot = query.get().await()
-                        loteOrigen.id to if (snapshot.documents.isNotEmpty()) snapshot.documents.first() else null
+                        loteOrigen.id to if (!snapshot.isEmpty) snapshot.documents.first() else null
                     }
                 }.awaitAll().toMap()
 
-                // --- TRANSACCIÓN DE ESCRITURA ---
                 firestore.runTransaction { transaction ->
                     val currentProduct = transaction.get(productRef).toObject(Product::class.java)
                         ?: throw FirebaseFirestoreException("Producto no encontrado: ${product.name}", FirebaseFirestoreException.Code.ABORTED)
@@ -226,10 +222,8 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
 
                             val subloteExistenteSnapshot = sublotesExistentesData[loteOrigen.id]
 
-                            // --- MEJORA: LÓGICA DE AGRUPACIÓN ---
                             if (subloteExistenteSnapshot != null) {
                                 val subloteRef = subloteExistenteSnapshot.reference
-                                // Se usa FieldValue.increment para sumar de forma segura
                                 transaction.update(subloteRef, "currentQuantity", FieldValue.increment(cantDeEsteLote))
                                 idsDestinoAfectados.add("${subloteRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Exist.)")
                             } else {
@@ -250,7 +244,6 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                         }
                     }
 
-                    // Actualización de stocks en el producto principal
                     transaction.update(productRef, mapOf(
                         "stockMatriz" to FieldValue.increment(-quantityToTraspasarTotal),
                         "stockCongelador04" to FieldValue.increment(quantityToTraspasarTotal),
@@ -258,7 +251,6 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                         "lastUpdatedByName" to currentUserName
                     ))
 
-                    // Creación del registro de movimiento
                     val movement = StockMovement(
                         id = newMovementRef.id, userId = user.uid, userName = currentUserName,
                         productId = product.id, productName = product.name, type = MovementType.TRASPASO_M_C04,
@@ -266,37 +258,23 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                         reason = "Origen(M): ${idsOrigenAfectados.joinToString()}; Destino(C04): ${idsDestinoAfectados.joinToString()}",
                         stockAfterMatriz = currentProduct.stockMatriz - quantityToTraspasarTotal,
                         stockAfterCongelador04 = currentProduct.stockCongelador04 + quantityToTraspasarTotal,
-                        stockAfterTotal = currentProduct.totalStock, timestamp = traspasoTimestamp
+                        stockAfterTotal = currentProduct.totalStock, timestamp = traspasoTimestamp,
+                        affectedLotIds = lotesOrigenMatriz.map { it.id }
                     )
                     transaction.set(newMovementRef, movement)
-                }.await() // --- FIX: ESPERAR A QUE LA TRANSACCIÓN TERMINE ---
+                }.await()
 
-                // --- ESTE CÓDIGO AHORA SE EJECUTA DESPUÉS DEL ÉXITO ---
                 if (isAdded) {
-                    Toast.makeText(context, "Traspaso realizado con éxito.", Toast.LENGTH_SHORT).show()
-                    dismiss() // Cierra el diálogo solo si todo salió bien
+                    Snackbar.make(requireActivity().findViewById(android.R.id.content), "Traspaso realizado con éxito.", Snackbar.LENGTH_LONG).show()
+                    dismiss()
                 }
 
             } catch (e: Exception) {
-                // --- MANEJO DE ERRORES MEJORADO ---
                 if (isAdded) {
-                    val errorMessage = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
-                        e.message ?: "Error de datos durante el traspaso."
-                    } else {
-                        "Error inesperado: ${e.message}"
-                    }
-                    Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    val errorMessage = (e as? FirebaseFirestoreException)?.message ?: "Error inesperado: ${e.message}"
+                    Snackbar.make(requireActivity().findViewById(android.R.id.content), errorMessage, Snackbar.LENGTH_LONG).show()
                     Log.e(TAG, "Error en la operación de traspaso", e)
-
-                    // Si el diálogo todavía existe, reactivar los botones para un nuevo intento
-                    dialog?.let {
-                        val aceptarButton = it.findViewById<Button>(R.id.buttonDialogTraspasoAceptar)
-                        val cancelarButton = it.findViewById<Button>(R.id.buttonDialogTraspasoCancelar)
-                        val progressBar = it.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
-                        aceptarButton?.isEnabled = true
-                        cancelarButton?.isEnabled = true
-                        progressBar?.isVisible = false
-                    }
+                    dismiss()
                 }
             }
         }

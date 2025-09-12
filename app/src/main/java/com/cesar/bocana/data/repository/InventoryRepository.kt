@@ -150,6 +150,58 @@ class InventoryRepository(
         }
     }
 
+    /**
+     * Borra toda la base de datos local y la vuelve a llenar desde Firestore.
+     * Soluciona el error de compilación.
+     */
+    suspend fun forceFullResync() {
+        withContext(Dispatchers.IO) {
+            try {
+                Log.d("InventoryRepository", "Iniciando Sincronización Forzada...")
+                // 1. Borrar todos los datos locales en una única transacción
+                db.withTransaction {
+                    productDao.clearAll()
+                    supplierDao.clearAll()
+                    stockLotDao.clearAll()
+                    stockMovementDao.clearAll()
+                    packagingDao.clearAll()
+                    devolucionDao.clearAll()
+                }
+                Log.d("InventoryRepository", "Base de datos local borrada.")
+
+                // 2. Descargar todos los datos de Firestore de nuevo
+                val products = firestore.collection("products").get().await().toObjects(Product::class.java)
+                productDao.insertAll(products)
+                Log.d("InventoryRepository", "${products.size} productos descargados.")
+
+                val suppliers = firestore.collection("suppliers").get().await().toObjects(Supplier::class.java)
+                supplierDao.insertAll(suppliers)
+                Log.d("InventoryRepository", "${suppliers.size} proveedores descargados.")
+
+                val stockLots = firestore.collection("inventoryLots").get().await().toObjects(StockLot::class.java)
+                stockLotDao.insertAll(stockLots)
+                Log.d("InventoryRepository", "${stockLots.size} lotes descargados.")
+
+                val movements = firestore.collection("stockMovements").get().await().toObjects(StockMovement::class.java)
+                stockMovementDao.insertAll(movements)
+                Log.d("InventoryRepository", "${movements.size} movimientos descargados.")
+
+                val packagingTasks = firestore.collection("pendingPackaging").get().await().toObjects(PendingPackagingTask::class.java)
+                packagingDao.insertAll(packagingTasks)
+                Log.d("InventoryRepository", "${packagingTasks.size} tareas de empaque descargadas.")
+
+                val devoluciones = firestore.collection("pendingDevoluciones").get().await().toObjects(DevolucionPendiente::class.java)
+                devolucionDao.insertAll(devoluciones)
+                Log.d("InventoryRepository", "${devoluciones.size} devoluciones descargadas.")
+
+                Log.d("InventoryRepository", "Sincronización Forzada completada.")
+            } catch (e: Exception) {
+                Log.e("InventoryRepository", "Error durante la Sincronización Forzada", e)
+                throw e
+            }
+        }
+    }
+
     suspend fun getLotById(lotId: String): StockLot? = withContext(Dispatchers.IO) {
         stockLotDao.getLotById(lotId)
     }
@@ -210,3 +262,4 @@ class InventoryRepository(
         ).flow
     }
 }
+
