@@ -93,13 +93,13 @@ class MoreOptionsFragment : Fragment() {
         }
 
         //boton para forzar sincronizacion, descomentar para activar
-        binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
+        //binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
 
         //boton para forzar mantenimiento, descomentar para activar
-        binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
+        //binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
     }
 
-    // descomentar para activar
+    /* descomentar para activar
         private fun showForceSyncConfirmationDialog() {
             AlertDialog.Builder(requireContext())
                 .setTitle("Confirmar Sincronización")
@@ -267,7 +267,7 @@ class MoreOptionsFragment : Fragment() {
                 .setPositiveButton("Cerrar", null)
                 .show()
         }
-    //borrar para activar */
+    borrar para activar */
 
     override fun onDestroyView() {
         super.onDestroyView()
