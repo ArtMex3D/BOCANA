@@ -7,9 +7,9 @@
         android:title="Stocks" />
 
     <item
-        android:id="@+id/navigation_proveedores"
-        android:icon="@drawable/ic_manage_users"
-        android:title="Proveedores"/>
+        android:id="@+id/navigation_traspasos"
+        android:icon="@drawable/traspaso"
+        android:title="Traspasos"/>
 
     <item
         android:id="@+id/navigation_empaque"

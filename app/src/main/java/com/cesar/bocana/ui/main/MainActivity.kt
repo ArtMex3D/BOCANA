@@ -37,6 +37,7 @@ import com.cesar.bocana.ui.printing.EtiquetasMenuFragment
 import com.cesar.bocana.ui.products.ProductListFragment
 import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
+import com.cesar.bocana.ui.traspasos.TraspasosContainerFragment
 import com.cesar.bocana.utils.ConnectivityObserver
 import com.cesar.bocana.utils.NetworkStatus
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -180,11 +181,10 @@ class MainActivity : AppCompatActivity() {
                     selectedFragment = ProductListFragment()
                     title = "Inventario de Stocks"
                 }
-                R.id.navigation_proveedores -> {
-                    selectedFragment = SupplierListFragment()
-                    title = "Proveedores"
-                }
-                R.id.navigation_empaque -> {
+                R.id.navigation_traspasos -> {
+                    selectedFragment = TraspasosContainerFragment()
+                    title = "Gestión de Traspasos"
+                }R.id.navigation_empaque -> {
                     selectedFragment = PackagingFragment()
                     title = "Pendiente Empacar"
                 }
@@ -207,10 +207,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 supportActionBar?.title = title
                 updateToolbarSubtitle()
-                true
-            } else {
-                false
+                return@setOnItemSelectedListener true
             }
+            // Si el fragmento es null (como en el placeholder de traspasos), no hacemos nada y retornamos false
+            return@setOnItemSelectedListener false
         }
     }
 

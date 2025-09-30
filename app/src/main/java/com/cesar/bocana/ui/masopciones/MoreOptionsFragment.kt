@@ -17,7 +17,10 @@ import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment
+import com.cesar.bocana.ui.migration.LotMigrationFragment
 import com.cesar.bocana.ui.report.ReportConfigFragment
+import com.cesar.bocana.ui.suppliers.SupplierListFragment
+import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -25,6 +28,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+
+
 
 class MoreOptionsFragment : Fragment() {
 
@@ -91,6 +96,29 @@ class MoreOptionsFragment : Fragment() {
                 .addToBackStack("DevolucionesFragment")
                 .commit()
         }
+        binding.buttonNavToProveedores.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, SupplierListFragment())
+                .addToBackStack("SupplierListFragment")
+                .commit()
+        }
+
+        binding.buttonNavToConfigTraspasos.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, ConfiguracionTraspasoFragment())
+                .addToBackStack("ConfiguracionTraspasoFragment")
+                .commit()
+        }
+
+
+
+        binding.buttonNavToLotMigration.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, LotMigrationFragment())
+                .addToBackStack("LotMigrationFragment")
+                .commit()
+        }
+
 
         //boton para forzar sincronizacion, descomentar para activar
         //binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
@@ -99,8 +127,8 @@ class MoreOptionsFragment : Fragment() {
         //binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
     }
 
-    /* descomentar para activar
-        private fun showForceSyncConfirmationDialog() {
+
+       /* private fun showForceSyncConfirmationDialog() {
             AlertDialog.Builder(requireContext())
                 .setTitle("Confirmar Sincronización")
                 .setMessage("Esto borrará los datos locales y los volverá a descargar desde la nube. Es útil para corregir productos que no aparecen en la web.\n\n¿Deseas continuar?")

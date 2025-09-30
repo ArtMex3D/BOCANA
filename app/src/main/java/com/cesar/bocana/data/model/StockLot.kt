@@ -1,5 +1,6 @@
 package com.cesar.bocana.data.model
 
+import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
@@ -7,7 +8,9 @@ import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 import kotlin.jvm.JvmField
 import androidx.room.Index
+import kotlinx.parcelize.Parcelize
 
+@Parcelize // <-- AÑADIDO PARA SOLUCIONAR EL ERROR
 @Entity(
     tableName = "stock_lots",
     indices = [
@@ -51,7 +54,7 @@ data class StockLot(
     val originalSupplierName: String? = null,
     val originalLotNumber: String? = null
 
-) {
+) : Parcelable { // <-- AÑADIDO PARA SOLUCIONAR EL ERROR
     constructor() : this(
         id = "", productId = "", productName = "", unit = "", location = Location.MATRIZ,
         supplierId = null, supplierName = null, receivedAt = null, movementIdIn = "",

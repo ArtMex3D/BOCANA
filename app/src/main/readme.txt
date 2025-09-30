@@ -1,43 +1,117 @@
-// plan oficial
+errores encontrados
 
-Plan de Implementación Titánico v3.1: Guía de Ejecución
-FASE 0: Cimientos de la Experiencia de Usuario y Datos
-Objetivo: Refactorizar la interacción principal con los productos y adaptar la creación/edición a la nueva estructura de datos, preparando el terreno para el módulo de traspasos.
+fragmento compras nuevas: puedo seleccionar fechas futuras y las acepta si hoy es 13 puedo poner compra el dia 20 y la acepta y es ilogico no se a comprado ni llegamos a ese dia, tambien en unida deberia ser mas detallado o mostrar lista o sugerencias el placeholder dentro del contenedor deberia ser distinto, al decir unidad ponia yo numeros pensando que se referia a unidades de cantidad no unidades de empaque, podria tipo de empaque, cajas, bolsas etc 
+no tiene autoscroll o que yo deslice con mi mano hacia arriba debo cerrar el teclado para poder ver el boton aceptar una vez terminada la compra
 
-Paso 0.1: Implementar Edición por Pulsación Larga
-Acción: Modificar ProductAdapter.kt.
-Detalle: El evento para navegar a la pantalla de edición se cambiará de un clic simple a una pulsación larga (onLongClickListener). Un clic normal ya no tendrá efecto, previniendo ediciones accidentales y mejorando la fluidez de la lista.
-Paso 0.2: Unificar Mensajes con Snackbar
-Acción: Reemplazar todos los Toast en los flujos de ProductListFragment y AddEditProductFragment por Snackbar.
-Detalle: Esto crea una experiencia de usuario más moderna, integrada y menos intrusiva.
-Paso 0.3: Añadir Mensaje de Ayuda Contextual
-Acción: Modificar AddEditProductFragment.kt.
-Detalle: Tras guardar un producto nuevo, se mostrará un Snackbar informativo con el mensaje: "Producto guardado. Para editarlo, mantén presionado el item en la lista." Esto guiará al usuario sobre la nueva mecánica de edición.
-Paso 0.4 (Siguiente Prioridad): Potenciar el Diálogo de Compra
-Acción: Modificar la lógica de compra en ProductListFragment.kt.
-Detalle: Al registrar una compra de un producto "Empacado", se podrá configurar su unidadDeEmpaque y pesoPorUnidad directamente, actualizando el "ADN" del producto en Firestore.
-FASE 1: MEJORAS DE UI Y EXPERIENCIA DE USUARIO (UX)
+en moreoptionframent no exiete el scroll mientras mas crece esa panatlla las opciones ocultas se van perdiendo abajo y no puedo seleccionarlas
+
+detalle traspaso inteligente debe conservar los cambios, por ejemplo si en este traspaso me da las sugerencias y voy editando lotes cantidades etc y de la nada cierro la app sin querer, me cambio de pestaña sin querer deberia conservar los cambios que llevo, digamos cada que termino y cambio de prodccto se deberia guardar silenciosamente cada cambiio por producto
+////////////////////////////////////////////
+agregar planificador de pantalla, a continuacion detallo como seria? prioridad? ultima prioridad no es relevante pero si contemplativo como futuro para visualizador asi que integrar de sser necesario en el plan para despues refinar
+
+Paso a Paso para un Previsualizador Universal
+Paso 1: Crear una Única Pantalla de Previsualización (PdfPreviewFragment)
+La idea principal es no crear un previsualizador para cada sección, sino uno solo que sea reutilizable para toda la app.
+
+Misión del Fragmento: Su único trabajo será recibir la ubicación de un archivo PDF y mostrarlo en pantalla completa.
+
+Diseño Sencillo: Tendrá solo tres elementos:
+
+Un visor de PDF que ocupe la mayor parte de la pantalla.
+
+Un botón para "Compartir".
+
+Un botón para "Regresar" (o usar la flecha de la barra de herramientas).
+
+Paso 2: Interceptar el Flujo Actual de "Generar y Compartir"
+Ahora, en cada lugar donde actualmente generas un PDF, cambiarás la acción final.
+
+En Reportes (ReportGenerator.kt):
+
+Antes: Generaba el PDF y llamaba inmediatamente a la función para compartir.
+
+Ahora: Generará el PDF, guardará el archivo, y en lugar de compartirlo, navegará al PdfPreviewFragment y le pasará la ruta del archivo creado.
+
+En Etiquetas (PrintLabel...Fragment.kt):
+
+Antes: Al crear la hoja de etiquetas, se abría directamente el menú para compartir.
+
+Ahora: Hará exactamente lo mismo que en Reportes. Creará el PDF y luego abrirá el PdfPreviewFragment para mostrarlo.
+
+En Traspasos (PlanificarTraspasoFragment.kt):
+
+Cuando implementes la generación del PDF de traspasos, usarás este mismo patrón. El botón "Generar PDF" creará el archivo y lo enviará al PdfPreviewFragment.
+
+Paso 3: Centralizar la Lógica de "Compartir"
+La función que tienes para abrir el menú de compartir de Android (sharePdf) ahora vivirá únicamente dentro del PdfPreviewFragment.
+
+El botón "Compartir" de esta nueva pantalla será el que ejecute la acción final, asegurando que el usuario ya vio y aprobó el documento.
+
+//////////////////////////
+// plan oficial relevante prioritario
+
+nota importante YA NO USAR TOAST: EN TODO USAR SNACKBAR es mejor y mas bonito
+
+cambios recientes que se hicieron para adaptar el plan, se refactorizo product y stocklot para que al comprar se indique como llego, cantidad y ahi haga los calculos
+al agregar un producto nuevo solo pedira lo asencial
+pulsacion larga implementada
+Detalle: Al registrar una compra de un producto "Empacado", se podrá configurar su unidadDeEmpaque y pesoPorUnidad asi como unidades para que haga el calculo
+
+✅ Parte 1: Completado
+FASE 1: MEJORAS DE UI Y EXPERIENCIA DE USUARIO (UX) Estado completado completo fase 1 actualizado a como esta en la app
 Objetivo: Adaptar la interfaz para la nueva lógica y hacerla más robusta y amigable.
-Paso 1.1: Mejorar Pantalla "Añadir/Editar Producto".
+Paso 1.1: Mejorar Pantalla "Añadir/Editar Producto". Estado completado
 Acción: Rediseñar fragment_add_edit_product.xml para incluir los nuevos campos de configuración con su lógica de visibilidad condicional.
-Paso 1.2: Potenciar el Diálogo de Compra.
+Paso 1.2: Potenciar el Diálogo de Compra. Estado completado
 Acción: Modificar la lógica de compra para que, al registrar un producto "Empacado", se pueda configurar su pesoEquivalenteKg directamente, actualizando el "ADN" del producto.
-Paso 1.3 (NUEVO): Implementar Edición por Pulsación Larga.
+Paso 1.3 (NUEVO): Implementar Edición por Pulsación Larga. Estado completado
 Acción: Modificar ProductAdapter.kt. Cambiar el onItemClicked a un onItemLongClickListener para la navegación a la pantalla de edición. Un clic normal ya no hará nada, previniendo ediciones accidentales.
-Paso 1.4 (NUEVO): Añadir Mensaje de Ayuda.
+Paso 1.4 (NUEVO): Añadir Mensaje de Ayuda. Estado completado
 Acción: Modificar AddEditProductFragment.kt. Después de guardar un producto nuevo con éxito, mostrar un Toast o Snackbar informativo que diga: "Producto guardado. Para editarlo, mantén presionado el item en la lista."
 FASE 2: EL MÓDULO DE TRASPASOS INTELIGENTE
-Objetivo: Construir el núcleo del nuevo sistema de traspasos.
-Paso 2.1: Pantalla de Configuración de Traspasos.
+Plan de Desarrollo - Fase 2: Módulo de Traspasos Inteligente
+Este documento detalla el estado actual y los pasos a seguir para completar la Fase 2 del desarrollo de la aplicación de inventarios, según lo especificado en el archivo readme.txt.
+
+✅ Parte 2.1: Completado
+Paso 2.1: La Base del Módulo - Pantalla de Configuración de Traspasos
+Objetivo Cumplido: Se ha creado la infraestructura fundamental que permite al usuario definir las reglas de negocio para los traspasos. Esto era un prerrequisito para poder generar planes de traspaso inteligentes.
+
+Trabajo Realizado:
+
+Integración en la UI:
+
+Se modificó main/res/menu/bottom_nav_menu.xml para añadir el nuevo ícono de "Traspasos" en la barra de navegación principal.
+
+Se actualizó main/java/com/cesar/bocana/ui/masopciones/MoreOptionsFragment.kt y su layout fragment_more_options.xml para mover "Proveedores" a esta sección y añadir el botón "Configuración de Traspasos".
+
+Se actualizó main/java/com/cesar/bocana/ui/main/MainActivity.kt para preparar la navegación hacia el nuevo módulo.
+
+Creación de la Pantalla de Configuración: Se crearon los siguientes archivos para dar vida a la nueva pantalla:
+
+main/java/com/cesar/bocana/ui/traspasos/config/ConfiguracionTraspasoFragment.kt: El fragmento que controla la vista y la interacción del usuario.
+
+main/java/com/cesar/bocana/ui/traspasos/config/ConfiguracionTraspasoViewModel.kt: Maneja la lógica de negocio, como cargar los productos y guardar los cambios en Firestore.
+
+main/java/com/cesar/bocana/ui/traspasos/config/ConfiguracionTraspasoAdapter.kt: El adaptador del RecyclerView que permite el reordenamiento de productos mediante Drag & Drop y la edición de sus propiedades.
+
+main/res/layout/fragment_configuracion_traspaso.xml: El layout principal de la pantalla de configuración.
+
+main/res/layout/item_configuracion_traspaso.xml: El layout para cada fila de producto en la lista, con sus campos editables.
+
 Acción: Crear el nuevo fragmento en "Más Opciones" con la lista de productos para configurar stockIdealC04enKg y las opciones de PDF. Implementar el Drag & Drop para ordenTraspaso.
+✅ Parte 2.2: Completado
 Paso 2.2 (NUEVO): Crear Diálogo de Carga Reutilizable.
 Acción: Diseñar un DialogFragment simple que muestre la animación Lottie de "cargando". Este diálogo se llamará antes de operaciones pesadas (como la confirmación del traspaso) y se cerrará al finalizar.
+
 Paso 2.3: Pantalla de "Planificar Traspaso".
 Acción: Construir la interfaz que calcula y muestra las sugerencias de traspaso en las unidades del usuario, permite la edición y la selección de lotes.
+
 Paso 2.4: Generación del PDF de Trabajo.
 Acción: Implementar la lógica en PdfGenerator.kt para crear el PDF horizontal basado en la planificación, guardando el plan en una nueva colección traspasos_planificados en Firestore con estado "PENDIENTE".
+
 Paso 2.5: Pantalla de "Confirmar Traspaso".
 Acción: Construir la interfaz que lee los planes "PENDIENTES" y permite al usuario ingresar las cantidades finales (en unidades o en Kg, según corresponda).
+
 Paso 2.6: La Transacción Atómica de Confirmación.
 Acción: Implementar la lógica del botón "Ejecutar Traspaso" dentro de una runTransaction de Firestore para garantizar la integridad de los datos. Mostrar el diálogo de carga Lottie durante esta operación.
 
@@ -45,77 +119,6 @@ Acción: Implementar la lógica del botón "Ejecutar Traspaso" dentro de una run
 ideas anteriores pero detalladas para agregar a mi plan principales
 ///////////////////////
 
-
-// idea 1
-
-Paso 1: Evolucionar el Modelo Product.kt
-Esta es la base de todo el sistema.
-
-Archivo a modificar: main/java/com/cesar/bocana/data/model/Product.kt
-
-Acción: Reemplazar la data class Product con esta estructura mejorada.
-
-Kotlin
-
-// main/java/com/cesar/bocana/data/model/Product.kt
-
-@Parcelize
-@Entity(...)
-@TypeConverters(...)
-data class Product(
-    @PrimaryKey @DocumentId val id: String = "",
-    val name: String = "",
-    val unit: String = "Kg", // Unidad de inventario SIEMPRE será Kg.
-
-    // --- NUEVOS CAMPOS PARA TRASPASOS INTELIGENTES ---
-    val tipoDeEmpaque: String = "GRANEL", // Opciones: "GRANEL", "PESO_FIJO"
-    val unidadDeEmpaque: String? = null, // "Caja", "Costal", "Bolsa", etc.
-    val pesoPorUnidad: Double? = null, // Peso exacto para PESO_FIJO o PROMEDIO para GRANEL
-    val stockIdealC04: Double = 0.0, // Stock objetivo en C-04, siempre en Kg
-    val ordenTraspaso: Int = 999, // Orden en la lista de traspasos (menor = más arriba)
-    val modoManualPDF: Boolean = false, // Imprime campos en blanco en el PDF
-    val espacioExtraPDF: Double = 0.0, // Confirmado como numérico
-    // --- FIN NUEVOS CAMPOS ---
-
-    // --- CAMPOS EXISTENTES (se mantienen) ---
-    val minStock: Double = 0.0, // Este es el stock mínimo GENERAL
-    val stockMatriz: Double = 0.0,
-    val stockCongelador04: Double = 0.0,
-    val totalStock: Double = 0.0,
-    // ...resto de campos existentes...
-) : Parcelable {
-    // ... constructor vacío ...
-}
-Paso 1.2: Potenciar la Pantalla de Compra y Empaque
-Tu idea de conectar "Pendiente de Empacar" con la configuración del producto es excelente. Así es como funcionará:
-
-Archivo a modificar (Lógica de Compra): main/java/com/cesar/bocana/ui/products/ProductListFragment.kt (método showAddCompraDialog).
-
-Al seleccionar "Empacado" en el diálogo de compra: El diálogo se expandirá para preguntar:
-
-"Unidad de Empaque" (ej. "Caja", usando un AutoCompleteTextView).
-
-"Peso Fijo por Unidad" (ej. "4.54", usando un TextInputEditText).
-
-"Cantidad en Unidades" (ej. "20").
-
-Lógica: La "Cantidad NETA (Kg)" se autocalculará (20 * 4.54 = 90.8 Kg) y se bloqueará. Al guardar, esta información se usará para la transacción Y para actualizar los campos tipoDeEmpaque, unidadDeEmpaque y pesoPorUnidad del producto si es la primera vez que se define.
-
-Al seleccionar "A Granel": El flujo sigue como hasta ahora. La magia ocurre después.
-
-Archivo a modificar (Lógica de Empaque): main/java/com/cesar/bocana/ui/packaging/PackagingFragment.kt (método onMarkPackagedClicked).
-
-Al hacer clic en "Empacado": Se abrirá un nuevo diálogo que preguntará:
-
-"Unidad de Empaque Final" (ej. "Costal").
-
-"Peso Promedio Estimado por Unidad" (ej. "28.5").
-
-Acción al confirmar:
-
-Se actualiza el documento del Producto en Firestore con los nuevos unidadDeEmpaque y pesoPorUnidad (promedio).
-
-Se elimina la PendingPackagingTask.
 
 Fase 2: El Nuevo Módulo de Traspasos
 Objetivo: Construir la interfaz y la lógica para planificar, imprimir y confirmar traspasos.
@@ -125,7 +128,7 @@ Nuevo Fragmento: main/java/com/cesar/bocana/ui/configuracion/ConfiguracionTraspa
 
 Layout: main/res/layout/fragment_configuracion_traspaso.xml
 
-Ruta en la App: Menú > Más Opciones > Ajustes de Sistema > Configuración de Traspasos.
+Ruta en la App: Menú > Más Opciones > Configuración de Traspasos.
 
 Descripción de la Interfaz:
 
@@ -313,107 +316,13 @@ fifo  marcaria deplete el de 150 viejo y agarraria el restante del nuevo justo c
  todo los movimientos de cada producto como uno por uno para la busqueda avanzada este bien sincronizada.
 
 
-////////////////////////////////
-/////////////SOLUCION///////////
-///////////////////////////////
 
-
-Fase 1:::::
-
-PASO 0
-Agregar a pantalla de editar producto, donde esta el stock minimo general, otro boton que diga stockmin c04 editable y sugerente pero una vez se ponga el stock minimo este funciona,
-para la configuracion de la fase dos ya que ayudaria con el plan, si no se pone nada, no obliga pero si es bastante necesario para poder ayudar ala fase 2
- 
-
-PASO 1.0: Modificar el Modelo Product.kt
-
-
- Esta es la piedra angular. Haremos que el producto sea consciente de su propia naturaleza.(hay que refactorizar en base al paso 1.1)
-
-Archivo a modificar: main/java/com/cesar/bocana/data/model/Product.kt
-
-Nuevos Campos Fundamentales:
-
-unidadDeMedida: String - La unidad en la que operas este producto (Kg, Pzas, Cajas, Bolsas, Costales).
-
-manejoDeStock: String - Un campo clave con dos opciones: "POR_PESO" (para productos como la Lengua, donde cada unidad es diferente)
- o "POR_UNIDAD_FIJA" (para productos como la Tilapia, donde cada caja pesa lo mismo).
-
-pesoEquivalenteKg: Double? - Si manejoDeStock es "POR_UNIDAD_FIJA", este campo es obligatorio. Guarda cuántos 
-Kg representa UNA unidad (Ej: para Tilapia, sería 4.54).
-
-stockIdealC04enKg: Double - El stock objetivo en C-04, siempre en Kg.
-
-ordenTraspaso: Int - Para el orden manual en la lista de traspasos.
-
-EJEMPLO:
-
--nombre: String - Nombre del producto (ej. "Atún", "Lengua", "Pacotilla").
--tipoDeEmpaque: String - dos opciones
--"PESO_FIJO": Para productos con peso constante (ej. cajas de Tilapia).
--"GRANEL": Para productos con peso variable (ej. costales de Lengua).
--unidadDeEmpaque: String? - Nombre de la unidad (ej. "Caja", "Costal"). Obligatorio para PESO_FIJO y GRANEL
--pesoPorUnidad: Double? -
--Para PESO_FIJO: Peso exacto por unidad (ej. 4.54 kg por caja).
--Para GRANEL: Peso promedio estimado por unidad (ej. 28.5 kg por costal).
--stockIdealC04: Double - Cantidad objetivo en kg para el almacén C-04 (ej. 300 kg).
--ordenTraspaso: Int - Orden manual para la lista de traspasos y el PDF.
--modoManual: Boolean - Si true, el PDF imprime solo el nombre del producto y el lote sugerido (si aplica), dejando CANTIDAD, PESO C/U, y TOTAL en blanco.
--espacioExtra: Boolean - Si true, la fila del producto en el PDF tiene el doble de altura para muchos pesos en C/U
-
-data class Product(
-    val id: String = "",
-    val name: String = "",
-    val tipoDeEmpaque: String = "", // "GRANEL", "PESO_FIJO"
-    val unidadDeEmpaque: String? = null, // "Caja", "Costal", "Bolsa" etc
-    val pesoPorUnidad: Double? = null, // Fijo o promedio, según el tipo
-    val stockIdealC04: Double = 0.0, // Siempre en Kg
-    val ordenTraspaso: Int = 0,
-    val modoManual: Boolean = false,
-    val espacioExtraPDF: Boolean = false
-)
-
-
-Paso 1.1: Super-potenciar la Pantalla Compra
-
-Paso 1.3: Implementar el Principio de Conversión Automática
-Esta es la "magia" interna que hace todo posible.
-Conversion inteligente para fines de inventario y mostrar panatalla
-
-de "100 Cajas" de Tilapia, la app hace el cálculo 100 * 4.54 = 454 Kg y guarda 454.0 en los campos de stock en Firestore.
-es este el resultado de mostrar ambos pero para inventario siempr sera la logica en kilos
-
-Asi lo lotes se van a menejar por logica de cajas por peso
-el lote actualmente muestra 
-primeraa linea: proveedor y peso
-segunda linea: Fecha de lote (cuando llego, no cuando se ingreso)
-NUEVA tercera linea: Cajas, bolsas, costales  EJemplo si es agranel :aprox:28kg, si se selecciona fijo: 15kg
-
-Esta pantalla se convierte en el centro de configuración de cada producto.
-al ingresar compra aparece la pantalla
--Registrar compra: producto nombre
--Cantidad NETA comprada KG (este es el factor en kilos para inventario seguiria igual)
--Proveedor mima logica solo ponerlo en rojo para que la recomendacion sea mas prioritaria, sigue siendo opcional pero, mas visible para forzar porner algo.
--Tipo de recepcion:Empacado o granel: aqui comienza la magia depende el ratio que se seleccione 
---Empacado: deberia desplegar la logica de las cajas es un peso fijo siempre entonces sale un cuadro que dice Unidad para desplegar y seleccionar y peso le pongo 4.54 y sabra que son el peso de las cajas fijas,
-  el cual  va a ser el determinante de cada caja su peso.
---Granel: este deberia seguir con la logica de pendiente de empacar y ahora pide Unidad igual desplegable, costales, cajas etc y en peso es Aproximado, no es el peso total,
-esto es para fines del traspasos la funcion nueva que previamente debemos configurar aqui para que funcione, el aproximado no determina el total, como su nombre lo dice es aproximado,
-esto determina la cantidad mas o menos que habra de costales, cajas etc, en peso fijo si debe ser ral ya que es fijo.
--Luego sigue fecha de recepcion (sigue igual no cambia nada)
--botones aceptar o cancelar.
----------------------------------
-tipo de empaque todo sera obligatorio, todo sigue igual asi como en proveedor que es opcional pero solo ahora sera rojo para remarcar su importancia.
-
-///////////////////////////////////////
-/////////Nueva vantana traspaso///////
-//////////////////////////////////////
 
 FASE 2    Plan TRASPASO INTELIGENTE V1
 
 Configuracion:
 Ruta en APP
-Menú principal > "Más Opciones" > "Ajustes de Sistema" > "Configuración de Traspasos".
+Menú principal > "Más Opciones" >  "Configuración de Traspasos".
 
 Esta configuracion es la que deterimina como se  mostrara la pantalla de traspasos
 
@@ -632,6 +541,380 @@ En productos con muchos lotes, cargar todo puede ser pesado. Usa limit, paginaci
 Usa índices compuestos en Firestore para consultas por lote, producto, fecha.
 
 
+ejemplo algo detallado del lo faltante hiper resumen de 2.3 en adelante
 
+/////////////////////////////////////////////////////////
+plan hiper resumen
+////////////////////////////////////////////
+2) Refactorización detallada (desde 2.3 — Pantalla de Confirmación)
+
+A continuación el plan refactorizado por pasos y subpasos, con acciones claras, UX, validaciones, datos, y ejemplos.
+
+2.3 Pantalla de Confirmar Traspaso (ConfirmarTraspasoFragment)
+
+Objetivo: recibir el plan generado (traspasos_planificados PENDIENTE), permitir edición final por producto/lote/cantidad, seleccionar lotes reales (checkboxes), y confirmar la ejecución con runTransaction.
+
+2.3.1 Flujo de carga inicial
+
+2.3.1.1: Consultar traspasos_planificados donde estado == "PENDIENTE" y mostrar lista (orden por fechaPlan/createdAt).
+
+2.3.1.2: Al seleccionar un plan, cargar subcolección detalles (cada documento = producto en el plan). Para cada detalle, traer productoId, sugerenciaKg, sugerenciaUnidades (si aplica), lotesSugeridos: [{loteId, cantidadKgSugerida}].
+
+readme
+
+2.3.1.3: Precarga inteligente: para productos con > N lotes (ej. 50), cargar primeros N por fecha (FIFO) y lazy-load / "ver más" para los demás.
+
+2.3.2 Layout y controles por fila (por producto)
+
+Encabezado con producto (no editable): nombre, tipo (PESO_FIJO/GRANEL), unidadDeEmpaque, pesoPorUnidad (si existe).
+
+Campo de confirmación principal:
+
+Si PESO_FIJO → EditText en unidadesDeEmpaque (ej: cajas). Debe mostrar conversión en Kg en tiempo real: kgConfirmados = unidades * pesoPorUnidad.
+
+Si GRANEL → EditText en Kg (entrada decimal).
+
+Botón Seleccionar Lotes → abre modal con lista de lotes (checkbox por lote + cantidadKg disponible por lote). Soporta selección múltiple y asignación de cantidades por lote (por defecto marcar FIFO hasta cubrir la cantidad confirmada).
+
+Muestra pequeña: Impacto: quedarán X Kg en Matriz (recalcula si cambias la confirmación).
+
+Validaciones in-place:
+
+No permitir número negativo.
+
+No permitir confirmar más que stockActualMatriz + (si planeado) => pero la validación real final la hace el servidor/transaction.
+
+Si usuario escribe unidades que multiplicadas exceden stock disponible, mostrar snackbar rojo y bloqueo del botón Confirmar para esa línea.
+
+2.3.3 Acciones de usuario
+
+Aceptar línea (opcional) → guarda la confirmación parcial localmente (UI) — útil para confirmaciones por línea antes de ejecutar todo.
+
+Editar Lotes → permite reasignar lotes si lo real fue distinto a lo impreso.
+
+Botón global Confirmar y Ejecutar → ejecuta transacción en Firestore (ve 2.6).
+
+Botón Cancelar Traspaso → cambiar traspasos_planificados.estado a CANCELADO (solo luego de confirmación doble modal).
+
+2.3.4 Mensajes / UX
+
+Usar Snackbar para todos los mensajes: guardado, error, éxito.
+
+Mostrar un diálogo Lottie de carga durante la transacción.
+
+readme
+
+2.4 Generación del PDF de Trabajo (PdfGenerator.kt)
+
+Objetivo: crear PDF horizontal que se imprimirá/compartirá; también persistir plan en Firestore traspasos_planificados estado PENDIENTE.
+
+2.4.1 Entrada a la generación
+
+Datos: fechaPlan, listaProductos (ordenTraspaso), para cada producto: lotesSugeridos (array), sugerencia unidades / kg, modoManual boolean, espacioExtra boolean, proveedor opcional.
+
+Validaciones: no generar si lista vacía.
+
+2.4.2 Formato y reglas de diseño (según tu ejemplo)
+
+Hoja horizontal (A4 landscape). Encabezado centrado fecha en negrita.
+
+Tabla con columnas: FECHA LOTE | PRODUCTO | CANTIDAD | PROVEEDOR | PESO C/U | TOTAL.
+
+Si un producto usa múltiples lotes → representarlo en mismas filas agrupadas: el nombre del producto ocupa la primera celda vertical, y debajo aparecen filas por lote con sus celdas; en la última fila del grupo mostrar TOTAL.
+
+EspacioExtra: si true, la fila horizontal gana doble altura (espacio para anotar manualmente).
+
+ModoManual: en PDF dejar peso c/u y total en blanco (para rellenar a mano).
+
+Añadir líneas/filas para firmas: Verifico mercancía:______ Saco mercancía:______.
+
+2.4.3 Guardado y persistencia
+
+Crear documento PDF (bytes) y:
+
+Guardar en Storage con path traspasos/{traspasoId}/{traspasoId}.pdf.
+
+Crear documento en traspasos_planificados/{traspasoId} con metadata (fechaPlan, estado=PENDIENTE, pdfUrl, createdBy, ordenTraspasoSnapshot, totalEstimadoKg). Subcolección detalles con cada producto y lotes sugeridos.
+
+readme
+
+2.4.4 Compartir
+
+Desde la app, usar Intent de compartir con URL o FileProvider (Android) — igual que sección reportes.
+
+2.5 Pantalla Planificar Traspaso (ya tienes completado pero aquí las acciones a asegurar)
+
+(Asegura que lo que ya existe cumpla con estas reglas).
+
+2.5.1 Logica de Sugerencia
+
+Fórmula:
+
+necesidadKg = stockIdealC04 - stockActualC04
+disponibleKg = stockActualMatriz
+sugerenciaKg = max(0, min(necesidadKg, disponibleKg))
+
+
+Para presentación al usuario:
+
+Convertir sugerenciaKg a unidades (si PESO_FIJO): unidadesSugeridas = round(sugerenciaKg / pesoPorUnidad) — mostrar conversión y kg resultante.
+
+Para GRANEL: sugerir número de costales = round(sugerenciaKg / pesoPromedioCostal) si el producto tiene pesoPromedio configurado; marcar como sugerente (no exacto).
+
+2.5.2 Edición por fila
+
+Permitir editar cantidad sugerida (en unidades o kg), recalcular impacto en tiempo real y actualizar PDF preview.
+
+Permitir seleccionar múltiples lotes si quieres partir la extracción en más de un lote (aquí generarás sub-lineas en PDF).
+
+2.6 Transacción Atómica de Confirmación (runTransaction)
+
+Objetivo: ejecutar el traspaso de forma segura y atómica: leer lotes > descontar > actualizar producto (stockMatriz, stockC04) > crear StockMovement > marcar plan CONFIRMADO.
+
+2.6.1 Precondiciones antes de iniciar la transacción
+
+Validar que el plan esté PENDIENTE.
+
+Recalcular sumas pedidas vs available at server side.
+
+Bloquear botón y mostrar diálogo Lottie.
+
+2.6.2 Pseudocódigo (Firestore runTransaction — lógica)
+runTransaction(transaction -> {
+  // 1. Re-lee plan: planDoc = transaction.get(planRef)
+  // 2. if planDoc.estado != 'PENDIENTE' -> abort
+  // 3. Para cada detalle en plan.subcoleccion 'detallesConfirmacion':
+  //    a) Para cada lote seleccionado: loteDoc = transaction.get(loteRef)
+  //    b) if loteDoc.currentQuantity < cantidadSolicitadaDelLote -> throw error (abort)
+  //    c) transaction.update(loteRef, { currentQuantity: loteDoc.currentQuantity - cantidad })
+  // 4. ProductoDoc = transaction.get(productRef) // re-lee
+  //    if productoDoc.stockMatriz < sumaTotalKgSolicitada -> throw (abort)
+  // 5. transaction.update(productRef, {
+  //      stockMatriz: productoDoc.stockMatriz - sumaTotalKg,
+  //      stockCongelador04: productoDoc.stockCongelador04 + sumaTotalKg
+  //    })
+  // 6. Crear StockMovement doc en la colección 'stockMovements' (transaction.set)
+  // 7. transaction.update(planRef, { estado: 'CONFIRMADO', confirmedAt: now(), confirmedBy: userId })
+})
+
+
+Si alguna validación falla -> rollback (todo o nada). Mostrar snackbar con motivo preciso (ej: "No hay suficiente stock en lote X (solo 12.4Kg)").
+
+2.6.3 Escenarios especiales y su manejo
+
+Stock cambiado entre plan y confirmación: si insuficiente, fallar la transacción con detalle y regresar a la pantalla con la cantidad actualizada, sugiriendo recalcular plan.
+
+Lotes parcialmente disponibles: permitir en confirmación asignar cantidades de varios lotes; la transacción debe obtener y actualizar cada lote con cantidad específica.
+
+Confirmación por líneas separadas: opción UI: "Confirmar línea" (ejecuta transacción parcial) vs "Confirmar todo" (transacción por todo el plan). Recomiendo una sola transacción global para mantener atomicidad del plan entero; si prefieres flexibilidad, soportar ambas pero documentarlo (riesgo de inconsistencias en historial si confirmas por partes).
+
+3) Esquema de datos Firestore sugerido (documentos y campos)
+
+(para estandarizar y evitar ambigüedades)
+
+traspasos_planificados/{planId}:
+
+fields: createdAt, createdBy, fechaPlan, estado (PENDIENTE|CONFIRMADO|CANCELADO), pdfUrl, totalEstimadoKg, ordenTraspasoSnapshot
+
+subcollection detalles (doc por producto en plan):
+
+productoId, nombreProducto, tipo (PESO_FIJO|GRANEL), sugerenciaKg, sugerenciaUnidades, modoManual(Boolean), espacioExtra(Boolean), lotesSugeridos: [{ loteId, fechaLote, cantidadKgSugerida, proveedor }]
+
+lotes/{loteId}:
+
+productoId, fechaLote, currentQuantityKg, createdAt, metadata
+
+products/{productId}:
+
+stockMatrizKg, stockCongelador04Kg, unidadDeEmpaque, pesoPorUnidad, tipoEmpaque, ordenTraspaso, activo(Boolean), stockIdealC04Kg
+
+stockMovements/{movementId}:
+
+tipo: TRASPASO, from: 'matriz', to: 'C04', productoId, detallesLotes: [{loteId, cantidadKg}], totalKg, createdAt, createdBy, planId
+
+(Usa índices compuestos por productoId + fechaLote para consulta eficiente).
+
+readme
+
+4) Validaciones, reglas y UX guardrails (importantes)
+
+No permitir sugerencias mayores que stockActualMatriz (cliente y servidor).
+
+readme
+
+No permitir negativos.
+
+Si modoManual activo → PDF dejar peso c/u y total en blanco.
+
+Doble confirmación antes de CANCELAR plan.
+
+Mensajes claros para denegar la confirmación: cuál lote faltó, cuánto hay disponible.
+
+Usar transacciones para cambios de lotes y productos.
+
+En UI, muestra la diferencia entre sugerido y confirmado (resaltar en amarillo la edición manual).
+
+Auditoría: cada StockMovement debe incluir who, when, from, to, detallesLotes con cantidades y lotes.
+
+5) Manejo del caso complejo: costales/pesos variables (tu gran dilema)
+
+Propuesta práctica (mínima fricción, máximo control):
+
+Configuración: para cada producto GRANEL permitir pesoPromedioCostal y unidadPredeterminada (ej. costal).
+
+Modo Planificación: cuando no se han registrado pesos por caja/costal, sugerir nCostales = round(necesidadKg / pesoPromedioCostal) y mostrar sugerenciaKg = nCostales * pesoPromedioCostal (marcar como estimación).
+
+Modo Confirmación (obligatorio): obligar a confirmar en Kg reales al confirmar traspaso. Es decir, aunque el plan sugiera costales, la ejecución se hace en Kg. Registrar detalles por lote en Kg.
+
+Registro opcional de pesos individuales: permitir (si el usuario lo desea) abrir un modal por lote para registrar los pesos individuales de costales, pero esto es opcional y no bloqueante.
+
+Resultado: el sistema nunca obligará a que el usuario "encaje costales exactos" — se trabaja en Kg en la confirmación para mantener trazabilidad y no forzar movimientos físicos disruptivos.
+
+readme
+
+6) Performance / Seguridad / Tests
+
+Performance: paginación de lotes, prefetch sólo N items, uso de índices compuestos en Firestore por (productoId, fechaLote).
+
+readme
+
+Seguridad: reglas Firestore para evitar escrituras directas a lotes/stock sin pasar por funciones seguras (cloud functions) o transacciones con validaciones. Prohibir que un cliente actualice stockMatriz directamente.
+
+Tests:
+
+Unit tests para convertirKgAUnidades y calcularSugerenciaKg.
+
+Integration tests simulando transacción con lotes (mock Firestore or local emulator).
+
+UX tests: flujo Planificar → Generar PDF → Confirmar con lotes distintos.
+
+7) Pasos prácticos de implementación (cronología y checklist técnico)
+
+Voy a darte un checklist ejecutable desde 2.3 para que lo puedas seguir.
+
+2.3 → 2.6: Checklist técnico mínimo (orden recomendado)
+
+Backend / Firestore
+
+Crear esquema traspasos_planificados + índices.
+
+Asegurar reglas Firestore y roles.
+
+PdfGenerator
+
+Implementar template horizontal + lógica agrupado por producto/lotes.
+
+Guardar PDF a Storage y crear documento plan.
+
+UI Planificar (revisar y finalizar)
+
+Añadir checkboxes por producto y preview de PDF.
+
+UI Confirmar
+
+Implementar modal seleccionar lotes (lazy load).
+
+Validaciones in-place (no negativos, no mayores al stock).
+
+Transacción
+
+Implementar runTransaction con pruebas en emulator.
+
+Edge cases
+
+Test concurrencia (2 usuarios intentando confirmar el mismo plan).
+
+Rollback & UX
+
+Mensajes claros + retry / fallback (si falla, regresar al listado y mostrar motivos).
+
+8) Dibujos / Diagramas (ASCII) — pantallas y flujos clave
+A) PDF horizontal — estructura (ejemplo)
++----------------------------------------------------------------------------------------------------------------+
+|                              FECHA: 2025-09-13 (centro, negrita)                                              |
++----------------------------------------------------------------------------------------------------------------+
+| FECHA LOTE | PRODUCTO        | CANTIDAD      | PROVEEDOR  |              PESO C/U                | TOTAL       |
++----------------------------------------------------------------------------------------------------------------+
+| 25/05/25   | TILAPIA         | 20 cajas      | MARTEL     |                 4.54KG               | 90.8KG      |
++----------------------------------------------------------------------------------------------------------------+
+| 28/05/25   | ROBALO          | 5 costales    | MAXIMAR    |                                        |             |
++----------------------------------------------------------------------------------------------------------------+
+| 28/05/25   | LENGUA          | 5 costales    | MAXIMAR    |                                        |             |
+| 31/06/25   | (espacio extra) | 3 costales    |            |                                        |             |
++----------------------------------------------------------------------------------------------------------------+
+| Verifico mercancía: ________________             Saco mercancía: ________________                            |
++----------------------------------------------------------------------------------------------------------------+
+
+
+Las filas de un mismo producto con varios lotes se agrupan visualmente (nombre del producto ocupa la primera columna en el grupo).
+
+B) Planificar Traspaso — pantalla (simplificada)
+[Fecha: 2025-09-13 v]   [Botón: Generar PDF]    [Botón: Guardar Configuración]
+------------------------------------------------------------
+[ ]  Atún         | Lotes Sugeridos: 25/05/25 (150kg) ... | Cantidad: 30kg  | Impacto: Matriz quedará X kg
+  (expandir) ->  [ModoManual] [EspacioExtra]
+------------------------------------------------------------
+[ ]  Lengua       | Lotes Sugeridos: 30/08/25 (200kg) ... | Cantidad: 150kg | Impacto: ...
+  (expandir) ->  [ModoManual] [EspacioExtra]
+...
+
+C) Confirmar Traspaso — pantalla detalle (ejemplo)
+Plan: 2025-09-13 - CONFIRMAR
+------------------------------------------------------------
+Producto: LENGUA  (GRANEL)
+-> Campo confirmar (Kg): [ 300.0 ]   (Impacto Matriz: -300.0kg)
+-> Botón: Seleccionar lotes (abre modal)
+   Modal Lotes:
+   [x] 25/05/25  (150kg disponible)  | Cant a usar: [150]
+   [x] 30/08/25  (200kg disponible)  | Cant a usar: [150]
+   [Confirmar asignación]
+------------------------------------------------------------
+Producto: TILAPIA (PESO_FIJO) unidad=Cajas peso=4.54kg
+-> Campo confirmar (Cajas): [ 20 ]   (Kg: 90.8)
+-> Lotes sugeridos: 01/05/25  (checkbox) ...
+------------------------------------------------------------
+[Botón] Confirmar y Ejecutar (global)
+[Botón] Cancelar plan
+
+D) Diagrama de transacción (secuencia)
+Usuario -> App: pulsa "Confirmar y Ejecutar"
+App -> Firestore: runTransaction start
+  - re-lee planDoc (estado PENDIENTE?)
+  - re-lee lotes afectados (transaction.get)
+  - valida disponibilidad cada lote
+  - actualiza currentQuantity de lotes (transaction.update)
+  - re-lee productoDoc y actualiza stockMatriz y stockC04
+  - crea stockMovement (transaction.set)
+  - actualiza planDoc.estado = CONFIRMADO
+Transaction -> Commit
+App <- Firestore: success -> mostrar snackbar "Traspaso ejecutado"
+
+9) Cosas concretas que te propongo incorporar ya (prioritarias)
+
+Rechequeo en backend: obligatorio antes de cualquier commit (evita overdraw).
+
+Guardar snapshot de ordenTraspaso dentro del plan para poder reproducir exactamente el PDF y la vista de confirmación aunque el orden cambie después.
+
+readme
+
+Modal de selección de lotes: demand-driven lazy load y paginación.
+
+Registro estricto de StockMovement con lotes y cantidades por lote (no sólo el total).
+
+Logs / auditoría: enviar notificación a administrador si la transacción falla por concurrencia (para analizar).
+
+10) Siguientes pasos si quieres que lo empiece a convertir en issues / tickets
+
+Si quieres, ahora puedo:
+
+Generar issues/epics ordenados (Jira/GitHub) por prioridad y con la lista de tareas técnicas por cada subpaso (2.3.x, 2.4.x, etc.).
+
+Generar pseudocódigo más detallado para PdfGenerator.kt y para la función de transacción en Firebase Functions (TypeScript).
+
+Generar mockups en SVG/PNG (requiere confirmación para crear imágenes).
+
+Dime cuál prefieres y lo hago ya: (A) issues/tareas, (B) pseudocódigo TypeScript para transacción + Kotlin para UI, (C) mockups gráficos. No necesito repetir información que ya me diste — trabajaré sobre lo que ya está en el readme.
+
+readme
 
 

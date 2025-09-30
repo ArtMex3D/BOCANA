@@ -24,4 +24,7 @@ interface ProductDao {
 
     @Query("SELECT * FROM products ORDER BY name ASC")
     fun getAllProductsStream(): Flow<List<Product>>
+
+    @Query("DELETE FROM products WHERE id = :productId")
+    suspend fun deleteById(productId: String)
 }

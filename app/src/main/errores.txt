@@ -1,0 +1,81 @@
+Resumen Exhaustivo del Proyecto: Traspaso Inteligente
+1. Visión General (Lo que Quieres)
+Estás construyendo un sofisticado módulo de gestión de traspasos de inventario para tu aplicación. El objetivo principal es crear un sistema "inteligente" que automatice y simplifique el proceso de mover productos desde la bodega principal ("Matriz") al congelador de la tienda ("C-04").
+
+La filosofía central es un equilibrio entre sugerencia y control:
+
+Sugerencia Inteligente: La aplicación debe analizar el stock actual y el stock ideal para sugerir automáticamente qué productos mover y de qué lotes (usando el método PEPS - Primeras Entradas, Primeras Salidas).
+
+Control Total del Usuario: El operario debe tener la capacidad de ignorar, modificar o detallar por completo las sugerencias, adaptando el plan a la realidad física del almacén.
+
+El flujo completo que buscas es: Planificar → Imprimir Hoja de Trabajo (PDF) → Confirmar y Ejecutar.
+
+2. Estado Actual (Dónde Estás Trabajando)
+Actualmente, te encuentras desarrollando la Fase 2.3: Pantalla de "Planificar Traspaso". Esta es la pantalla principal donde se origina todo el proceso.
+
+Lo que ya funciona bien:
+
+La pantalla carga la lista de productos y calcula correctamente la cantidad sugerida a mover para cada uno.
+
+La lógica PEPS inicial funciona, sugiriendo los lotes más antiguos para cumplir con la cantidad.
+
+La interfaz principal (PlanificarTraspasoFragment) muestra estas sugerencias.
+
+Al hacer clic en "Seleccionar Lotes", se abre un diálogo (SeleccionarLotesDialogFragment) que muestra todos los lotes disponibles para ese producto.
+
+3. El Fallo Crítico (Lo que Falla)
+El principal obstáculo que te impide avanzar es una "tormenta perfecta" de tres problemas interconectados dentro del diálogo SeleccionarLotesDialogFragment. Estos fallos impiden que el usuario pueda ejercer el "Control Total" que es esencial para el proyecto.
+
+Fallo #1: La Interfaz de Usuario está Rota (El Teclado)
+Problema: En el "Modo Manual" (cuando el switch está encendido), es imposible introducir cantidades porque el teclado numérico no aparece al tocar los campos de texto.
+
+Causa Raíz: Es una combinación de factores técnicos:
+
+La complejidad de tener un RecyclerView con campos editables dentro de un DialogFragment.
+
+La capa de personalización de tu dispositivo (MIUI de Xiaomi), que es conocida por ser muy agresiva y bloquear las solicitudes "normales" para mostrar el teclado.
+
+Impacto: Deja el "Modo Manual" completamente inutilizable.
+
+Fallo #2: La Lógica de Selección está Incompleta (Modo Checkbox)
+Problema: Cuando el switch está apagado y desmarcas el lote sugerido por PEPS para seleccionar otro, al dar "Aceptar", el sistema ignora tu nueva selección y la pantalla principal sigue mostrando el lote original.
+
+Causa Raíz: El PlanificarTraspasoViewModel actualmente no tiene la lógica para recalcular el desglose PEPS usando una lista de lotes personalizada. Simplemente vuelve a usar la sugerencia original.
+
+Impacto: Impide que el usuario pueda cambiar el lote de origen, una de las funciones clave del sistema.
+
+Fallo #3: El Flujo de Datos está Roto (Modo Manual)
+Problema: Como descubriste al pegar un número con el portapapeles, aunque logres poner un valor en el campo de texto, al dar "Aceptar" el ViewModel no procesa esta nueva información. La pantalla principal no se actualiza para reflejar la suma de las cantidades que introdujiste.
+
+Causa Raíz: Falta el código en el ViewModel que tome la lista de cantidades manuales, la sume y actualice el estado de la interfaz principal (cantidadEditadaUnidades).
+
+Impacto: Hace que el "Modo Manual", incluso si el teclado funcionara, no tenga ningún efecto real en el plan de traspaso.
+
+4. Plan de Acción y Tareas Pendientes (Lo que Falta)
+Basado en tu readme.txt y nuestro análisis, este es el camino a seguir, ordenado por prioridad.
+
+Prioridad #1: Estabilizar la Pantalla "Planificar Traspaso" (Nuestra Tarea Actual)
+✅ Sub-tarea 1.1 (CRÍTICA): Aplicar la solución "Anti-Fallo" que te proporcioné. Esto implica reemplazar los 3 archivos (PlanificarTraspasoViewModel, SeleccionarLotesDialogFragment, LoteCheckboxAdapter) con las versiones completas. Este paso está diseñado para solucionar los 3 fallos críticos simultáneamente.
+
+✅ Sub-tarea 1.2: Verificar que, tras la actualización, el teclado aparece, el cambio de lotes con checkbox funciona y el desglose manual se refleja correctamente en la pantalla principal.
+
+Prioridad #2: Implementar la Generación del PDF (Fase 2.4)
+Tarea 2.1: Crear o modificar la clase PdfGenerator.kt para que pueda generar una hoja de trabajo horizontal, respetando el formato y las reglas de tu readme.txt (agrupación de lotes, espacios extra, modo manual, etc.).
+
+Tarea 2.2: Al generar el PDF, crear un nuevo documento en una colección de Firestore llamada traspasos_planificados, guardando el plan con un estado "PENDIENTE".
+
+Prioridad #3: Construir la Pantalla de Confirmación (Fase 2.5 y 2.6)
+Tarea 3.1: Crear ConfirmarTraspasoFragment.kt: Este es un archivo nuevo que no existe. Su propósito será mostrar una lista de los planes con estado "PENDIENTE".
+
+Tarea 3.2: Implementar la Lógica de Edición Final: Al seleccionar un plan, el usuario debe poder ajustar las cantidades finales (lo que realmente se movió).
+
+Tarea 3.3: Implementar la Transacción Atómica: El botón "Confirmar y Ejecutar" debe llamar a una runTransaction de Firestore. Esta es la operación más delicada: debe leer los stocks, actualizarlos en todos los documentos (Products y inventoryLots), crear un StockMovement para el historial, y finalmente cambiar el estado del plan a "CONFIRMADO". Si algo falla, todo debe revertirse.
+
+Prioridad #4: Mejoras Generales y Deuda Técnica (Según readme.txt)
+Tarea 4.1: Implementar el guardado silencioso de los cambios en la pantalla de planificación para evitar pérdida de datos.
+
+Tarea 4.2: Solucionar los otros problemas de UI mencionados: no permitir fechas futuras en compras y arreglar el scroll en la pantalla de "Más Opciones".
+
+Tarea 4.3: Centralizar la visualización de PDFs creando el PdfPreviewFragment universal.
+
+Ahora sí, tienes el mapa completo. El siguiente paso es aplicar el código "Anti-Fallo" que te envié y mandarme el logcat para que podamos verificar juntos que los 3 fallos críticos han sido resueltos.

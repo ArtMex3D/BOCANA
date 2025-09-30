@@ -1,6 +1,7 @@
 package com.cesar.bocana.data.repository
 
 import android.util.Log
+import kotlinx.coroutines.flow.first // Asegúrate de que esta línea esté presente
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -60,8 +61,24 @@ class InventoryRepository(
                     return@addSnapshotListener
                 }
                 CoroutineScope(Dispatchers.IO).launch {
+                    // Obtener todos los IDs locales actuales
+                    val localIds = productDao.getAllActiveProductsStream().first().map { it.id }.toSet()
+                    val firestoreIds = snapshots.documents.map { it.id }.toSet()
+
+                    // 1. Añadir/Actualizar productos que están en Firestore
                     val firestoreProducts = snapshots.toObjects(Product::class.java)
-                    productDao.insertAll(firestoreProducts)
+                    if (firestoreProducts.isNotEmpty()) {
+                        productDao.insertAll(firestoreProducts)
+                    }
+
+                    // 2. Borrar productos que ya no están en Firestore
+                    val idsToDelete = localIds - firestoreIds
+                    if (idsToDelete.isNotEmpty()) {
+                        Log.d("InventoryRepository", "Borrando ${idsToDelete.size} productos de Room que ya no están en Firestore.")
+                        idsToDelete.forEach { productId ->
+                            productDao.deleteById(productId)
+                        }
+                    }
                 }
             }
 
@@ -114,6 +131,12 @@ class InventoryRepository(
                     devolucionDao.insertAll(firestoreDevoluciones)
                 }
             }
+    }
+
+    suspend fun deleteProductById(productId: String) {
+        withContext(Dispatchers.IO) {
+            productDao.deleteById(productId)
+        }
     }
 
     fun stopFirestoreListeners() {

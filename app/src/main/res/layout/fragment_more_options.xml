@@ -67,7 +67,36 @@
         android:text="Historial de Movimientos"
         app:icon="@drawable/historial"/>
 
-    <!-- borra para Descomentar para activar -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToConfigTraspasos"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Configuración de Traspasos"
+        app:icon="@drawable/ic_settings" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToProveedores"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/pending_item_background"
+        android:text="Gestionar Proveedores"
+        app:icon="@drawable/ic_manage_users"/>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buttonNavToLotMigration"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Convertir Lotes Antiguos"
+        app:icon="@drawable/ic_exchange"
+        app:strokeColor="@android:color/holo_orange_dark"
+        android:textColor="@android:color/holo_orange_dark"/>
+
+    <!-- borra para Descomentar para activar
     <com.google.android.material.button.MaterialButton
         android:id="@+id/button_migrate_data"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -89,6 +118,6 @@
         android:textColor="@android:color/holo_orange_dark"
         android:text="Sincronización Forzada"
         app:icon="@android:drawable/stat_notify_sync"/>
-       <!-- // borrar esta linea para descomentar -->
+        // borrar esta linea para descomentar -->
 
 </LinearLayout>

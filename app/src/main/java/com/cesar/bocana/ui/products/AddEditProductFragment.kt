@@ -2,12 +2,16 @@ package com.cesar.bocana.ui.products
 
 import android.os.Bundle
 import android.util.Log
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.databinding.FragmentAddEditProductBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
@@ -24,6 +28,7 @@ class AddEditProductFragment : Fragment() {
 
     private var _binding: FragmentAddEditProductBinding? = null
     private val binding get() = _binding!!
+    private lateinit var repository: InventoryRepository // Añade esto con las demás variables de la clase
 
     private lateinit var firestore: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
@@ -60,6 +65,8 @@ class AddEditProductFragment : Fragment() {
         _binding = FragmentAddEditProductBinding.inflate(inflater, container, false)
         firestore = Firebase.firestore
         auth = Firebase.auth
+        val database = AppDatabase.getDatabase(requireContext())
+        repository = InventoryRepository(database, firestore)
 
         if (isEditing) {
             loadProductData(editingProductId!!)
@@ -265,9 +272,15 @@ class AddEditProductFragment : Fragment() {
             .delete()
             .addOnSuccessListener {
                 if (!isAdded) return@addOnSuccessListener
-                showLoading(false)
-                view?.let { Snackbar.make(it, "Producto borrado permanentemente.", Snackbar.LENGTH_SHORT).show() }
-                parentFragmentManager.popBackStack()
+                // Llamada explícita para borrar de Room inmediatamente
+                lifecycleScope.launch {
+                    repository.deleteProductById(productId)
+                    if (isAdded) {
+                        showLoading(false)
+                        view?.let { Snackbar.make(it, "Producto borrado permanentemente.", Snackbar.LENGTH_SHORT).show() }
+                        parentFragmentManager.popBackStack()
+                    }
+                }
             }
             .addOnFailureListener { e ->
                 if (!isAdded) return@addOnFailureListener
