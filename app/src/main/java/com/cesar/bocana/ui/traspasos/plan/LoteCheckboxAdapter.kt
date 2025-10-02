@@ -12,6 +12,7 @@ import com.cesar.bocana.databinding.ItemLoteCheckboxBinding
 import java.text.SimpleDateFormat
 import java.util.*
 
+// Interfaz para comunicar los clics al DialogFragment
 interface LoteAdapterListener {
     fun onCheckboxToggled(lote: StockLot, isChecked: Boolean)
     fun onManualEditClicked(lote: StockLot)
@@ -53,16 +54,31 @@ class LoteCheckboxAdapter(
 
             val fecha = dateFormat.format(lote.receivedAt ?: Date())
             val proveedor = lote.supplierName ?: "S/P"
+
             val unidad = lote.unidadDeEmpaque ?: "Kg"
-            val cantUnidades = lote.cantidadInicialUnidades?.let { String.format("%.0f", it) } ?: String.format("%.2f", lote.initialQuantity)
-            binding.textviewLoteInfo.text = "$fecha ($proveedor) - $cantUnidades $unidad"
-            binding.textviewLoteDetalle.text = "Disp: ${String.format("%.2f", lote.currentQuantity)} Kg"
+            val pesoUnidad = lote.pesoPorUnidad ?: 1.0
+
+            val unidadesActuales = if (pesoUnidad > 0 && lote.unidadDeEmpaque != null) {
+                Math.floor(lote.currentQuantity / pesoUnidad).toInt()
+            } else {
+                null
+            }
+
+            if (unidadesActuales != null) {
+                binding.textviewLoteInfo.text = "$fecha ($proveedor)"
+                binding.textviewLoteDetalle.text = "Disp: $unidadesActuales $unidad (${String.format("%.2f", lote.currentQuantity)} Kg)"
+            } else {
+                binding.textviewLoteInfo.text = "$fecha ($proveedor)"
+                binding.textviewLoteDetalle.text = "Disp: ${String.format("%.2f", lote.currentQuantity)} $unidad"
+            }
 
             binding.checkboxLote.setOnCheckedChangeListener(null)
 
             if (isModoDesglose) {
                 binding.checkboxLote.visibility = View.GONE
                 binding.inputLayoutCantidadDesglose.visibility = View.VISIBLE
+
+                // El campo de texto no es editable directamente, solo muestra el valor.
                 binding.editTextCantidadDesglose.inputType = InputType.TYPE_NULL
                 binding.editTextCantidadDesglose.isFocusable = false
                 binding.editTextCantidadDesglose.isClickable = false
@@ -71,17 +87,30 @@ class LoteCheckboxAdapter(
                 binding.editTextCantidadDesglose.setText(cantidadTexto)
                 binding.inputLayoutCantidadDesglose.hint = lote.unidadDeEmpaque ?: "Kg"
 
-                // <-- CORRECCIÓN DE UX: El listener está en 'itemView', que es toda la fila.
-                itemView.setOnClickListener { listener.onManualEditClicked(lote) }
+                // --- ✨ SOLUCIÓN DEFINITIVA PARA CLIC UNIFICADO ---
+// Hacemos que los componentes internos no intercepten los clics.
+                binding.inputLayoutCantidadDesglose.isClickable = false
+                binding.inputLayoutCantidadDesglose.isFocusable = false
+                binding.editTextCantidadDesglose.isClickable = false
+                binding.editTextCantidadDesglose.isFocusable = false
+
+// Asignamos un único listener a TODA la fila.
+                itemView.setOnClickListener {
+                    // Si estamos en modo desglose, se ejecuta la acción de editar.
+                    if (isModoDesglose) {
+                        listener.onManualEditClicked(lote)
+                    } else {
+                        // Si no, se marca/desmarca el checkbox.
+                        binding.checkboxLote.toggle()
+                    }
+                }
+// --- FIN DE LA SOLUCIÓN ---
 
             } else {
                 binding.checkboxLote.visibility = View.VISIBLE
                 binding.inputLayoutCantidadDesglose.visibility = View.GONE
                 binding.checkboxLote.isChecked = selectedIds.contains(lote.id)
-
-                // <-- CORRECCIÓN DE UX: El listener está en 'itemView' para hacer toda la fila clicable.
                 itemView.setOnClickListener { binding.checkboxLote.toggle() }
-
                 binding.checkboxLote.setOnCheckedChangeListener { _, isChecked ->
                     listener.onCheckboxToggled(lote, isChecked)
                 }
@@ -94,8 +123,7 @@ class LoteCheckboxAdapter(
             return oldItem.first.id == newItem.first.id
         }
         override fun areContentsTheSame(oldItem: Pair<StockLot, Int?>, newItem: Pair<StockLot, Int?>): Boolean {
-            return oldItem.first == newItem.first && oldItem.second == newItem.second
+            return oldItem == newItem
         }
     }
 }
-

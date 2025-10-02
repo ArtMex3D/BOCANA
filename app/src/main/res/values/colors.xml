@@ -22,7 +22,8 @@
     <color name="brand_purple">#E8005E</color>
     <color name="intense_black">#000000</color>
     <!-- zebra de traspasos-->
-    <color name="zebra_oscuro">#00312B</color>
-    <color name="zebra_claro">#016262</color>
+    <color name="zebra_oscuro">@color/low_stock_red_background</color>
+    <color name="zebra_claro">@color/pending_item_background</color>
+    <color name="Letras">#020961</color>
 
 </resources>

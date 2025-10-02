@@ -82,6 +82,20 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchActive"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Producto Activo (Visible)"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+            android:checked="true"
+            android:visibility="gone"
+            app:layout_constraintTop_toBottomOf="@+id/switchRequiresPackaging"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:visibility="visible"/>
+
         <Button
             android:id="@+id/buttonSaveProduct"
             android:layout_width="0dp"
@@ -90,7 +104,7 @@
             android:text="Guardar Producto"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/switchRequiresPackaging" />
+            app:layout_constraintTop_toBottomOf="@+id/progressBarSave" />
 
         <ProgressBar
             android:id="@+id/progressBarSave"
@@ -101,7 +115,7 @@
             android:visibility="gone"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/buttonSaveProduct"
+            app:layout_constraintTop_toBottomOf="@+id/dividerActions"
             tools:visibility="visible"/>
 
         <View
@@ -111,24 +125,12 @@
             android:background="?android:attr/listDivider"
             android:layout_marginTop="32dp"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@+id/progressBarSave"
+            app:layout_constraintTop_toBottomOf="@+id/switchActive"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             tools:visibility="visible"/>
 
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/switchActive"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Producto Activo (Visible)"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-            android:checked="true"
-            android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@+id/dividerActions"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            tools:visibility="visible"/>
+
 
         <Button
             android:id="@+id/buttonDeleteProduct"
@@ -140,7 +142,7 @@
             android:textColor="@color/design_default_color_error"
             app:strokeColor="@color/design_default_color_error"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@+id/switchActive"
+            app:layout_constraintTop_toBottomOf="@+id/buttonSaveProduct"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             tools:visibility="visible"

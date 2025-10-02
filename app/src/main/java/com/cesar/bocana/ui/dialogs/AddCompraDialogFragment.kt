@@ -27,6 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.DateValidatorPointBackward
 
 class AddCompraDialogFragment : DialogFragment() {
 
@@ -125,9 +127,14 @@ class AddCompraDialogFragment : DialogFragment() {
     }
 
     private fun showDatePicker() {
+        val constraintsBuilder =
+            CalendarConstraints.Builder()
+                .setValidator(DateValidatorPointBackward.now())
+
         val datePicker = MaterialDatePicker.Builder.datePicker()
             .setTitleText("Seleccionar Fecha de Recepción")
             .setSelection(selectedDate.time)
+            .setCalendarConstraints(constraintsBuilder.build())
             .build()
         datePicker.addOnPositiveButtonClickListener { selection ->
             selectedDate = Date(selection)
@@ -135,7 +142,6 @@ class AddCompraDialogFragment : DialogFragment() {
         }
         datePicker.show(parentFragmentManager, "DATE_PICKER_COMPRA")
     }
-
     private fun loadSuppliers() {
         lifecycleScope.launch {
             try {
@@ -228,6 +234,11 @@ class AddCompraDialogFragment : DialogFragment() {
         val currentUser = auth.currentUser ?: return
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
 
+        // --- INICIO DE LA SOLUCIÓN: Deshabilitar botones ---
+        binding.buttonDialogAceptar.isEnabled = false
+        binding.buttonDialogCancelar.isEnabled = false
+        // --- FIN DE LA SOLUCIÓN ---
+
         lifecycleScope.launch {
             try {
                 firestore.runTransaction { transaction ->
@@ -319,8 +330,14 @@ class AddCompraDialogFragment : DialogFragment() {
                 if(isAdded) {
                     val errorMsg = (e as? FirebaseFirestoreException)?.message ?: "Error inesperado: ${e.message}"
                     Snackbar.make(requireActivity().findViewById(android.R.id.content), errorMsg, Snackbar.LENGTH_LONG).show()
-                    dismiss()
                 }
+            } finally {
+                // --- INICIO DE LA SOLUCIÓN: Reactivar botones ---
+                if (isAdded) {
+                    binding.buttonDialogAceptar.isEnabled = true
+                    binding.buttonDialogCancelar.isEnabled = true
+                }
+                // --- FIN DE LA SOLUCIÓN ---
             }
         }
     }

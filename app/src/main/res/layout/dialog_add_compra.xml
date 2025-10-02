@@ -62,7 +62,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginEnd="8dp"
-                    android:hint="Tipo de Empaque">
+                    android:hint="Tipo de Empaque (ej. Caja)">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/editTextUnidadEmpaque"
                         android:layout_width="match_parent"

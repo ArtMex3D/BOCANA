@@ -109,6 +109,8 @@ dependencies {
     implementation(libs.lottie)
     implementation(libs.itext7.core)
     implementation(libs.gson) // Para los Type Converters de Room
+    implementation("org.slf4j:slf4j-android:1.7.32") // Para logs de iTextPDF
+    implementation("com.github.chrisbanes:PhotoView:2.3.0") // Para Zoom en PDF
 
     // --- Desugaring ---
     coreLibraryDesugaring(libs.desugar.jdk.libs)

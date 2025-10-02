@@ -1,53 +1,78 @@
-errores encontrados
+Plan de Desarrollo Actualizado errores
+Este documento describe las próximas fases de desarrollo, organizadas por prioridad. Incluye tareas críticas pendientes, nuevas funcionalidades y mejoras de usabilidad.
 
-fragmento compras nuevas: puedo seleccionar fechas futuras y las acepta si hoy es 13 puedo poner compra el dia 20 y la acepta y es ilogico no se a comprado ni llegamos a ese dia, tambien en unida deberia ser mas detallado o mostrar lista o sugerencias el placeholder dentro del contenedor deberia ser distinto, al decir unidad ponia yo numeros pensando que se referia a unidades de cantidad no unidades de empaque, podria tipo de empaque, cajas, bolsas etc 
-no tiene autoscroll o que yo deslice con mi mano hacia arriba debo cerrar el teclado para poder ver el boton aceptar una vez terminada la compra
+PRIORIDADES MÁXIMAS (Tareas Críticas y Nuevas Funcionalidades)
+Paso 1 (Pendiente): Reparar Interacción en Diálogo de Traspasos
+Objetivo: Solucionar el problema de clic en el diálogo "Seleccionar Lotes" cuando el modo "Desglose Manual" está activado.
 
-en moreoptionframent no exiete el scroll mientras mas crece esa panatlla las opciones ocultas se van perdiendo abajo y no puedo seleccionarlas
+Problema Actual: El diálogo para introducir la cantidad solo aparece si se presiona el texto del lote, pero no si se presiona el recuadro del input.
 
-detalle traspaso inteligente debe conservar los cambios, por ejemplo si en este traspaso me da las sugerencias y voy editando lotes cantidades etc y de la nada cierro la app sin querer, me cambio de pestaña sin querer deberia conservar los cambios que llevo, digamos cada que termino y cambio de prodccto se deberia guardar silenciosamente cada cambiio por producto
-////////////////////////////////////////////
-agregar planificador de pantalla, a continuacion detallo como seria? prioridad? ultima prioridad no es relevante pero si contemplativo como futuro para visualizador asi que integrar de sser necesario en el plan para despues refinar
+Acción Requerida: Modificar el adaptador LoteCheckboxAdapter.kt para que toda el área de la fila (incluyendo el recuadro de cantidad) sea un único objetivo de clic, garantizando que la acción de editar se dispare sin importar dónde se presione.
 
-Paso a Paso para un Previsualizador Universal
-Paso 1: Crear una Única Pantalla de Previsualización (PdfPreviewFragment)
-La idea principal es no crear un previsualizador para cada sección, sino uno solo que sea reutilizable para toda la app.
+Paso 2 (Nuevo): Implementar Notificaciones Avanzadas (En Segundo Plano)
+Objetivo: Crear un sistema de notificaciones que alerte al usuario sobre tareas pendientes importantes, incluso si la aplicación está cerrada.
 
-Misión del Fragmento: Su único trabajo será recibir la ubicación de un archivo PDF y mostrarlo en pantalla completa.
+Problema Actual: Las notificaciones solo se generan cuando la app está abierta y activa.
 
-Diseño Sencillo: Tendrá solo tres elementos:
+Plan de Implementación:
 
-Un visor de PDF que ocupe la mayor parte de la pantalla.
+Tecnología: Se utilizará WorkManager, la solución recomendada por Android para tareas programadas y garantizadas en segundo plano.
 
-Un botón para "Compartir".
+Lógica: Se programará una tarea para que se ejecute periódicamente (por ejemplo, una o dos veces al día).
 
-Un botón para "Regresar" (o usar la flecha de la barra de herramientas).
+Verificaciones: Durante su ejecución, la tarea consultará directamente a Firestore para verificar condiciones críticas como:
 
-Paso 2: Interceptar el Flujo Actual de "Generar y Compartir"
-Ahora, en cada lugar donde actualmente generas un PDF, cambiarás la acción final.
+Productos con stock por debajo del mínimo.
 
-En Reportes (ReportGenerator.kt):
+Devoluciones que sigan en estado "PENDIENTE".
 
-Antes: Generaba el PDF y llamaba inmediatamente a la función para compartir.
+Items en "Pendiente de Empacar" que hayan superado un tiempo límite (ej. 3 días).
 
-Ahora: Generará el PDF, guardará el archivo, y en lugar de compartirlo, navegará al PdfPreviewFragment y le pasará la ruta del archivo creado.
+Acción: Si se cumple alguna de estas condiciones, el sistema generará una notificación local en el dispositivo, alertando al usuario para que abra la app y tome acción.
 
-En Etiquetas (PrintLabel...Fragment.kt):
+Paso 3 (Pendiente y Detallado): Sistema de Trazabilidad para Lotes a Granel
+Objetivo: Diferenciar visualmente en toda la aplicación los lotes que fueron recibidos a granel y están pendientes de ser empacados.
 
-Antes: Al crear la hoja de etiquetas, se abría directamente el menú para compartir.
+Problema Actual: No hay una forma clara de identificar y dar seguimiento a estos lotes, lo que puede causar confusiones en traspasos o salidas.
 
-Ahora: Hará exactamente lo mismo que en Reportes. Creará el PDF y luego abrirá el PdfPreviewFragment para mostrarlo.
+Plan de Implementación:
 
-En Traspasos (PlanificarTraspasoFragment.kt):
+Modelo de Datos: Se utilizará el campo booleano isPackaged que ya existe en el modelo StockLot.
 
-Cuando implementes la generación del PDF de traspasos, usarás este mismo patrón. El botón "Generar PDF" creará el archivo y lo enviará al PdfPreviewFragment.
+Registro de Compra: Al registrar una compra "A Granel", el nuevo lote se guardará en Firestore con el campo isPackaged establecido en false.
 
-Paso 3: Centralizar la Lógica de "Compartir"
-La función que tienes para abrir el menú de compartir de Android (sharePdf) ahora vivirá únicamente dentro del PdfPreviewFragment.
+Distinción Visual: Se modificarán los adaptadores (LotSelectionAdapter, ProductAdapter, etc.) para que, si un lote tiene isPackaged = false, se muestre con un color de fondo distinto o un ícono de advertencia (ej. 📦).
 
-El botón "Compartir" de esta nueva pantalla será el que ejecute la acción final, asegurando que el usuario ya vio y aprobó el documento.
+Proceso de Empaque: En la pantalla "Pendiente de Empacar", al marcar un item como "Empacado", el sistema actualizará el documento del lote original en Firestore, cambiando isPackaged a true.
+
+Sincronización Automática: Gracias a los listeners en tiempo real que ya tiene la app, en cuanto el lote se actualice, todas las pantallas reflejarán su nuevo estado "empacado" sin necesidad de una Cloud Function.
+
+PRIORIDADES SECUNDARIAS (Mejoras de Usabilidad y Correcciones)
+Tarea A: Corregir Bug en Impresión de Etiquetas con "Pzas"
+Problema: Al generar una etiqueta, si la unidad es "Pzas" (o cualquier texto más largo que "Kg"), el texto no se imprime o se corta.
+
+Causa Probable: El TextView en el archivo de layout de la etiqueta (layout_label_detailed_v2.xml) tiene un tamaño fijo que no se ajusta automáticamente a textos más largos.
+
+Solución: Se revisará el layout de la etiqueta y se aplicarán propiedades de autoajuste de texto (app:autoSizeTextType="uniform") para asegurar que el tamaño de la fuente se reduzca dinámicamente si el texto es muy largo, garantizando que siempre sea visible.
+
+Tarea B: Mejorar Diálogo de Compras con Selector de Unidades
+Problema: El campo "Tipo de Empaque" es un campo de texto libre, lo que puede llevar a inconsistencias.
+
+Solución:
+
+Modificar Layout: Se cambiará el TextInputEditText por un AutoCompleteTextView en dialog_add_compra.xml, similar al campo de "Proveedor".
+
+Añadir Lógica: En AddCompraDialogFragment.kt, se creará una lista predefinida con las unidades más comunes ("Cajas", "Costales", "Bolsas", "Piezas", "Kg", "Litros") y se usará para poblar el nuevo menú desplegable.
+
+Este plan nos da una hoja de ruta clara para las próximas mejoras. Las tareas de Prioridad Máxima son las más complejas y con mayor impacto, mientras que las de Prioridad Secundaria son mejoras de calidad de vida más rápidas de implementar.
+
+
+
 
 //////////////////////////
+
+
+
 // plan oficial relevante prioritario
 
 nota importante YA NO USAR TOAST: EN TODO USAR SNACKBAR es mejor y mas bonito

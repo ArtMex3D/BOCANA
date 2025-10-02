@@ -22,6 +22,9 @@ class ConfiguracionTraspasoAdapter(
 ) : ListAdapter<Product, ConfiguracionTraspasoAdapter.ConfigViewHolder>(ProductDiffCallback()) {
 
     private val productList: MutableList<Product> = mutableListOf()
+    // --- INICIO DE LA SOLUCIÓN: Variable para controlar el item expandido ---
+    private var expandedPosition = -1
+    // --- FIN DE LA SOLUCIÓN ---
 
     override fun submitList(list: List<Product>?) {
         super.submitList(list?.let { ArrayList(it) })
@@ -64,23 +67,33 @@ class ConfiguracionTraspasoAdapter(
             binding.switchModoManual.isChecked = product.modoManualPDF
             binding.editTextEspacioExtra.setText(product.espacioExtraPDF.toString())
 
-            // **CORRECCIÓN: Muestra "GRANEL" o el tipo de unidad para fijos**
             val tipoEmpaqueText = if (product.requiresPackaging) "GRANEL" else "PESO FIJO (${product.unit})"
             binding.textViewTipoEmpaque.text = "Tipo: $tipoEmpaqueText"
 
-            // **MEJORA: Formato Cebra para la UI**
             val context = binding.root.context
             if (adapterPosition % 2 == 0) {
-                binding.root.setCardBackgroundColor(ContextCompat.getColor(context, R.color.zebra_oscuro))
-            } else {
                 binding.root.setCardBackgroundColor(ContextCompat.getColor(context, R.color.zebra_claro))
+            } else {
+                binding.root.setCardBackgroundColor(ContextCompat.getColor(context, R.color.zebra_oscuro))
             }
 
+            // --- INICIO DE LA SOLUCIÓN: Lógica de acordeón ---
+            val isExpanded = adapterPosition == expandedPosition
+            binding.expandableLayout.isVisible = isExpanded
+            binding.arrowIcon.rotation = if (isExpanded) 180f else 0f
+
             binding.root.setOnClickListener {
-                val isVisible = binding.expandableLayout.isVisible
-                binding.expandableLayout.isVisible = !isVisible
-                binding.arrowIcon.rotation = if (isVisible) 0f else 180f
+                val previousExpandedPosition = expandedPosition
+                expandedPosition = if (isExpanded) -1 else adapterPosition
+
+                // Notifica al adaptador que el item anteriormente expandido ha cambiado (para que se cierre)
+                if (previousExpandedPosition != -1) {
+                    notifyItemChanged(previousExpandedPosition)
+                }
+                // Notifica al adaptador que el item actual ha cambiado (para que se abra o se cierre)
+                notifyItemChanged(adapterPosition)
             }
+            // --- FIN DE LA SOLUCIÓN ---
 
             addTextWatcher(binding.editTextStockIdeal) {
                 val stockIdeal = it.toDoubleOrNull() ?: 0.0
@@ -111,7 +124,6 @@ class ConfiguracionTraspasoAdapter(
                 }
             }
 
-            // **SOLUCIÓN: Maneja la tecla Enter para evitar el crash**
             editText.setOnKeyListener { view, keyCode, event ->
                 if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
                     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -130,3 +142,4 @@ class ProductDiffCallback : DiffUtil.ItemCallback<Product>() {
     override fun areItemsTheSame(oldItem: Product, newItem: Product): Boolean = oldItem.id == newItem.id
     override fun areContentsTheSame(oldItem: Product, newItem: Product): Boolean = oldItem == newItem
 }
+

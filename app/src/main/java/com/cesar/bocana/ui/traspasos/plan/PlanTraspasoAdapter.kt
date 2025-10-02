@@ -14,9 +14,11 @@ import androidx.recyclerview.widget.RecyclerView
 import com.cesar.bocana.data.model.LoteDesglosado
 import com.cesar.bocana.data.model.TraspasoSugerenciaItem
 import com.cesar.bocana.databinding.ItemPlanTraspasoBinding
+import com.google.android.material.snackbar.Snackbar
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.ceil
+import androidx.appcompat.R
 
 class PlanTraspasoAdapter(
     private val viewModel: PlanificarTraspasoViewModel,
@@ -41,38 +43,47 @@ class PlanTraspasoAdapter(
             binding.checkboxIncludeInPdf.isChecked = item.incluidoEnPdf
             binding.textviewProductName.text = item.product.name
 
-            // <-- CAMBIO: Evita actualizar el texto si el usuario lo está editando
             if (!binding.editTextCantidad.isFocused) {
                 binding.editTextCantidad.setText(item.cantidadEditadaUnidades.toString())
             }
             binding.textviewUnidadEmpaque.text = item.unidadDeEmpaqueEditada
 
-            // <-- MEJORA: Listener más robusto para confirmar la edición de cantidad
             binding.editTextCantidad.setOnEditorActionListener { v, actionId, event ->
                 if (actionId == EditorInfo.IME_ACTION_DONE || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
-                    v.clearFocus() // Quita el foco
+                    v.clearFocus()
                     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.hideSoftInputFromWindow(v.windowToken, 0) // Esconde el teclado
-                    // La lógica de recalcular se mueve al onFocusChangeListener para mayor seguridad
+                    imm.hideSoftInputFromWindow(v.windowToken, 0)
                     true
                 } else {
                     false
                 }
             }
 
-            binding.editTextCantidad.setOnFocusChangeListener { _, hasFocus ->
-                // <-- LÓGICA MEJORADA: Se recalcula solo cuando se pierde el foco
+            binding.editTextCantidad.setOnFocusChangeListener { view, hasFocus ->
                 if (!hasFocus) {
                     val nuevaCantidadStr = binding.editTextCantidad.text.toString()
                     val nuevaCantidad = nuevaCantidadStr.toIntOrNull() ?: 0
-                    // <-- EVITA RECALCULAR SI NO HAY CAMBIOS: Solo llama al ViewModel si el número es diferente
-                    if (nuevaCantidad != item.cantidadEditadaUnidades) {
-                        viewModel.recalcularSugerenciaPorUnidades(item.product.id, nuevaCantidad)
+
+                    if (nuevaCantidad == item.cantidadEditadaUnidades) return@setOnFocusChangeListener
+
+                    // <-- ✨ CORRECCIÓN DE PULIDO: Validación de stock máximo en la UI
+                    val totalUnidadesDisponibles = item.lotesParaTraspaso.sumOf {
+                        val pesoUnidad = it.lote.pesoPorUnidad ?: 1.0
+                        if (pesoUnidad > 0) Math.floor(it.lote.currentQuantity / pesoUnidad) else 0.0
+                    }.toInt()
+
+                    val cantidadFinal = if (nuevaCantidad > totalUnidadesDisponibles) {
+                        Snackbar.make(binding.root, "Stock máximo es $totalUnidadesDisponibles. Cantidad ajustada.", Snackbar.LENGTH_LONG).show()
+                        totalUnidadesDisponibles // Si se excede, usamos el máximo
+                    } else {
+                        nuevaCantidad // Si es válido, usamos el valor del usuario
                     }
+
+                    viewModel.recalcularSugerenciaPorUnidades(item.product.id, cantidadFinal)
+                    // --- FIN DE LA CORRECCIÓN ---
                 }
             }
 
-            // <-- NUEVO: Muestra un mini-loader mientras el ViewModel recalcula
             binding.miniLoader.isVisible = item.isRecalculating
             binding.layoutCantidad.alpha = if (item.isRecalculating) 0.5f else 1.0f
             binding.editTextCantidad.isEnabled = !item.isRecalculating
@@ -108,7 +119,6 @@ class PlanTraspasoAdapter(
             val fecha = dateFormat.format(lote.receivedAt ?: Date())
             val proveedor = lote.supplierName ?: "S/P"
 
-            // <-- LÓGICA MEJORADA: Muestra la cantidad en unidades si está disponible, si no, en Kg
             val cantidadStr = if (desglose.cantidadATomarUnidades != null && !lote.unidadDeEmpaque.isNullOrBlank()) {
                 val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
                 "$unidadesEnteras ${lote.unidadDeEmpaque}"
@@ -131,8 +141,8 @@ class PlanTraspasoAdapter(
         }
 
         override fun areContentsTheSame(oldItem: TraspasoSugerenciaItem, newItem: TraspasoSugerenciaItem): Boolean {
-            // <-- MEJORA: Una comparación más completa para evitar redibujados innecesarios
             return oldItem == newItem
         }
     }
 }
+

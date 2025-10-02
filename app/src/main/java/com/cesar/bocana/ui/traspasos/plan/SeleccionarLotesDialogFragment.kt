@@ -23,7 +23,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.collections.ArrayList
 
 class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
@@ -33,7 +32,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
     private var allLotes: List<StockLot> = emptyList()
     private val selectedLotIds = mutableSetOf<String>()
-    // <-- CAMBIO: El mapa ahora guarda la cantidad como un Entero (cajas, costales, etc.)
     private val manualQuantities = mutableMapOf<String, Int>()
 
     companion object {
@@ -57,6 +55,11 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        dialog?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogSeleccionarLotesBinding.inflate(LayoutInflater.from(context))
         val productId = requireArguments().getString(ARG_PRODUCT_ID)!!
@@ -64,14 +67,13 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         val initialSelectedIds = requireArguments().getStringArrayList(ARG_SELECTED_IDS)!!
         selectedLotIds.addAll(initialSelectedIds)
 
-        binding.textviewDialogTitle.text = "Seleccionar Lotes para: $productName"
+        binding.textviewDialogTitle.text = "Seleccionar Lotes para $productName"
 
         adapter = LoteCheckboxAdapter(this)
         binding.recyclerViewLotesSeleccion.adapter = adapter
         adapter.setSelectedIds(selectedLotIds)
 
         binding.switchDesgloseManual.setOnCheckedChangeListener { _, isChecked ->
-            Log.d(TAG, "Switch de desglose manual cambiado a: $isChecked")
             adapter.setModoDesglose(isChecked)
             updateAdapterList()
         }
@@ -82,17 +84,12 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             .setView(binding.root)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Aceptar") { _, _ ->
-                // <-- LÓGICA MEJORADA: Envía un resultado claro y distinto para cada modo
                 val bundle = bundleOf(PRODUCT_ID_KEY to productId)
                 if (binding.switchDesgloseManual.isChecked) {
-                    Log.d(TAG, "Modo Manual ACEPTADO. Enviando desglose: $manualQuantities")
-                    val desgloseResult = manualQuantities
-                        .filter { it.value > 0 }
-                        .map { DesgloseManualResult(it.key, it.value.toDouble()) } // El modelo espera un Double
+                    val desgloseResult = manualQuantities.filter { it.value > 0 }.map { DesgloseManualResult(it.key, it.value.toDouble()) }
                     bundle.putParcelableArrayList(RESULT_DESGLOSE_KEY, ArrayList(desgloseResult))
                 } else {
                     val selectedLotes = allLotes.filter { selectedLotIds.contains(it.id) }
-                    Log.d(TAG, "Modo Checkbox ACEPTADO. Enviando ${selectedLotes.size} lotes completos.")
                     bundle.putParcelableArrayList(RESULT_LOTES_KEY, ArrayList(selectedLotes))
                 }
                 setFragmentResult(REQUEST_KEY, bundle)
@@ -100,19 +97,14 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             .create()
     }
 
-    // <-- SIN CAMBIOS: La lógica de (des)selección es correcta
     override fun onCheckboxToggled(lote: StockLot, isChecked: Boolean) {
         if (isChecked) selectedLotIds.add(lote.id) else selectedLotIds.remove(lote.id)
-        Log.d(TAG, "Checkbox toggled para lote ${lote.id}. Nuevo estado: $isChecked. Total seleccionados: ${selectedLotIds.size}")
     }
 
-    // <-- CAMBIO CRÍTICO: Esta función ahora llama al nuevo mini-diálogo
     override fun onManualEditClicked(lote: StockLot) {
-        Log.d(TAG, "Click para editar manualmente el lote ${lote.id}")
         showEditQuantityDialog(lote)
     }
 
-    // <-- FUNCIÓN NUEVA: La solución robusta para el problema del teclado
     private fun showEditQuantityDialog(lote: StockLot) {
         val context = this.context ?: return
         val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_edit_lote_cantidad, null)
@@ -123,10 +115,9 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
         val fecha = dateFormat.format(lote.receivedAt ?: Date())
         val proveedor = lote.supplierName ?: "S/P"
-        loteInfoTextView.text = "Lote del $fecha ($proveedor)"
+        loteInfoTextView.text = "Editando: $fecha ($proveedor)"
 
         val pesoUnidad = lote.pesoPorUnidad ?: 1.0
-        // <-- CORRECCIÓN LÓGICA: Se usa Math.floor para obtener solo las unidades *completas* disponibles
         val unidadesDisponibles = if (pesoUnidad > 0) Math.floor(lote.currentQuantity / pesoUnidad).toInt() else 0
         val unidad = lote.unidadDeEmpaque ?: "Kg"
         stockDispTextView.text = "Disponible: $unidadesDisponibles $unidad"
@@ -140,16 +131,13 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             .setTitle("Asignar Cantidad")
             .setView(dialogView)
             .setPositiveButton("Aceptar") { d, _ ->
-                val nuevaCantidadStr = cantidadEditText.text.toString()
-                val nuevaCantidad = if (nuevaCantidadStr.isBlank()) 0 else nuevaCantidadStr.toIntOrNull() ?: -1
-
+                val nuevaCantidad = cantidadEditText.text.toString().toIntOrNull() ?: 0
                 if (nuevaCantidad > unidadesDisponibles) {
                     Toast.makeText(context, "La cantidad no puede superar lo disponible ($unidadesDisponibles)", Toast.LENGTH_LONG).show()
                 } else if (nuevaCantidad < 0) {
                     Toast.makeText(context, "La cantidad no puede ser negativa", Toast.LENGTH_LONG).show()
                 } else {
                     manualQuantities[lote.id] = nuevaCantidad
-                    Log.d(TAG, "Cantidad manual para lote ${lote.id} actualizada a: $nuevaCantidad")
                     updateAdapterList()
                     d.dismiss()
                 }
@@ -157,7 +145,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             .setNegativeButton("Cancelar", null)
             .create()
 
-        // <-- UX MEJORADA: Se asegura de que el teclado aparezca al abrir el diálogo
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
         cantidadEditText.requestFocus()
@@ -165,7 +152,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
     private fun updateAdapterList() {
         val listForAdapter = allLotes.map { lote ->
-            // <-- CAMBIO: Pasamos la cantidad manual (Int) al adaptador
             Pair(lote, manualQuantities[lote.id])
         }
         adapter.submitList(listForAdapter)
@@ -175,21 +161,25 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         lifecycleScope.launch {
             binding.progressBarDialogLotes.isVisible = true
             try {
+                // <-- ✨ REGLA DE NEGOCIO: Cargar solo lotes empacados para el desglose.
                 val snapshot = Firebase.firestore.collection("inventoryLots")
                     .whereEqualTo("productId", productId)
                     .whereEqualTo("location", "MATRIZ")
                     .whereEqualTo("isDepleted", false)
+                    .whereEqualTo("isPackaged", true) // <-- Solo lotes listos para traspaso por unidad.
                     .orderBy("receivedAt")
                     .get().await()
                 allLotes = snapshot.toObjects(StockLot::class.java)
-                Log.d(TAG, "Se cargaron ${allLotes.size} lotes para el producto $productId")
                 updateAdapterList()
             } catch (e: Exception) {
-                Log.e(TAG, "Error al cargar lotes para el diálogo", e)
-                Toast.makeText(context, "Error al cargar lotes.", Toast.LENGTH_SHORT).show()
+                Log.e(TAG, "Error al cargar lotes", e)
             } finally {
                 if(isAdded) {
                     binding.progressBarDialogLotes.isVisible = false
+                    binding.textviewNoLotes.isVisible = allLotes.isEmpty()
+                    if (allLotes.isEmpty()) {
+                        binding.textviewNoLotes.text = "No hay lotes empacados disponibles en Matriz."
+                    }
                 }
             }
         }
@@ -200,3 +190,4 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         _binding = null
     }
 }
+

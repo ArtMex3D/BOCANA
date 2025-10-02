@@ -8,7 +8,7 @@
     android:layout_marginTop="4dp"
     android:layout_marginEnd="8dp"
     android:layout_marginBottom="4dp"
-    app:cardBackgroundColor="#424242"
+    app:cardBackgroundColor="#8304B1"
     app:cardCornerRadius="8dp">
 
     <LinearLayout
@@ -26,7 +26,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:src="@drawable/mas"
-                app:tint="@android:color/darker_gray"
+                app:tint="@color/Letras"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent"
@@ -38,7 +38,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
                 android:layout_marginEnd="8dp"
-                android:textColor="@android:color/white"
+                android:textColor="#010645"
                 android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
                 app:layout_constraintStart_toEndOf="@id/drag_handle"
                 app:layout_constraintEnd_toStartOf="@id/arrow_icon"
@@ -51,7 +51,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:src="@android:drawable/arrow_down_float"
-                app:tint="@android:color/white"
+                app:tint="@color/ic_launcher_background"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent"/>
@@ -74,7 +74,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:textColor="@android:color/white"
+                android:textColor="@color/Letras"
                 android:textAppearance="?attr/textAppearanceCaption"
                 tools:text="Tipo: Caja"/>
 
@@ -83,15 +83,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="Stock Ideal en C-04 (Kg)"
-                app:boxStrokeColor="@android:color/white"
-                app:hintTextColor="@android:color/white">
+                app:boxStrokeColor="@color/Letras"
+                app:hintTextColor="@color/Letras">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/editTextStockIdeal"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="numberDecimal"
-                    android:textColor="@android:color/white"/>
+                    android:textColor="@color/Letras"/>
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.switchmaterial.SwitchMaterial
@@ -100,7 +100,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Modo Manual en PDF"
-                android:textColor="@android:color/white"/>
+                android:textColor="@color/Letras"/>
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -108,15 +108,15 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:hint="Espacios Extra en PDF (ej. 1, 2)"
-                app:boxStrokeColor="@android:color/white"
-                app:hintTextColor="@android:color/white">
+                app:boxStrokeColor="@color/Letras"
+                app:hintTextColor="@color/Letras">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/editTextEspacioExtra"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="numberDecimal"
-                    android:textColor="@android:color/white"/>
+                    android:textColor="@color/Letras"/>
             </com.google.android.material.textfield.TextInputLayout>
 
         </LinearLayout>
