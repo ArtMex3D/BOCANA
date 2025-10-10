@@ -166,10 +166,15 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                     .whereEqualTo("productId", productId)
                     .whereEqualTo("location", "MATRIZ")
                     .whereEqualTo("isDepleted", false)
-                    .whereEqualTo("isPackaged", true) // <-- Solo lotes listos para traspaso por unidad.
+                    .whereEqualTo("estadoTraspaso", null) // <-- FILTRO CLAVE: Solo lotes disponibles
                     .orderBy("receivedAt")
                     .get().await()
+                // ***** INICIO DE LA SOLUCIÓN *****
+                // Se aplica el mismo filtro inteligente que en el ViewModel.
                 allLotes = snapshot.toObjects(StockLot::class.java)
+                    .filter { it.isPackaged != false && it.estadoTraspaso == null }
+                // ***** FIN DE LA SOLUCIÓN *****
+
                 updateAdapterList()
             } catch (e: Exception) {
                 Log.e(TAG, "Error al cargar lotes", e)

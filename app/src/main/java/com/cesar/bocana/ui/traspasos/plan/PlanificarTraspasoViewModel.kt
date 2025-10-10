@@ -3,10 +3,11 @@ package com.cesar.bocana.ui.traspasos.plan
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cesar.bocana.data.model.LoteDesglosado
-import com.cesar.bocana.data.model.Product
-import com.cesar.bocana.data.model.StockLot
-import com.cesar.bocana.data.model.TraspasoSugerenciaItem
+import com.cesar.bocana.data.model.*
+import com.cesar.bocana.utils.FirestoreCollections
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Calendar
+import java.util.Date
 import java.util.TimeZone
 import kotlin.math.ceil
 import kotlin.math.max
@@ -27,14 +29,9 @@ object TraspasoPlanCache {
 
     fun esValido(): Boolean {
         if (planGuardado == null) return false
-
-        // Usa la zona horaria por defecto del dispositivo para la comparación
         val zonaHoraria = TimeZone.getDefault()
-
         val ahora = Calendar.getInstance(zonaHoraria)
         val guardado = Calendar.getInstance(zonaHoraria).apply { timeInMillis = timestamp }
-
-        // Es válido si es del mismo día y del mismo año.
         return ahora.get(Calendar.DAY_OF_YEAR) == guardado.get(Calendar.DAY_OF_YEAR) &&
                 ahora.get(Calendar.YEAR) == guardado.get(Calendar.YEAR)
     }
@@ -47,15 +44,18 @@ object TraspasoPlanCache {
 
 data class PlanTraspasoUiState(
     val isLoading: Boolean = true,
+    val isSaving: Boolean = false,
     val sugerencias: List<TraspasoSugerenciaItem> = emptyList(),
     val error: String? = null,
     val snackbarMessage: String? = null,
-    val preguntaCache: Boolean = false // Flag para que el Fragment muestre el diálogo
+    val preguntaCache: Boolean = false,
+    val planGuardadoExitoso: Boolean = false
 )
 
 class PlanificarTraspasoViewModel : ViewModel() {
 
     private val db = Firebase.firestore
+    private val auth = Firebase.auth
     private val _uiState = MutableStateFlow(PlanTraspasoUiState())
     val uiState: StateFlow<PlanTraspasoUiState> = _uiState
 
@@ -63,7 +63,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
     private val TAG = "PlanTraspasoViewModel"
 
     init {
-        // Al iniciar, solo verifica si debe preguntar al usuario, no carga nada aún.
         if (TraspasoPlanCache.esValido()) {
             _uiState.update { it.copy(preguntaCache = true, isLoading = false) }
         } else {
@@ -75,13 +74,16 @@ class PlanificarTraspasoViewModel : ViewModel() {
         _uiState.update { it.copy(snackbarMessage = null) }
     }
 
+    fun onPlanGuardadoNavegado() {
+        _uiState.update { it.copy(planGuardadoExitoso = false) }
+    }
+
     fun onDialogoMostrado() {
         _uiState.update { it.copy(preguntaCache = false) }
     }
 
     fun cargarPlanDesdeCache() {
         if (TraspasoPlanCache.esValido()) {
-            Log.d(TAG, "Cargando plan desde caché.")
             _uiState.value = PlanTraspasoUiState(isLoading = false, sugerencias = TraspasoPlanCache.planGuardado!!)
             viewModelScope.launch { cargarLotesEnMatriz() }
         } else {
@@ -94,9 +96,9 @@ class PlanificarTraspasoViewModel : ViewModel() {
             TraspasoPlanCache.limpiar()
         }
         viewModelScope.launch {
-            _uiState.value = PlanTraspasoUiState(isLoading = true)
+            _uiState.update { it.copy(isLoading = true) }
             try {
-                val products = db.collection("products")
+                val products = db.collection(FirestoreCollections.PRODUCTS)
                     .whereEqualTo("isActive", true)
                     .orderBy("ordenTraspaso")
                     .orderBy("name")
@@ -108,12 +110,71 @@ class PlanificarTraspasoViewModel : ViewModel() {
                     generarSugerenciaInicial(product, allLotesEnMatriz[product.id] ?: emptyList())
                 }
 
-                _uiState.value = PlanTraspasoUiState(isLoading = false, sugerencias = sugerencias)
+                _uiState.update { it.copy(isLoading = false, sugerencias = sugerencias) }
                 guardarEnCache(sugerencias)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error en cargarPlanDeTraspaso", e)
-                _uiState.value = PlanTraspasoUiState(isLoading = false, error = e.localizedMessage)
+                _uiState.update { it.copy(isLoading = false, error = e.localizedMessage) }
+            }
+        }
+    }
+
+    fun guardarPlanEnFirestore(fechaPlan: Date) {
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            _uiState.update { it.copy(snackbarMessage = "Error: Usuario no autenticado.") }
+            return
+        }
+        val planParaGuardar = _uiState.value.sugerencias.filter { it.incluidoEnPdf && it.sugerenciaKg > 0 }
+        if (planParaGuardar.isEmpty()) {
+            _uiState.update { it.copy(snackbarMessage = "No hay productos seleccionados para el traspaso.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true) }
+            try {
+                val planDocRef = db.collection(FirestoreCollections.TRASPASOS_PLANIFICADOS).document()
+                val planPrincipal = TraspasoPlanificado(
+                    id = planDocRef.id,
+                    createdAt = Date(),
+                    createdBy = currentUser.displayName ?: currentUser.email ?: "Desconocido",
+                    fechaPlan = fechaPlan,
+                    estado = TraspasoEstado.PENDIENTE
+                )
+
+                val batch: WriteBatch = db.batch()
+                batch.set(planDocRef, planPrincipal)
+
+                planParaGuardar.forEach { item ->
+                    val detalleDocRef = planDocRef.collection("detalles").document()
+                    val detalle = DetalleTraspasoPlan(
+                        id = detalleDocRef.id,
+                        productId = item.product.id,
+                        productName = item.product.name,
+                        sugerenciaKg = item.sugerenciaKg,
+                        sugerenciaUnidades = item.cantidadEditadaUnidades,
+                        unidadDeEmpaque = item.unidadDeEmpaqueEditada,
+                        lotesSugeridos = item.lotesParaTraspaso
+                    )
+                    batch.set(detalleDocRef, detalle)
+
+                    // ***** INICIO DE SOLUCIÓN "CANDADO" *****
+                    // Marcar cada lote como "RESERVADO"
+                    item.lotesParaTraspaso.forEach { desglose ->
+                        val loteRef = db.collection(FirestoreCollections.INVENTORY_LOTS).document(desglose.loteId)
+                        batch.update(loteRef, "estadoTraspaso", "RESERVADO")
+                    }
+                    // ***** FIN DE SOLUCIÓN "CANDADO" *****
+                }
+
+                batch.commit().await()
+                TraspasoPlanCache.limpiar() // Limpiar caché después de guardar exitosamente
+                _uiState.update { it.copy(isSaving = false, snackbarMessage = "Plan de traspaso creado.", planGuardadoExitoso = true) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error al guardar plan de traspaso", e)
+                _uiState.update { it.copy(isSaving = false, snackbarMessage = "Error al guardar: ${e.message}") }
             }
         }
     }
@@ -121,23 +182,31 @@ class PlanificarTraspasoViewModel : ViewModel() {
     private fun guardarEnCache(sugerencias: List<TraspasoSugerenciaItem>) {
         TraspasoPlanCache.planGuardado = sugerencias
         TraspasoPlanCache.timestamp = System.currentTimeMillis()
-        Log.d(TAG, "Plan guardado en caché.")
     }
 
     private suspend fun cargarLotesEnMatriz() {
-        val lotesSnapshot = db.collection("inventoryLots")
+        val lotesSnapshot = db.collection(FirestoreCollections.INVENTORY_LOTS)
             .whereEqualTo("location", "MATRIZ")
             .whereEqualTo("isDepleted", false)
             .whereEqualTo("isPackaged", true)
             .orderBy("receivedAt")
             .get().await()
-        allLotesEnMatriz = lotesSnapshot.toObjects(StockLot::class.java).groupBy { it.productId }
+
+        val lotesDisponibles = lotesSnapshot.toObjects(StockLot::class.java)
+            .filter { it.estadoTraspaso == null }
+
+        allLotesEnMatriz = lotesDisponibles.groupBy { it.productId }
     }
+
 
     fun actualizarInclusionEnPdf(productId: String, incluido: Boolean) {
         _uiState.update { currentState ->
             val nuevasSugerencias = currentState.sugerencias.map {
-                if (it.product.id == productId) it.copy(incluidoEnPdf = incluido) else it
+                if (it.product.id == productId) {
+                    it.copy(incluidoEnPdf = incluido)
+                } else {
+                    it
+                }
             }
             guardarEnCache(nuevasSugerencias)
             currentState.copy(sugerencias = nuevasSugerencias)
@@ -150,12 +219,14 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val sugerenciaKg = max(0.0, min(necesidadKg, disponibleKg))
         val tieneUnidadesDeEmpaque = lotesDelProducto.any { !it.unidadDeEmpaque.isNullOrBlank() && it.pesoPorUnidad != null && it.pesoPorUnidad > 0 }
 
+        val incluido = sugerenciaKg > 0.0
+
         if (tieneUnidadesDeEmpaque && sugerenciaKg > 0) {
             val (cantidadEnUnidades, unidad) = convertirKgAUnidades(sugerenciaKg, lotesDelProducto)
             val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDelProducto)
-            return TraspasoSugerenciaItem(product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = unidad)
+            return TraspasoSugerenciaItem(product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados, incluidoEnPdf = incluido, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = unidad)
         } else {
-            return TraspasoSugerenciaItem(product, 0.0, emptyList(), product.stockMatriz, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = product.unit)
+            return TraspasoSugerenciaItem(product, 0.0, emptyList(), product.stockMatriz, incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = product.unit)
         }
     }
 
@@ -163,7 +234,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
         setRecalculatingState(productId, true)
         val lotesDisponibles = allLotesEnMatriz[productId] ?: emptyList()
         val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDisponibles)
-        val nuevaUnidad = lotesDesglosados.firstOrNull()?.lote?.unidadDeEmpaque ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
+        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
@@ -204,14 +275,23 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 val kgATomar = unidadesATomar * pesoUnidad
                 totalKgDesglosado += kgATomar
                 totalUnidadesDesglosadas += unidadesATomar
-                LoteDesglosado(loteOriginal, kgATomar, unidadesATomar.toDouble())
+                LoteDesglosado(
+                    loteId = loteOriginal.id,
+                    cantidadATomarKg = kgATomar,
+                    cantidadATomarUnidades = unidadesATomar.toDouble(),
+                    lote = loteOriginal, // Mantener el objeto completo para la UI
+                    loteFecha = loteOriginal.receivedAt,
+                    loteProveedor = loteOriginal.supplierName,
+                    loteUnidad = loteOriginal.unidadDeEmpaque,
+                    lotePesoPorUnidad = loteOriginal.pesoPorUnidad
+                )
             } else null
         }
-        val nuevaUnidad = lotesDesglosados.firstOrNull()?.lote?.unidadDeEmpaque ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
+        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == productId) it.copy(lotesSeleccionadosManualmente = lotesDesglosados.map { d -> d.lote }, lotesParaTraspaso = lotesDesglosados, sugerenciaKg = totalKgDesglosado, impactoStockMatriz = it.product.stockMatriz - totalKgDesglosado, cantidadEditadaUnidades = totalUnidadesDesglosadas, unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false) else it
+                if (it.product.id == productId) it.copy(lotesSeleccionadosManualmente = lotesDesglosados.mapNotNull { d -> d.lote }, lotesParaTraspaso = lotesDesglosados, sugerenciaKg = totalKgDesglosado, impactoStockMatriz = it.product.stockMatriz - totalKgDesglosado, cantidadEditadaUnidades = totalUnidadesDesglosadas, unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false) else it
             }
             guardarEnCache(nuevasSugerencias)
             state.copy(sugerencias = nuevasSugerencias, snackbarMessage = "Plan actualizado con desglose manual.")
@@ -239,7 +319,18 @@ class PlanificarTraspasoViewModel : ViewModel() {
             val unidadesA_TomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
             if (unidadesA_TomarDeEsteLote > 0) {
                 val kgA_TomarDeEsteLote = unidadesA_TomarDeEsteLote * pesoPorUnidad
-                lotesDesglosados.add(LoteDesglosado(lote, kgA_TomarDeEsteLote, unidadesA_TomarDeEsteLote.toDouble()))
+                lotesDesglosados.add(
+                    LoteDesglosado(
+                        loteId = lote.id,
+                        cantidadATomarKg = kgA_TomarDeEsteLote,
+                        cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
+                        lote = lote, // Se pasa el objeto para uso temporal en la UI
+                        loteFecha = lote.receivedAt,
+                        loteProveedor = lote.supplierName,
+                        loteUnidad = lote.unidadDeEmpaque,
+                        lotePesoPorUnidad = lote.pesoPorUnidad
+                    )
+                )
                 kgAcumulados += kgA_TomarDeEsteLote
                 unidadesRestantes -= unidadesA_TomarDeEsteLote
             }
@@ -255,3 +346,4 @@ class PlanificarTraspasoViewModel : ViewModel() {
         return Pair(cantidadEnUnidades, unidad)
     }
 }
+

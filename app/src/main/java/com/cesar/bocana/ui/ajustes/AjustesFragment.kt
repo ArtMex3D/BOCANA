@@ -205,16 +205,27 @@ class AjustesFragment : Fragment(), MenuProvider {
         }
     }
 
+
     private fun showDatePicker() {
         val datePicker = MaterialDatePicker.Builder.datePicker()
             .setTitleText("Seleccionar Nueva Fecha de Recepción")
+            // Mantiene la fecha ya seleccionada como punto de partida
             .setSelection(selectedDateCalendar.timeInMillis)
             .build()
+
         datePicker.addOnPositiveButtonClickListener { selection ->
-            val tz = TimeZone.getDefault()
-            val cal = Calendar.getInstance(tz)
-            cal.timeInMillis = selection
-            selectedDateCalendar.time = cal.time
+            val utcCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            utcCalendar.timeInMillis = selection
+
+            val localCalendar = Calendar.getInstance()
+            localCalendar.set(
+                utcCalendar.get(Calendar.YEAR),
+                utcCalendar.get(Calendar.MONTH),
+                utcCalendar.get(Calendar.DAY_OF_MONTH)
+            )
+
+            selectedDateCalendar.time = localCalendar.time
+
             binding.buttonAjusteFecha.text = dateFormat.format(selectedDateCalendar.time)
         }
         datePicker.show(parentFragmentManager, "DATE_PICKER_AJUSTE")

@@ -37,7 +37,7 @@ import com.cesar.bocana.ui.printing.EtiquetasMenuFragment
 import com.cesar.bocana.ui.products.ProductListFragment
 import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
-import com.cesar.bocana.ui.traspasos.TraspasosContainerFragment
+import com.cesar.bocana.ui.traspasos.config.TraspasosContainerFragment
 import com.cesar.bocana.utils.ConnectivityObserver
 import com.cesar.bocana.utils.NetworkStatus
 import com.google.android.gms.auth.api.signin.GoogleSignIn

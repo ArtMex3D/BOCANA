@@ -52,7 +52,10 @@ data class StockLot(
     @ServerTimestamp val originalReceivedAt: Date? = null,
     val originalSupplierId: String? = null,
     val originalSupplierName: String? = null,
-    val originalLotNumber: String? = null
+    val originalLotNumber: String? = null,
+    // CAMPO NUEVO PARA LA SOLUCIÓN 'TITÁNICA'
+    val estadoTraspaso: String? = null // Puede ser "RESERVADO"
+
 
 ) : Parcelable { // <-- AÑADIDO PARA SOLUCIONAR EL ERROR
     constructor() : this(
@@ -65,6 +68,8 @@ data class StockLot(
         isDepleted = false, isPackaged = false,
         originalLotId = null, originalReceivedAt = null,
         originalSupplierId = null,
-        originalSupplierName = null, originalLotNumber = null
+        originalSupplierName = null, originalLotNumber = null,
+        estadoTraspaso = null // Valor inicial
+
     )
 }

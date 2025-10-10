@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.LayoutInflater
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -40,6 +41,7 @@ class AddCompraDialogFragment : DialogFragment() {
     private val auth = Firebase.auth
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private var selectedDate = Date()
+    private var allSuppliers: List<Supplier> = emptyList()
 
     companion object {
         const val TAG = "AddCompraDialog"
@@ -73,6 +75,7 @@ class AddCompraDialogFragment : DialogFragment() {
         }
 
         setupUI(currentProduct)
+        setupUnitSelector() // <- NUEVO
         loadSuppliers()
         setupListeners()
 
@@ -89,6 +92,15 @@ class AddCompraDialogFragment : DialogFragment() {
     private fun setupUI(product: Product) {
         binding.textViewDialogTitle.text = "Compra: ${product.name}"
         binding.buttonSelectDate.text = dateFormat.format(selectedDate)
+        // Muestra sugerencias de proveedor desde el primer carácter
+        binding.autoCompleteProveedor.threshold = 3
+    }
+
+    // NUEVA FUNCIÓN: Configura el menú desplegable de unidades
+    private fun setupUnitSelector() {
+        val units = listOf("Cajas", "Costales", "Bolsas", "Piezas", "Kg")
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, units)
+        binding.autoCompleteUnidadEmpaque.setAdapter(adapter)
     }
 
     private fun setupListeners() {
@@ -127,17 +139,24 @@ class AddCompraDialogFragment : DialogFragment() {
     }
 
     private fun showDatePicker() {
-        val constraintsBuilder =
-            CalendarConstraints.Builder()
-                .setValidator(DateValidatorPointBackward.now())
-
         val datePicker = MaterialDatePicker.Builder.datePicker()
             .setTitleText("Seleccionar Fecha de Recepción")
             .setSelection(selectedDate.time)
-            .setCalendarConstraints(constraintsBuilder.build())
             .build()
+
         datePicker.addOnPositiveButtonClickListener { selection ->
-            selectedDate = Date(selection)
+           val utcCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            utcCalendar.timeInMillis = selection
+
+            val localCalendar = Calendar.getInstance()
+            localCalendar.set(
+                utcCalendar.get(Calendar.YEAR),
+                utcCalendar.get(Calendar.MONTH),
+                utcCalendar.get(Calendar.DAY_OF_MONTH)
+            )
+
+            selectedDate = localCalendar.time
+
             binding.buttonSelectDate.text = dateFormat.format(selectedDate)
         }
         datePicker.show(parentFragmentManager, "DATE_PICKER_COMPRA")
@@ -148,9 +167,9 @@ class AddCompraDialogFragment : DialogFragment() {
                 val snapshot = firestore.collection("suppliers")
                     .whereEqualTo("isActive", true)
                     .orderBy("name").get().await()
-                val suppliers = snapshot.toObjects(Supplier::class.java)
-                val supplierNames = suppliers.map { it.name }
+                allSuppliers = snapshot.toObjects(Supplier::class.java)
                 if (isAdded) {
+                    val supplierNames = allSuppliers.map { it.name }
                     val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, supplierNames)
                     binding.autoCompleteProveedor.setAdapter(adapter)
                 }
@@ -173,7 +192,8 @@ class AddCompraDialogFragment : DialogFragment() {
         when (binding.radioGroupReceptionType.checkedRadioButtonId) {
             binding.radioButtonRecepcionUnidades.id -> {
                 isBulkReception = false
-                unidadDeEmpaque = binding.editTextUnidadEmpaque.text.toString().trim()
+                // CORREGIDO: Lee desde el AutoCompleteTextView
+                unidadDeEmpaque = binding.autoCompleteUnidadEmpaque.text.toString().trim()
                 pesoPorUnidad = binding.editTextPesoPorUnidad.text.toString().toDoubleOrNull()
                 cantidadInicialUnidades = binding.editTextCantidadUnidades.text.toString().toDoubleOrNull()
 
@@ -218,14 +238,37 @@ class AddCompraDialogFragment : DialogFragment() {
         }
 
         if (isValid) {
-            performCompra(product, cantidadNetaKg, supplierNameInput, isBulkReception, unidadDeEmpaque, pesoPorUnidad, cantidadInicialUnidades)
+            lifecycleScope.launch {
+                val supplier = findOrCreateSupplier(supplierNameInput)
+                performCompra(product, cantidadNetaKg, supplier, isBulkReception, unidadDeEmpaque, pesoPorUnidad, cantidadInicialUnidades)
+            }
+        }
+    }
+
+    // NUEVA FUNCIÓN MEJORADA
+    private suspend fun findOrCreateSupplier(supplierName: String): Supplier? {
+        if (supplierName.isBlank()) return null
+        val existingSupplier = allSuppliers.find { it.name.equals(supplierName, ignoreCase = true) }
+        if (existingSupplier != null) {
+            return existingSupplier
+        }
+
+        return try {
+            val newSupplierData = Supplier(name = supplierName, isActive = true, createdAt = Date(), updatedAt = Date())
+            val newDocRef = firestore.collection("suppliers").add(newSupplierData).await()
+            val newSupplier = newSupplierData.copy(id = newDocRef.id)
+            allSuppliers = allSuppliers + newSupplier
+            newSupplier
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al crear nuevo proveedor", e)
+            null
         }
     }
 
     private fun performCompra(
         productArgument: Product,
         quantityValue: Double,
-        supplierName: String?,
+        supplier: Supplier?,
         isBulkReception: Boolean,
         unidadDeEmpaque: String?,
         pesoPorUnidad: Double?,
@@ -234,10 +277,8 @@ class AddCompraDialogFragment : DialogFragment() {
         val currentUser = auth.currentUser ?: return
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
 
-        // --- INICIO DE LA SOLUCIÓN: Deshabilitar botones ---
         binding.buttonDialogAceptar.isEnabled = false
         binding.buttonDialogCancelar.isEnabled = false
-        // --- FIN DE LA SOLUCIÓN ---
 
         lifecycleScope.launch {
             try {
@@ -264,11 +305,12 @@ class AddCompraDialogFragment : DialogFragment() {
                         quantity = quantityValue,
                         locationFrom = Location.PROVEEDOR,
                         locationTo = Location.MATRIZ,
-                        reason = if (!supplierName.isNullOrBlank()) "Compra a $supplierName" else "Compra sin proveedor",
+                        reason = if (supplier != null) "Compra a ${supplier.name}" else "Compra sin proveedor",
                         stockAfterMatriz = newStockMatriz,
                         stockAfterCongelador04 = currentProduct.stockCongelador04,
                         stockAfterTotal = newTotalStock,
-                        affectedLotIds = listOf(newStockLotRef.id)
+                        affectedLotIds = listOf(newStockLotRef.id),
+                        supplierId = supplier?.id
                     )
                     transaction.set(newMovementRef, movement)
 
@@ -278,13 +320,14 @@ class AddCompraDialogFragment : DialogFragment() {
                         productName = currentProduct.name,
                         unit = currentProduct.unit,
                         location = Location.MATRIZ,
-                        supplierName = supplierName,
+                        supplierId = supplier?.id,
+                        supplierName = supplier?.name,
                         receivedAt = selectedDate,
                         movementIdIn = newMovementRef.id,
                         initialQuantity = quantityValue,
                         currentQuantity = quantityValue,
                         isDepleted = false,
-                        isPackaged = !isBulkReception, // Es empaquetado si NO es a granel
+                        isPackaged = !isBulkReception,
                         unidadDeEmpaque = unidadDeEmpaque,
                         pesoPorUnidad = pesoPorUnidad,
                         cantidadInicialUnidades = cantidadInicialUnidades
@@ -309,7 +352,8 @@ class AddCompraDialogFragment : DialogFragment() {
                             unit = currentProduct.unit,
                             purchaseMovementId = newMovementRef.id,
                             receivedAt = selectedDate,
-                            supplierName = supplierName
+                            supplierId = supplier?.id,
+                            supplierName = supplier?.name
                         )
                         transaction.set(newPackagingTaskRef, packagingTask)
                     }
@@ -332,12 +376,12 @@ class AddCompraDialogFragment : DialogFragment() {
                     Snackbar.make(requireActivity().findViewById(android.R.id.content), errorMsg, Snackbar.LENGTH_LONG).show()
                 }
             } finally {
-                // --- INICIO DE LA SOLUCIÓN: Reactivar botones ---
                 if (isAdded) {
                     binding.buttonDialogAceptar.isEnabled = true
                     binding.buttonDialogCancelar.isEnabled = true
+                    // Cerramos el diálogo también si hay un error para que el usuario pueda reintentar.
+                    dismiss()
                 }
-                // --- FIN DE LA SOLUCIÓN ---
             }
         }
     }

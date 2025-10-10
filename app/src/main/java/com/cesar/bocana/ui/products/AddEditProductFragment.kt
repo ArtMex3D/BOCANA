@@ -28,7 +28,7 @@ class AddEditProductFragment : Fragment() {
 
     private var _binding: FragmentAddEditProductBinding? = null
     private val binding get() = _binding!!
-    private lateinit var repository: InventoryRepository // Añade esto con las demás variables de la clase
+    private lateinit var repository: InventoryRepository
 
     private lateinit var firestore: FirebaseFirestore
     private lateinit var auth: FirebaseAuth
@@ -195,15 +195,21 @@ class AddEditProductFragment : Fragment() {
                     view?.let { Snackbar.make(it, "Error al actualizar: ${e.message}", Snackbar.LENGTH_LONG).show() }
                 }
         } else {
+            // ***** INICIO DE LA SOLUCIÓN *****
+            // Al crear un producto nuevo, 'modoManualPDF' se establece automáticamente.
+            // Si 'requiresPackaging' es true (Granel), 'modoManualPDF' también será true.
+            val requiresPackaging = binding.switchRequiresPackaging.isChecked
             val newProduct = Product(
                 name = binding.editTextProductName.text.toString().trim(),
                 minStock = binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0,
                 stockIdealC04 = binding.editTextStockIdealC04.text.toString().toDoubleOrNull() ?: 0.0,
-                requiresPackaging = binding.switchRequiresPackaging.isChecked,
+                requiresPackaging = requiresPackaging,
+                modoManualPDF = requiresPackaging, // Se establece el valor por defecto aquí.
                 lastUpdatedByName = currentUserName,
                 createdAt = Date(),
                 updatedAt = Date()
             )
+            // ***** FIN DE LA SOLUCIÓN *****
 
             firestore.collection("products").add(newProduct)
                 .addOnSuccessListener {
@@ -272,7 +278,6 @@ class AddEditProductFragment : Fragment() {
             .delete()
             .addOnSuccessListener {
                 if (!isAdded) return@addOnSuccessListener
-                // Llamada explícita para borrar de Room inmediatamente
                 lifecycleScope.launch {
                     repository.deleteProductById(productId)
                     if (isAdded) {

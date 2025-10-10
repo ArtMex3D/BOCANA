@@ -39,13 +39,31 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fab_generate_pdf"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:text="Generar PDF"
-        app:icon="@drawable/pdf" />
+        android:orientation="vertical"
+        android:gravity="end"
+        android:layout_margin="16dp">
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fab_generate_pdf"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Generar PDF"
+            app:icon="@drawable/pdf"
+            android:layout_marginBottom="8dp"/>
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fab_create_plan"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Crear Plan de Traspaso"
+            app:icon="@drawable/guardar"
+            app:backgroundTint="?attr/colorPrimary"
+            app:iconTint="?attr/colorOnPrimary"
+            android:textColor="?attr/colorOnPrimary"/>
+    </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

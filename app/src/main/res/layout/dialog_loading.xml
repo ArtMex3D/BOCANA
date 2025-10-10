@@ -12,7 +12,7 @@
         android:id="@+id/lottie_animation_view"
         android:layout_width="150dp"
         android:layout_height="150dp"
-        app:lottie_rawRes="@raw/loading_animation"
+        app:lottie_rawRes="@raw/robotin"
         app:lottie_autoPlay="true"
         app:lottie_loop="true" />
 

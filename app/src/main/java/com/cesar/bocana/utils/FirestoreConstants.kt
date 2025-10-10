@@ -10,6 +10,8 @@ object FirestoreCollections {
     const val USERS = "users"
     const val WEB_COMMENTS = "webComments"
     const val SEND_NOTIFICATION_QUEUE = "sendNotificationQueue"
+    const val TRASPASOS_PLANIFICADOS = "traspasos_planificados"
+
 }
 
 object ProductFields {

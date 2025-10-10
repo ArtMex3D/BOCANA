@@ -18,7 +18,6 @@ import com.google.android.material.snackbar.Snackbar
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.ceil
-import androidx.appcompat.R
 
 class PlanTraspasoAdapter(
     private val viewModel: PlanificarTraspasoViewModel,
@@ -40,7 +39,21 @@ class PlanTraspasoAdapter(
         fun bind(item: TraspasoSugerenciaItem) {
             val context = binding.root.context
 
+            // ***** INICIO DE SOLUCIÓN ROBUSTA PARA CHECKBOX *****
+            // 1. Desvincula el listener para evitar que se dispare al reciclar.
+            binding.checkboxIncludeInPdf.setOnCheckedChangeListener(null)
+            // 2. Establece el estado del checkbox basándose SIEMPRE en el dato del item.
             binding.checkboxIncludeInPdf.isChecked = item.incluidoEnPdf
+            // 3. Vuelve a vincular el listener para capturar solo las nuevas acciones del usuario.
+            binding.checkboxIncludeInPdf.setOnCheckedChangeListener { _, isChecked ->
+                // Llama al ViewModel para que actualice el estado en la fuente de datos.
+                if (item.incluidoEnPdf != isChecked) {
+                    viewModel.actualizarInclusionEnPdf(item.product.id, isChecked)
+                }
+            }
+            // ***** FIN DE SOLUCIÓN ROBUSTA PARA CHECKBOX *****
+
+
             binding.textviewProductName.text = item.product.name
 
             if (!binding.editTextCantidad.isFocused) {
@@ -66,21 +79,20 @@ class PlanTraspasoAdapter(
 
                     if (nuevaCantidad == item.cantidadEditadaUnidades) return@setOnFocusChangeListener
 
-                    // <-- ✨ CORRECCIÓN DE PULIDO: Validación de stock máximo en la UI
-                    val totalUnidadesDisponibles = item.lotesParaTraspaso.sumOf {
-                        val pesoUnidad = it.lote.pesoPorUnidad ?: 1.0
-                        if (pesoUnidad > 0) Math.floor(it.lote.currentQuantity / pesoUnidad) else 0.0
+                    val totalUnidadesDisponibles = item.lotesParaTraspaso.sumOf { desglose ->
+                        val pesoUnidad = desglose.lote?.pesoPorUnidad ?: 1.0
+                        if (pesoUnidad > 0) Math.floor((desglose.lote?.currentQuantity ?: 0.0) / pesoUnidad) else 0.0
                     }.toInt()
+
 
                     val cantidadFinal = if (nuevaCantidad > totalUnidadesDisponibles) {
                         Snackbar.make(binding.root, "Stock máximo es $totalUnidadesDisponibles. Cantidad ajustada.", Snackbar.LENGTH_LONG).show()
-                        totalUnidadesDisponibles // Si se excede, usamos el máximo
+                        totalUnidadesDisponibles
                     } else {
-                        nuevaCantidad // Si es válido, usamos el valor del usuario
+                        nuevaCantidad
                     }
 
                     viewModel.recalcularSugerenciaPorUnidades(item.product.id, cantidadFinal)
-                    // --- FIN DE LA CORRECCIÓN ---
                 }
             }
 
@@ -106,22 +118,18 @@ class PlanTraspasoAdapter(
 
             binding.textviewImpacto.text = "Impacto: Quedarán ${"%.2f".format(item.impactoStockMatriz)} Kg en Matriz"
 
-            binding.checkboxIncludeInPdf.setOnCheckedChangeListener { _, isChecked ->
-                item.incluidoEnPdf = isChecked
-            }
             binding.buttonSeleccionarLotes.setOnClickListener {
                 onSeleccionarLotesClick(item)
             }
         }
 
         private fun addLoteView(context: Context, desglose: LoteDesglosado) {
-            val lote = desglose.lote
-            val fecha = dateFormat.format(lote.receivedAt ?: Date())
-            val proveedor = lote.supplierName ?: "S/P"
+            val fecha = dateFormat.format(desglose.loteFecha ?: Date())
+            val proveedor = desglose.loteProveedor ?: "S/P"
 
-            val cantidadStr = if (desglose.cantidadATomarUnidades != null && !lote.unidadDeEmpaque.isNullOrBlank()) {
+            val cantidadStr = if (desglose.cantidadATomarUnidades != null && !desglose.loteUnidad.isNullOrBlank()) {
                 val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
-                "$unidadesEnteras ${lote.unidadDeEmpaque}"
+                "$unidadesEnteras ${desglose.loteUnidad}"
             } else {
                 "${"%.2f".format(desglose.cantidadATomarKg)} Kg"
             }
@@ -145,4 +153,3 @@ class PlanTraspasoAdapter(
         }
     }
 }
-

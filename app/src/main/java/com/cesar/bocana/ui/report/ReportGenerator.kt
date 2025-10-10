@@ -110,7 +110,7 @@ object ReportGenerator {
 
     private suspend fun createPdfFile(context: Context, config: ReportConfig, data: List<Map<ReportColumn, String>>): File {
         return withContext(Dispatchers.IO) {
-            val file = File(context.cacheDir, "reporte_inventario.pdf")
+            val file = File(context.cacheDir, "Existencias.pdf")
             val writer = PdfWriter(file)
             val pdfDocument = PdfDocument(writer)
             val document = Document(pdfDocument, PageSize.A4)
@@ -217,7 +217,7 @@ object ReportGenerator {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Compartir Reporte PDF"))
+            context.startActivity(Intent.createChooser(intent, "Compartir  PDF"))
         } catch (e: Exception) {
             Toast.makeText(context, "No se pudo compartir el archivo. ¿Tienes una app para ver PDFs?", Toast.LENGTH_LONG).show()
         }
@@ -226,7 +226,7 @@ object ReportGenerator {
     private fun showErrorDialog(context: Context, e: Exception, config: ReportConfig) {
         val errorTrace = e.stackTraceToString()
         val configDetails = "IDs intentados (${config.productIds.size}): ${config.productIds.joinToString()}"
-        val errorMessage = "Mensaje de Error:\n${e.localizedMessage}\n\nConfiguración del Reporte:\n$configDetails\n\nDetalles Técnicos:\n$errorTrace"
+        val errorMessage = "Mensaje de Error:\n${e.localizedMessage}\n\nConfiguración:\n$configDetails\n\nDetalles Técnicos:\n$errorTrace"
 
         AlertDialog.Builder(context)
             .setTitle("¡Error al Generar Reporte!")
@@ -236,7 +236,7 @@ object ReportGenerator {
             }
             .setNeutralButton("Copiar Detalles") { dialog, _ ->
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("Error Reporte Bocana", errorMessage)
+                val clip = ClipData.newPlainText("Error Reporte ", errorMessage)
                 clipboard.setPrimaryClip(clip)
                 Toast.makeText(context, "Detalles del error copiados.", Toast.LENGTH_LONG).show()
                 dialog.dismiss()

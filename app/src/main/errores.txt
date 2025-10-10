@@ -1,81 +1,142 @@
-Resumen Exhaustivo del Proyecto: Traspaso Inteligente
-1. Visión General (Lo que Quieres)
-Estás construyendo un sofisticado módulo de gestión de traspasos de inventario para tu aplicación. El objetivo principal es crear un sistema "inteligente" que automatice y simplifique el proceso de mover productos desde la bodega principal ("Matriz") al congelador de la tienda ("C-04").
+[PLAN DE DESARROLLO Y MEJORAS - V2]
 
-La filosofía central es un equilibrio entre sugerencia y control:
+Este documento refleja el estado actual del proyecto, incluyendo errores críticos solucionados y nuevas funcionalidades solicitadas.
 
-Sugerencia Inteligente: La aplicación debe analizar el stock actual y el stock ideal para sugerir automáticamente qué productos mover y de qué lotes (usando el método PEPS - Primeras Entradas, Primeras Salidas).
+--- ERRORES CRÍTICOS (EN PROCESO DE SOLUCIÓN) ---
 
-Control Total del Usuario: El operario debe tener la capacidad de ignorar, modificar o detallar por completo las sugerencias, adaptando el plan a la realidad física del almacén.
+[1] Fallo en Transacción Atómica de Traspasos:
+    - Problema: La ejecución de un traspaso falla consistentemente con un error de "lote no encontrado" o "stock insuficiente", incluso si los datos en la UI son correctos.
+    - Causa: La transacción está utilizando datos de lotes potencialmente desactualizados, causando un conflicto de concurrencia.
+    - Solución: Re-leer los datos de cada lote de origen DENTRO de la transacción de Firestore para garantizar que se opera sobre la información más reciente.
 
-El flujo completo que buscas es: Planificar → Imprimir Hoja de Trabajo (PDF) → Confirmar y Ejecutar.
+[2] Interacción Rota en Diálogo "Seleccionar Lotes":
+    - Problema: En el modo "Desglose Manual", el diálogo para editar la cantidad no se activa al tocar el recuadro del input, solo al tocar el texto.
+    - Causa: Componentes internos de la vista de la fila están interceptando los clics.
+    - Solución: Unificar el listener de clic a toda la fila (`itemView`) y deshabilitar la capacidad de clic de los elementos internos en ese modo.
 
-2. Estado Actual (Dónde Estás Trabajando)
-Actualmente, te encuentras desarrollando la Fase 2.3: Pantalla de "Planificar Traspaso". Esta es la pantalla principal donde se origina todo el proceso.
+--- NUEVAS MEJORAS Y REFACTORIZACIÓN ---
 
-Lo que ya funciona bien:
+fase 1
 
-La pantalla carga la lista de productos y calcula correctamente la cantidad sugerida a mover para cada uno.
+[A] Previsualizador de Etiquetas Universal:
 
-La lógica PEPS inicial funciona, sugiriendo los lotes más antiguos para cumplir con la cantidad.
+    - Objetivo: Crear una experiencia de previsualización de PDF consistente en toda la app.
+    - Tarea 1: Unificar la previsualización de todos los PDFs (Etiquetas, Reportes, Traspasos) en un único `PdfViewerFragment` a pantalla completa.
+    - Tarea 2: Añadir un botón de "Previsualizar" en la pantalla de configuración de Etiquetas que abra este nuevo visor.
+    - Tarea 3: Hacer que el vizualizador se vea 100% en la pantalla en todos al mostarr la previa, no se muestra mas que 1/4 de pantalla y deberia mostrar todo al 100%
 
-La interfaz principal (PlanificarTraspasoFragment) muestra estas sugerencias.
+[B] Refactorizar Diálogo de Traspaso C04 -> Matriz:
+    - Objetivo: Mejorar la experiencia de usuario al regresar productos del congelador a la matriz.
+    - Problema: El diálogo actual es confuso y no sigue el mismo diseño limpio del diálogo Matriz -> C04.
+    - Tarea: Crear un nuevo `TraspasoC04MatrizDialogFragment.kt` dedicado, con un layout `dialog_traspaso_c04_matriz.xml` que sea visualmente idéntico y tan intuitivo como su contraparte.
 
-Al hacer clic en "Seleccionar Lotes", se abre un diálogo (SeleccionarLotesDialogFragment) que muestra todos los lotes disponibles para ese producto.
+[C] Implementar Notificaciones en Segundo Plano:
+    - Objetivo: Alertar al usuario de tareas críticas incluso si la app está cerrada.
+    - Tarea: Utilizar `WorkManager` para programar una tarea periódica que consulte Firestore y genere notificaciones locales para:
+        - Productos con stock por debajo del mínimo.
+        - Devoluciones en estado "PENDIENTE".
+        - Tareas de empaque con más de 3 días de antigüedad.
 
-3. El Fallo Crítico (Lo que Falla)
-El principal obstáculo que te impide avanzar es una "tormenta perfecta" de tres problemas interconectados dentro del diálogo SeleccionarLotesDialogFragment. Estos fallos impiden que el usuario pueda ejercer el "Control Total" que es esencial para el proyecto.
+        Fase 2: Trazabilidad y Seguridad del Modelo de Datos (Base para el Futuro)
+        Objetivo: Crear una base de datos más auditable y un código más seguro y fácil de mantener, basándonos en tus ideas de "Mejoras Sistémicas".
 
-Fallo #1: La Interfaz de Usuario está Rota (El Teclado)
-Problema: En el "Modo Manual" (cuando el switch está encendido), es imposible introducir cantidades porque el teclado numérico no aparece al tocar los campos de texto.
+        Tarea 2.1: Implementar un Sistema de Trazabilidad
+        ¿Qué es y para qué sirve? Es una colección dedicada en Firestore para registrar cada paso del ciclo de vida de una reserva de lote. Es un historial detallado de cada "candado" que se pone o se quita.
 
-Causa Raíz: Es una combinación de factores técnicos:
+        ¿Qué debemos crear?
 
-La complejidad de tener un RecyclerView con campos editables dentro de un DialogFragment.
+        Un nuevo modelo de datos TraspasoTrazabilidad.kt (como el que propusiste).
 
-La capa de personalización de tu dispositivo (MIUI de Xiaomi), que es conocida por ser muy agresiva y bloquear las solicitudes "normales" para mostrar el teclado.
+        Una nueva colección en Firestore llamada traspasosTrazabilidad.
 
-Impacto: Deja el "Modo Manual" completamente inutilizable.
+        Acción:
 
-Fallo #2: La Lógica de Selección está Incompleta (Modo Checkbox)
-Problema: Cuando el switch está apagado y desmarcas el lote sugerido por PEPS para seleccionar otro, al dar "Aceptar", el sistema ignora tu nueva selección y la pantalla principal sigue mostrando el lote original.
+        Al reservar un lote en PlanificarTraspasoViewModel, crear un documento en traspasosTrazabilidad con estado "RESERVADO".
 
-Causa Raíz: El PlanificarTraspasoViewModel actualmente no tiene la lógica para recalcular el desglose PEPS usando una lista de lotes personalizada. Simplemente vuelve a usar la sugerencia original.
+        Al cancelar un plan, actualizar el documento de trazabilidad a "CANCELADO".
 
-Impacto: Impide que el usuario pueda cambiar el lote de origen, una de las funciones clave del sistema.
+        Al confirmar un traspaso, actualizar el documento a "CONFIRMADO".
 
-Fallo #3: El Flujo de Datos está Roto (Modo Manual)
-Problema: Como descubriste al pegar un número con el portapapeles, aunque logres poner un valor en el campo de texto, al dar "Aceptar" el ViewModel no procesa esta nueva información. La pantalla principal no se actualiza para reflejar la suma de las cantidades que introdujiste.
+        ¿Cómo mejorará la app?
 
-Causa Raíz: Falta el código en el ViewModel que tome la lista de cantidades manuales, la sume y actualice el estado de la interfaz principal (cantidadEditadaUnidades).
+        🔍 Auditoría completa: Podrás saber exactamente qué usuario reservó, confirmó o canceló el uso de un lote y cuándo lo hizo.
 
-Impacto: Hace que el "Modo Manual", incluso si el teclado funcionara, no tenga ningún efecto real en el plan de traspaso.
+        🐛 Depuración avanzada: Si un lote se queda "atorado" en estado RESERVADO, podrás consultar esta colección para saber a qué plan pertenece y por qué falló.
 
-4. Plan de Acción y Tareas Pendientes (Lo que Falta)
-Basado en tu readme.txt y nuestro análisis, este es el camino a seguir, ordenado por prioridad.
+        Tarea 2.2: Centralizar la Lógica con un Repositorio de Lotes
+        ¿Qué es y para qué sirve? Es una clase (ej. LoteRepository.kt) que encapsula toda la lógica de negocio para manipular lotes (reservar, liberar, confirmar). En lugar de tener esta lógica dispersa en varios ViewModels, la centralizamos en un solo lugar.
 
-Prioridad #1: Estabilizar la Pantalla "Planificar Traspaso" (Nuestra Tarea Actual)
-✅ Sub-tarea 1.1 (CRÍTICA): Aplicar la solución "Anti-Fallo" que te proporcioné. Esto implica reemplazar los 3 archivos (PlanificarTraspasoViewModel, SeleccionarLotesDialogFragment, LoteCheckboxAdapter) con las versiones completas. Este paso está diseñado para solucionar los 3 fallos críticos simultáneamente.
+        ¿Qué debemos crear/modificar?
 
-✅ Sub-tarea 1.2: Verificar que, tras la actualización, el teclado aparece, el cambio de lotes con checkbox funciona y el desglose manual se refleja correctamente en la pantalla principal.
+        Crear LoteRepository.kt.
 
-Prioridad #2: Implementar la Generación del PDF (Fase 2.4)
-Tarea 2.1: Crear o modificar la clase PdfGenerator.kt para que pueda generar una hoja de trabajo horizontal, respetando el formato y las reglas de tu readme.txt (agrupación de lotes, espacios extra, modo manual, etc.).
+        Modificar los ViewModels (PlanificarTraspasoViewModel, ConfirmarTraspasoViewModel, etc.) para que llamen a los métodos de este repositorio en lugar de hablar directamente con Firestore.
 
-Tarea 2.2: Al generar el PDF, crear un nuevo documento en una colección de Firestore llamada traspasos_planificados, guardando el plan con un estado "PENDIENTE".
+        Acción: Mover las transacciones de reservar, liberar y confirmar lotes a métodos dentro de esta nueva clase.
 
-Prioridad #3: Construir la Pantalla de Confirmación (Fase 2.5 y 2.6)
-Tarea 3.1: Crear ConfirmarTraspasoFragment.kt: Este es un archivo nuevo que no existe. Su propósito será mostrar una lista de los planes con estado "PENDIENTE".
+        ¿Cómo mejorará la app?
 
-Tarea 3.2: Implementar la Lógica de Edición Final: Al seleccionar un plan, el usuario debe poder ajustar las cantidades finales (lo que realmente se movió).
+        🏗️ Código más limpio y mantenible: Si necesitas cambiar cómo funciona una reserva, lo cambias en un solo lugar.
 
-Tarea 3.3: Implementar la Transacción Atómica: El botón "Confirmar y Ejecutar" debe llamar a una runTransaction de Firestore. Esta es la operación más delicada: debe leer los stocks, actualizarlos en todos los documentos (Products y inventoryLots), crear un StockMovement para el historial, y finalmente cambiar el estado del plan a "CONFIRMADO". Si algo falla, todo debe revertirse.
+        🛡️ Mayor seguridad: El Repositorio se convierte en el único "guardián" que puede modificar los lotes, previniendo errores.
 
-Prioridad #4: Mejoras Generales y Deuda Técnica (Según readme.txt)
-Tarea 4.1: Implementar el guardado silencioso de los cambios en la pantalla de planificación para evitar pérdida de datos.
+        Fase 3: Escalabilidad y Monitoreo (Visión a Largo Plazo)
+        Objetivo: Añadir herramientas profesionales para asegurar la salud de la app a medida que crece.
 
-Tarea 4.2: Solucionar los otros problemas de UI mencionados: no permitir fechas futuras en compras y arreglar el scroll en la pantalla de "Más Opciones".
+        Tarea 3.1: Implementar un "Health Check" (Chequeo de Salud)
+        ¿Qué es y para qué sirve? Es una función de diagnóstico (como la que sugeriste) que se puede ejecutar para verificar la integridad de un plan de traspaso antes de intentar confirmarlo.
 
-Tarea 4.3: Centralizar la visualización de PDFs creando el PdfPreviewFragment universal.
+        ¿Qué debemos crear? Una función verificarIntegridadPlan() en AjusteFinalTraspasoViewModel.
 
-Ahora sí, tienes el mapa completo. El siguiente paso es aplicar el código "Anti-Fallo" que te envié y mandarme el logcat para que podamos verificar juntos que los 3 fallos críticos han sido resueltos.
+        Acción: Antes de habilitar el botón "Ejecutar Traspaso", esta función podría correr en segundo plano y verificar:
+
+        Que el plan principal todavía exista y esté "PENDIENTE".
+
+        Que cada uno de los lotes en el plan todavía exista en inventoryLots.
+
+        Que el estadoTraspaso de cada lote sea efectivamente "RESERVADO".
+
+        ¿Cómo mejorará la app?
+
+        🧠 Inteligencia proactiva: La app podría advertir al usuario antes de que intente ejecutar una transacción que va a fallar. Por ejemplo, deshabilitando el botón y mostrando un mensaje: "Advertencia: El lote XXX ya fue consumido. Cancele y vuelva a planificar."
+
+        Tarea 3.2: Implementar Reintentos Automáticos (Retry con Backoff)
+        ¿Qué es y para qué sirve? Es un mecanismo para reintentar automáticamente una operación de red que falla por problemas temporales (como una micro-desconexión).
+
+        ¿Qué debemos crear? Un objeto RetryManager.kt como el que propusiste.
+
+        Acción: Envolver las llamadas a Firestore que son críticas (como ejecutarTraspaso o cancelarPlan) dentro de RetryManager.withRetry { ... }.
+
+        ¿Cómo mejorará la app?
+
+        🌐 Resiliencia de Red: La app se vuelve mucho más robusta frente a conexiones inestables. Un pequeño parpadeo en el Wi-Fi ya no causará un error visible para el usuario.
+
+        💡 Mis Sugerencias Adicionales
+        Rendimiento: Índices de Firestore y Estrategia Offline
+        Índices Compuestos: Para las consultas complejas que hacemos (filtrar lotes por producto, ubicación, estado, etc.), es crucial crear índices compuestos en Firestore. Sin ellos, las consultas se vuelven muy lentas o fallan a medida que crecen los datos.
+
+        Reforzar el Offline-First: La app ya usa Room, lo cual es excelente. Podríamos llevarlo un paso más allá haciendo que la UI siempre lea de Room, y que la sincronización con Firestore ocurra en segundo plano. Esto haría que la app se sienta instantánea, incluso sin conexión.
+
+        Seguridad: Reglas de Firestore
+        ¿Qué es? Son la principal línea de defensa de tu base de datos. Permiten definir quién puede leer, escribir o borrar datos y bajo qué condiciones.
+
+        Acción: Deberíamos escribir reglas que impidan, por ejemplo, que un usuario pueda modificar el currentQuantity de un lote directamente. Solo se debería poder modificar a través de una transacción válida (como un traspaso o un consumo).
+
+        ¿Cómo mejorará la app?
+
+        🔒 Previene la corrupción de datos: Asegura que nadie (ni siquiera por un bug en la app) pueda alterar el inventario de forma indebida.
+
+        Salud de la App: Monitoreo de Errores en Producción
+        ¿Qué es? Integrar un servicio como Firebase Crashlytics.
+
+        ¿Para qué sirve? Si la aplicación crashea en tu dispositivo o en el de cualquier otro usuario, Crashlytics captura el error exacto y te lo notifica con todos los detalles (línea de código, modelo de dispositivo, etc.).
+
+        ¿Cómo mejorará la app?
+
+        🐞 Detección proactiva de bugs: Te enterarás de los problemas antes de que los usuarios te los reporten, permitiéndote solucionarlos rápidamente.
+
+        Conclusión y Próximos Pasos
+
+        La solución que te proporcioné para el Canvas corrige los errores inmediatos y más críticos (Tarea 1.1 y 1.2). Una vez que confirmemos que funciona, te recomiendo que sigamos este plan, empezando por la Fase 2, que sentará las bases para una aplicación mucho más profesional y a prueba de futuro.
+
+        Tus ideas son excelentes y nos han puesto en el camino correcto. ¡Sigamos adelante!

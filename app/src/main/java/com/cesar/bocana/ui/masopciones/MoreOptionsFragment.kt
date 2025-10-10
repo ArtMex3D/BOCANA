@@ -121,14 +121,16 @@ class MoreOptionsFragment : Fragment() {
 
 
         //boton para forzar sincronizacion, descomentar para activar
-        //binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
+        binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
 
         //boton para forzar mantenimiento, descomentar para activar
-        //binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
+        binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
     }
 
 
-       /* private fun showForceSyncConfirmationDialog() {
+       /* decomentar*/
+
+       private fun showForceSyncConfirmationDialog() {
             AlertDialog.Builder(requireContext())
                 .setTitle("Confirmar Sincronización")
                 .setMessage("Esto borrará los datos locales y los volverá a descargar desde la nube. Es útil para corregir productos que no aparecen en la web.\n\n¿Deseas continuar?")
@@ -295,7 +297,7 @@ class MoreOptionsFragment : Fragment() {
                 .setPositiveButton("Cerrar", null)
                 .show()
         }
-    borrar para activar */
+    /*borrar para activar */
 
     override fun onDestroyView() {
         super.onDestroyView()

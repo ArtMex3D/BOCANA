@@ -8,6 +8,7 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -75,6 +76,26 @@ class ConfiguracionTraspasoViewModel : ViewModel() {
                     .update(field, value)
                     .await()
                 Log.d("ConfigTraspasoVM", "Campo '$field' actualizado para producto $productId.")
+
+                // ***** INICIO DE LA SOLUCIÓN DE PERSISTENCIA *****
+                // Actualiza el estado local inmediatamente después de la confirmación de Firestore.
+                // Esto asegura que la UI refleje el cambio al instante y no se revierta al hacer scroll.
+                _products.update { currentList ->
+                    currentList.map { product ->
+                        if (product.id == productId) {
+                            when (field) {
+                                "modoManualPDF" -> product.copy(modoManualPDF = value as Boolean)
+                                "stockIdealC04" -> product.copy(stockIdealC04 = value as Double)
+                                "espacioExtraPDF" -> product.copy(espacioExtraPDF = value as Double)
+                                else -> product
+                            }
+                        } else {
+                            product
+                        }
+                    }
+                }
+                // ***** FIN DE LA SOLUCIÓN *****
+
             } catch (e: Exception) {
                 Log.e("ConfigTraspasoVM", "Error actualizando campo '$field'", e)
                 _error.value = "Error al guardar la configuración."
@@ -82,4 +103,3 @@ class ConfiguracionTraspasoViewModel : ViewModel() {
         }
     }
 }
-

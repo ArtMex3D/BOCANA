@@ -1,11 +1,15 @@
 package com.cesar.bocana.data.model
 
+import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
+import kotlinx.parcelize.Parcelize
 
+
+@Parcelize // <-- SOLUCIÓN: Anotación @Parcelize añadida para corregir el error de compilación.
 @Entity(tableName = "pending_packaging")
 data class PendingPackagingTask(
     @PrimaryKey
@@ -18,7 +22,7 @@ data class PendingPackagingTask(
     val purchaseMovementId: String? = null,
     val supplierId: String? = null,
     val supplierName: String? = null
-){
+) : Parcelable {
     constructor() : this(
         id = "",
         productId = "",

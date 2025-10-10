@@ -3,18 +3,16 @@ package com.cesar.bocana.ui.packaging
 import android.os.Bundle
 import android.util.Log
 import android.view.*
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.MenuProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.cesar.bocana.R
 import com.cesar.bocana.data.model.PendingPackagingTask
 import com.cesar.bocana.databinding.FragmentPackagingBinding
 import com.cesar.bocana.ui.adapters.PackagingActionListener
 import com.cesar.bocana.ui.adapters.PackagingAdapter
+import com.cesar.bocana.ui.dialogs.EmpaqueDialogFragment
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -59,8 +57,6 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
     private fun setupToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
             originalActivityTitle = title
-            // MainActivity ya debería haber puesto "Pendiente Empacar"
-            // title = "Pendiente de Empacar" // Opcional
             subtitle = null
             setDisplayHomeAsUpEnabled(true)
             setDisplayShowHomeEnabled(true)
@@ -69,7 +65,6 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
 
     private fun restoreToolbar() {
         (requireActivity() as? AppCompatActivity)?.supportActionBar?.apply {
-            // MainActivity restaurará título/subtítulo al volver a ProductListFragment
             setDisplayHomeAsUpEnabled(false)
             setDisplayShowHomeEnabled(false)
         }
@@ -125,46 +120,15 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
         }
     }
 
+    // ***** INICIO DE LA SOLUCIÓN ROBUSTA *****
+    // Esta función ahora abre un diálogo detallado en lugar de solo borrar la tarea.
     override fun onMarkPackagedClicked(task: PendingPackagingTask) {
-        Log.d(TAG, "Marcar Empacado ID: ${task.id} - Producto: ${task.productName}")
-        // Aquí es donde, en Fase 3, cambiaremos la lógica para pedir pesos
-        // Por ahora, solo muestra diálogo y borra la tarea (lógica original simplificada)
-        AlertDialog.Builder(requireContext())
-            .setTitle("Confirmar Empaque")
-            .setMessage("¿Marcar '${task.productName}' (${String.format("%.2f", task.quantityReceived)} ${task.unit}) como empacado? Se quitará de esta lista.")
-            .setPositiveButton("Sí, Empacado") { _, _ ->
-                deletePackagingTask(task.id)
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        Log.d(TAG, "Iniciando proceso de empaque para la tarea: ${task.id}")
+        // Muestra el nuevo DialogFragment y le pasa la tarea seleccionada.
+        EmpaqueDialogFragment.newInstance(task)
+            .show(parentFragmentManager, EmpaqueDialogFragment.TAG)
     }
-
-    private fun deletePackagingTask(taskId: String) {
-        if (taskId.isEmpty()) { Log.e(TAG, "ID de tarea vacío."); return }
-        Log.d(TAG, "Borrando tarea de empaque: $taskId")
-        showLoading(true) // Mostrar carga durante el borrado
-
-        firestore.collection("pendingPackaging").document(taskId)
-            .delete()
-            .addOnSuccessListener {
-                Log.i(TAG, "Tarea $taskId marcada como empacada (borrada).")
-                if(context != null) { // Check context
-                    Toast.makeText(context, "Tarea marcada como empacada.", Toast.LENGTH_SHORT).show()
-                }
-                // El listener actualizará la lista
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Error al borrar tarea $taskId", e)
-                if(context != null) {
-                    Toast.makeText(context, "Error al marcar: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-            .addOnCompleteListener {
-                if (_binding != null) { // Check binding
-                    showLoading(false) // Ocultar carga al finalizar
-                }
-            }
-    }
+    // ***** FIN DE LA SOLUCIÓN ROBUSTA *****
 
     private fun showLoading(isLoading: Boolean) {
         if (_binding != null) {
@@ -172,16 +136,12 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
         }
     }
 
-    // --- Implementación MenuProvider ---
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {}
-    override fun onPrepareMenu(menu: Menu) {
-        Log.d(TAG, "onPrepareMenu (PackagingFragment)")
-        // Las líneas que buscaban action_... SE HAN ELIMINADO
-    }
+    override fun onPrepareMenu(menu: Menu) {}
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean { return false }
-    // --- Fin MenuProvider ---
 
     companion object {
         private const val TAG = "PackagingFragment"
     }
 }
+

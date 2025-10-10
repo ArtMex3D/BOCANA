@@ -18,6 +18,7 @@ import com.cesar.bocana.databinding.FragmentPlanificarTraspasoBinding
 import com.cesar.bocana.ui.printing.PdfViewerFragment
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -64,15 +65,16 @@ class PlanificarTraspasoFragment : Fragment() {
     private fun observeViewModel() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collectLatest { state ->
-                binding.progressBarPlan.isVisible = state.isLoading
+                binding.progressBarPlan.isVisible = state.isLoading || state.isSaving
+                binding.fabCreatePlan.isEnabled = !state.isSaving
+                binding.fabGeneratePdf.isEnabled = !state.isSaving
+
                 adapter.submitList(state.sugerencias)
 
-                // --- INICIO DE LA SOLUCIÓN: Mostrar diálogo si es necesario ---
                 if (state.preguntaCache) {
                     mostrarDialogoDeCache()
-                    viewModel.onDialogoMostrado() // Marcar como mostrado para no repetirlo
+                    viewModel.onDialogoMostrado()
                 }
-                // --- FIN DE LA SOLUCIÓN ---
 
                 state.error?.let {
                     Snackbar.make(binding.root, "Error: $it", Snackbar.LENGTH_LONG).show()
@@ -80,6 +82,17 @@ class PlanificarTraspasoFragment : Fragment() {
                 state.snackbarMessage?.let {
                     Snackbar.make(binding.root, it, Snackbar.LENGTH_SHORT).show()
                     viewModel.onSnackbarShown()
+                }
+
+                if (state.planGuardadoExitoso) {
+                    Snackbar.make(binding.root, "Plan creado. Ya puedes ir a 'Confirmar Traspaso'.", Snackbar.LENGTH_LONG)
+                        .setAction("IR") {
+                            val tabLayout = activity?.findViewById<TabLayout>(R.id.tab_layout_traspasos)
+                            tabLayout?.getTabAt(1)?.select()
+                        }
+                        .show()
+                    viewModel.onPlanGuardadoNavegado()
+                    viewModel.cargarPlanDeTraspaso(descartarCache = true) // Recargar para empezar de cero
                 }
             }
         }
@@ -101,7 +114,7 @@ class PlanificarTraspasoFragment : Fragment() {
 
     private fun setupRecyclerView() {
         adapter = PlanTraspasoAdapter(viewModel) { item ->
-            val selectedIds = item.lotesSeleccionadosManualmente?.map { it.id } ?: item.lotesParaTraspaso.map { it.lote.id }
+            val selectedIds = item.lotesSeleccionadosManualmente?.map { it.id } ?: item.lotesParaTraspaso.map { it.loteId }
             SeleccionarLotesDialogFragment.newInstance(item.product.id, item.product.name, selectedIds)
                 .show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
         }
@@ -113,6 +126,9 @@ class PlanificarTraspasoFragment : Fragment() {
     private fun setupListeners() {
         binding.buttonTraspasoDate.setOnClickListener { showDatePicker() }
         binding.fabGeneratePdf.setOnClickListener { generarYVisualizarPdf() }
+        binding.fabCreatePlan.setOnClickListener {
+            viewModel.guardarPlanEnFirestore(selectedDate)
+        }
     }
 
     private fun generarYVisualizarPdf() {
@@ -128,12 +144,11 @@ class PlanificarTraspasoFragment : Fragment() {
                 val pdfFile = TraspasoPdfGenerator.createTraspasoPdf(requireContext(), plan, selectedDate)
                 val pdfViewerFragment = PdfViewerFragment.newInstance(pdfFile.absolutePath)
 
-                requireActivity().supportFragmentManager.beginTransaction()
-                    .replace(R.id.nav_host_fragment_content_main, pdfViewerFragment)
+                // Usamos parentFragmentManager para reemplazar el contenido del container principal
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.traspasos_fragment_container, pdfViewerFragment)
                     .addToBackStack(null)
                     .commit()
-
-                // Nota: Ya NO se borra el caché aquí.
 
             } catch (e: Exception) {
                 Log.e("PlanificarTraspaso", "Error al generar PDF", e)

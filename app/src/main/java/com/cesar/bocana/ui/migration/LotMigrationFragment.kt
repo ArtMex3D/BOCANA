@@ -134,6 +134,12 @@ class LotMigrationFragment : Fragment() {
 
             val updates = mutableMapOf<String, Any?>()
 
+            // ***** INICIO DE LA SOLUCIÓN *****
+            // Se agrega 'isPackaged' = true para que el sistema reconozca el lote como listo para traspaso.
+            // Esto es crucial para que los lotes convertidos sean visibles en la pantalla de planificación.
+            updates["isPackaged"] = true
+            // ***** FIN DE LA SOLUCIÓN *****
+
             if(isTilapiaCase){
                 val cantidadCajas = lote.currentQuantity
                 val totalKg = cantidadCajas * peso

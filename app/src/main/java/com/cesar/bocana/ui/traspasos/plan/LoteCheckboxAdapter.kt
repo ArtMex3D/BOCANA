@@ -87,14 +87,14 @@ class LoteCheckboxAdapter(
                 binding.editTextCantidadDesglose.setText(cantidadTexto)
                 binding.inputLayoutCantidadDesglose.hint = lote.unidadDeEmpaque ?: "Kg"
 
-                // --- ✨ SOLUCIÓN DEFINITIVA PARA CLIC UNIFICADO ---
-// Hacemos que los componentes internos no intercepten los clics.
+                // ***** INICIO DE LA SOLUCIÓN ROBUSTA *****
+                // Hacemos que los componentes internos no intercepten los clics.
                 binding.inputLayoutCantidadDesglose.isClickable = false
                 binding.inputLayoutCantidadDesglose.isFocusable = false
                 binding.editTextCantidadDesglose.isClickable = false
                 binding.editTextCantidadDesglose.isFocusable = false
 
-// Asignamos un único listener a TODA la fila.
+                // Asignamos un único listener a TODA la fila.
                 itemView.setOnClickListener {
                     // Si estamos en modo desglose, se ejecuta la acción de editar.
                     if (isModoDesglose) {
@@ -104,7 +104,7 @@ class LoteCheckboxAdapter(
                         binding.checkboxLote.toggle()
                     }
                 }
-// --- FIN DE LA SOLUCIÓN ---
+                // ***** FIN DE LA SOLUCIÓN ROBUSTA *****
 
             } else {
                 binding.checkboxLote.visibility = View.VISIBLE

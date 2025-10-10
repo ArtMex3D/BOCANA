@@ -45,7 +45,7 @@ class ReportConfigFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        (activity as? AppCompatActivity)?.supportActionBar?.title = "Configurar Reporte"
+        (activity as? AppCompatActivity)?.supportActionBar?.title = "Configurar"
 
         setupRecyclerView()
         setupListeners()
@@ -191,7 +191,7 @@ class ReportConfigFragment : Fragment() {
             productIds = selectedProductIds,
             columns = selectedColumns,
             dateRange = selectedDateRange,
-            reportTitle = "Reporte de Inventario"
+            reportTitle = "Existencias ${dateFormat.format(Date())}"
         )
 
         showLoading(true)
