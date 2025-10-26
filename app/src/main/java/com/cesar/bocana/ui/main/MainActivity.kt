@@ -21,11 +21,15 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.cesar.bocana.R
 import com.cesar.bocana.data.local.AppDatabase
+import com.cesar.bocana.data.model.DetalleTraspasoPlan
 import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.data.model.TraspasoEstado
 import com.cesar.bocana.data.model.User
 import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.databinding.ActivityMainBinding
@@ -39,12 +43,14 @@ import com.cesar.bocana.ui.quickmove.QuickMovementFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.TraspasosContainerFragment
 import com.cesar.bocana.utils.ConnectivityObserver
+import com.cesar.bocana.utils.FirestoreCollections
 import com.cesar.bocana.utils.NetworkStatus
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -52,6 +58,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Calendar
 import java.util.Date
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -97,6 +104,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // --- LLAMADA A LA NUEVA LÓGICA DE LIMPIEZA ---
+        lifecycleScope.launch {
+            cleanupStaleReservedLots()
+        }
+        // --- FIN DE LA LLAMADA ---
+
+
         // Iniciar observador de conectividad
         connectivityObserver = ConnectivityObserver(applicationContext)
         observeNetworkStatus()
@@ -115,14 +129,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun observeNetworkStatus() {
         lifecycleScope.launch {
-            connectivityObserver.observe().collect { isOnline ->
-                NetworkStatus.isOnline = isOnline // Actualizar el estado global
-                runOnUiThread {
-                    binding.textViewOfflineBanner.visibility = if (isOnline) View.GONE else View.VISIBLE
-                    // Notificar al fragmento actual sobre el cambio de red
-                    val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
-                    if (currentFragment is ProductListFragment) {
-                        currentFragment.onNetworkStatusChanged(isOnline)
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                connectivityObserver.observe().collect { isOnline ->
+                    NetworkStatus.isOnline = isOnline // Actualizar el estado global
+                    runOnUiThread {
+                        binding.textViewOfflineBanner.visibility = if (isOnline) View.GONE else View.VISIBLE
+
+                        // START MODIFICATION: Block UI elements when offline
+                        val menu = binding.bottomNavigation.menu
+                        menu.findItem(R.id.navigation_traspasos).isEnabled = isOnline
+                        menu.findItem(R.id.navigation_empaque).isEnabled = isOnline
+                        menu.findItem(R.id.navigation_mas_opciones).isEnabled = isOnline
+
+                        // Functions that depend only on local data can remain enabled
+                        menu.findItem(R.id.navigation_productos).isEnabled = true // Stocks (Room)
+                        menu.findItem(R.id.navigation_etiquetas).isEnabled = true // Etiquetas (Local generation)
+                        // END MODIFICATION
+
+                        val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
+                        if (currentFragment is ProductListFragment) {
+                            currentFragment.onNetworkStatusChanged(isOnline)
+                        }
                     }
                 }
             }
@@ -148,7 +175,60 @@ class MainActivity : AppCompatActivity() {
             fetchUserInfoOnly()
         }
     }
+    private suspend fun cleanupStaleReservedLots() {
+        Log.d(TAG, "Ejecutando limpieza de lotes reservados antiguos...")
+        try {
+            // Establecemos el límite a 2 días atrás.
+            val calendar = Calendar.getInstance()
+            calendar.add(Calendar.DATE, -2) // Resta 2 días a la fecha actual
+            val twoDaysAgo = calendar.time
 
+            // Buscamos planes pendientes que fueron creados antes de hace dos días.
+            val stalePlansSnapshot = db.collection(FirestoreCollections.TRASPASOS_PLANIFICADOS)
+                .whereEqualTo("estado", TraspasoEstado.PENDIENTE.name)
+                .whereLessThan("createdAt", twoDaysAgo)
+                .get()
+                .await()
+
+            if (stalePlansSnapshot.isEmpty) {
+                Log.d(TAG, "No se encontraron planes antiguos para limpiar.")
+                return
+            }
+
+            Log.d(TAG, "Se encontraron ${stalePlansSnapshot.size()} planes antiguos para cancelar y limpiar lotes.")
+
+            // Usaremos un batch para ejecutar todas las operaciones de una sola vez.
+            val batch = db.batch()
+
+            for (planDoc in stalePlansSnapshot.documents) {
+                val planRef = planDoc.reference
+                // Marcamos el plan como cancelado automáticamente
+                batch.update(planRef, "estado", TraspasoEstado.CANCELADO.name)
+
+                // Buscamos los detalles del plan para encontrar los lotes a liberar
+                val detallesSnapshot = planRef.collection("detalles").get().await()
+                for (detalleDoc in detallesSnapshot.documents) {
+                    val detalle = detalleDoc.toObject(DetalleTraspasoPlan::class.java)
+                    detalle?.lotesSugeridos?.forEach { desglose ->
+                        // Nos aseguramos de que el loteId no esté vacío
+                        if (desglose.loteId.isNotBlank()) {
+                            val loteRef = db.collection(FirestoreCollections.INVENTORY_LOTS).document(desglose.loteId)
+                            // Liberamos el "candado" del lote eliminando el campo 'estadoTraspaso'
+                            batch.update(loteRef, "estadoTraspaso", FieldValue.delete())
+                        }
+                    }
+                }
+            }
+
+            // Ejecutamos todas las actualizaciones en la base de datos
+            batch.commit().await()
+            Log.d(TAG, "Limpieza de lotes antiguos completada con éxito.")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error durante la limpieza automática de lotes reservados.", e)
+            // No mostramos un error al usuario, ya que es un proceso de fondo y no crítico para la UI.
+        }
+    }
     private fun handleDeepLink(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
 
@@ -185,9 +265,9 @@ class MainActivity : AppCompatActivity() {
                     selectedFragment = TraspasosContainerFragment()
                     title = "Gestión de Traspasos"
                 }R.id.navigation_empaque -> {
-                    selectedFragment = PackagingFragment()
-                    title = "Pendiente Empacar"
-                }
+                selectedFragment = PackagingFragment()
+                title = "Pendiente Empacar"
+            }
                 R.id.navigation_etiquetas -> {
                     selectedFragment = EtiquetasMenuFragment()
                     title = "Etiquetas"
@@ -451,3 +531,4 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
     }
 }
+

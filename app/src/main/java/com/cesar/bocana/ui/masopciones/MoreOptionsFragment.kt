@@ -1,6 +1,7 @@
 package com.cesar.bocana.ui.masopciones
 
 import android.os.Bundle
+import android.util.Log // Asegúrate que Log está importado
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,26 +18,32 @@ import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment
+import com.cesar.bocana.ui.migration.CategoryMigrationFragment
 import com.cesar.bocana.ui.migration.LotMigrationFragment
 import com.cesar.bocana.ui.report.ReportConfigFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
+import com.cesar.bocana.utils.ConnectivityObserver
+import com.cesar.bocana.utils.NetworkStatus
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
-
-
 class MoreOptionsFragment : Fragment() {
+
 
     private var _binding: FragmentMoreOptionsBinding? = null
     private val binding get() = _binding!!
     private val firestore = Firebase.firestore
     private lateinit var repository: InventoryRepository // Declarar la variable
+    private lateinit var connectivityObserver: ConnectivityObserver
+    private val TAG_CLEANUP = "LotCleanup" // Tag específico para logs de limpieza
+
 
     override fun onCreateView( inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View {
@@ -44,11 +51,43 @@ class MoreOptionsFragment : Fragment() {
         // Inicializar el repositorio
         val database = AppDatabase.getDatabase(requireContext())
         repository = InventoryRepository(database, firestore)
+        connectivityObserver = ConnectivityObserver(requireContext().applicationContext)
         return binding.root
     }
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        setupListeners()
+        observeNetworkStatus() // Start observing network status
+    }
+
+    private fun observeNetworkStatus() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            connectivityObserver.observe().collect { isOnline ->
+                updateButtonStates(isOnline)
+            }
+        }
+    }
+
+    private fun updateButtonStates(isOnline: Boolean) {
+        // Buttons that require writing to Firestore
+        binding.buttonNavToAjustes.isEnabled = isOnline
+        binding.buttonNavToArchivedProducts.isEnabled = isOnline // Reactivating is a write operation
+        binding.buttonNavToDevoluciones.isEnabled = isOnline // Completing is a write operation
+        binding.buttonNavToConfigTraspasos.isEnabled = isOnline
+        binding.buttonNavToProveedores.isEnabled = isOnline
+        binding.buttonNavToLotMigration.isEnabled = isOnline
+        binding.buttonNavToCategoryMigration.isEnabled = isOnline
+        binding.buttonForceCleanupReservas.isEnabled = isOnline
+
+        // Buttons that primarily read local data or are for navigation
+        binding.buttonAdvancedHistory.isEnabled = true
+        binding.buttonHistory.isEnabled = true
+        binding.buttonNavToReportGenerator.isEnabled = true // PDF generation is local
+    }
+
+
+    private fun setupListeners() {
         // Botón para el historial simple (el original)
         binding.buttonHistory.setOnClickListener {
             val historyFragment = HistoryFragment()
@@ -119,185 +158,171 @@ class MoreOptionsFragment : Fragment() {
                 .commit()
         }
 
+        binding.buttonNavToCategoryMigration.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.nav_host_fragment_content_main, CategoryMigrationFragment())
+                .addToBackStack("CategoryMigrationFragment")
+                .commit()
+        }
 
-        //boton para forzar sincronizacion, descomentar para activar
-        binding.buttonForceSync.setOnClickListener {showForceSyncConfirmationDialog() }
+        binding.buttonForceCleanupReservas.setOnClickListener {
+            showForceCleanupConfirmationDialog()
+        }
 
-        //boton para forzar mantenimiento, descomentar para activar
-        binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
     }
 
-
-       /* decomentar*/
-
-       private fun showForceSyncConfirmationDialog() {
-            AlertDialog.Builder(requireContext())
-                .setTitle("Confirmar Sincronización")
-                .setMessage("Esto borrará los datos locales y los volverá a descargar desde la nube. Es útil para corregir productos que no aparecen en la web.\n\n¿Deseas continuar?")
-                .setPositiveButton("Sí, Sincronizar") { _, _ ->
-                    runForceSync()
-                }
-                .setNegativeButton("Cancelar", null)
-                .show()
-        }
-        private fun runForceSync() { val progressDialog = AlertDialog.Builder(requireContext())
-                .setTitle("Sincronizando...")
-                .setMessage("Borrando caché local y descargando datos frescos...")
-                .setCancelable(false)
-                .create()
-            progressDialog.show()
-            binding.buttonForceSync.isEnabled = false
-            viewLifecycleOwner.lifecycleScope.launch {
-                try {
-                    repository.forceFullResync()
-                    withContext(Dispatchers.Main) {
-                        progressDialog.dismiss()
-                        Toast.makeText(context, "¡Sincronización completada!", Toast.LENGTH_LONG).show()
-                        binding.buttonForceSync.isEnabled = true
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        progressDialog.dismiss()
-                        Toast.makeText(context, "Error en la sincronización: ${e.message}", Toast.LENGTH_LONG).show()
-                        binding.buttonForceSync.isEnabled = true
-                    }
-                }
+    private fun showForceCleanupConfirmationDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Limpieza Completa de Lotes")
+            .setMessage("Esta acción realizará dos tareas:\n\n1. Buscará lotes reservados por planes y los liberará (estadoTraspaso = null).\n2. Buscará lotes antiguos sin el campo 'estadoTraspaso' y lo añadirá (estadoTraspaso = null).\n\n¿Deseas continuar?")
+            .setIcon(android.R.drawable.ic_dialog_info)
+            .setPositiveButton("Sí, Limpiar Todo") { _, _ ->
+                // Llamamos a la función modificada
+                runMasterLotCleanupAndAddMissingField()
             }
-        }
-        private fun showMigrationConfirmationDialog() {
-
-            AlertDialog.Builder(requireContext())
-                .setTitle("Confirmar Mantenimiento")
-                .setMessage("Esto reparará y actualizará todos los productos para que coincidan con la estructura de datos actual. Los campos desconocidos serán eliminados.\n\n¿Deseas continuar?")
-                .setPositiveButton("Sí, Actualizar Ahora") { _, _ ->
-                    runMigrationScript()
-                }
-                .setNegativeButton("Cancelar", null)
-                .show()
-        }
-    private fun runMigrationScript() {
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+    private fun runMasterLotCleanupAndAddMissingField() {
         val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Reparando y Actualizando...")
-            .setMessage("Este proceso puede tardar unos minutos. Por favor, espera.")
+            .setTitle("Limpiando Lotes...")
+            .setMessage("Realizando limpieza completa...")
             .setCancelable(false)
             .create()
 
         progressDialog.show()
-        binding.buttonMigrateData.isEnabled = false
+        binding.buttonForceCleanupReservas.isEnabled = false
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            var lotesLiberados = 0
+            var lotesCreadosCampo = 0
+            val batchSize = 400 // Firestore recomienda < 500 operaciones por batch
+            var batchesCommitted = 0
+
             try {
-                // --- FASE 1: Limpiar y Estandarizar la Colección 'products' ---
-                val validProductFields = setOf(
-                    "id", "name", "unit", "minStock", "stockIdealC04", "stockMatriz",
-                    "stockCongelador04", "totalStock", "createdAt", "updatedAt",
-                    "lastUpdatedByName", "isActive", "requiresPackaging", "ordenTraspaso",
-                    "modoManualPDF", "espacioExtraPDF", "labelConfig"
-                )
-                val productsCollection = firestore.collection("products")
-                val productsSnapshot = productsCollection.get().await()
-                var batch = firestore.batch()
-                var productsProcessed = 0
-                var batchCounter = 0
+                // --- Parte 1: Liberar lotes reservados ---
+                Log.d(TAG_CLEANUP, "Iniciando Parte 1: Liberar lotes reservados...")
+                var lastVisibleReserved: com.google.firebase.firestore.DocumentSnapshot? = null
+                var batchLiberar = firestore.batch()
+                var opsLiberar = 0
 
-                for (document in productsSnapshot.documents) {
-                    val productRef = document.reference
-                    val data = document.data ?: continue
-                    val updates = mutableMapOf<String, Any?>()
+                do {
+                    val queryReserved = if (lastVisibleReserved == null) {
+                        firestore.collection("inventoryLots")
+                            .whereNotEqualTo("estadoTraspaso", null) // Busca donde el campo existe y NO es null
+                            .limit(batchSize.toLong())
+                    } else {
+                        firestore.collection("inventoryLots")
+                            .whereNotEqualTo("estadoTraspaso", null)
+                            .startAfter(lastVisibleReserved)
+                            .limit(batchSize.toLong())
+                    }
 
-                    // Limpieza segura: elimina solo los campos que ya no están en el modelo
-                    data.keys.forEach { key ->
-                        if (key !in validProductFields) {
-                            updates[key] = FieldValue.delete()
+                    val reservedSnapshot = queryReserved.get().await()
+                    val reservedDocs = reservedSnapshot.documents
+
+                    if (reservedDocs.isEmpty()) break
+
+                    Log.d(TAG_CLEANUP, "Parte 1: Procesando ${reservedDocs.size} lotes reservados...")
+                    for (doc in reservedDocs) {
+                        Log.v(TAG_CLEANUP, "Parte 1: Liberando lote ${doc.id}")
+                        batchLiberar.update(doc.reference, "estadoTraspaso", null) // CAMBIO: Usar null
+                        lotesLiberados++
+                        opsLiberar++
+                        if (opsLiberar >= batchSize) {
+                            Log.d(TAG_CLEANUP, "Parte 1: Ejecutando batch de liberación ${batchesCommitted}...")
+                            batchLiberar.commit().await()
+                            batchesCommitted++
+                            batchLiberar = firestore.batch()
+                            opsLiberar = 0
                         }
                     }
+                    lastVisibleReserved = reservedDocs.lastOrNull()
+                } while (lastVisibleReserved != null)
 
-                    // Adición segura: añade campos clave si no existen
-                    if (!data.containsKey("requiresPackaging")) {
-                        updates["requiresPackaging"] = false
-                    }
-                    if (!data.containsKey("stockIdealC04")) {
-                        updates["stockIdealC04"] = 0.0
-                    }
-
-                    if (updates.isNotEmpty()) {
-                        batch.update(productRef, updates)
-                        productsProcessed++
-                        batchCounter++
-                    }
-
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
+                if (opsLiberar > 0) {
+                    Log.d(TAG_CLEANUP, "Parte 1: Ejecutando batch final de liberación ${batchesCommitted}...")
+                    batchLiberar.commit().await()
+                    batchesCommitted++
                 }
-                if (batchCounter > 0) {
-                    batch.commit().await()
-                }
+                Log.i(TAG_CLEANUP, "Parte 1 completada. Lotes liberados: $lotesLiberados.")
 
-                // --- FASE 2: Adaptar Lotes Existentes ---
-                batch = firestore.batch() // Reiniciar batch
-                batchCounter = 0
-                val lotsCollection = firestore.collection("inventoryLots")
-                val lotsSnapshot = lotsCollection.get().await()
-                var lotsProcessed = 0
+                // --- Parte 2: Añadir campo 'estadoTraspaso: null' donde falte ---
+                Log.d(TAG_CLEANUP, "Iniciando Parte 2: Añadir campo 'estadoTraspaso' faltante...")
+                var lastVisibleMissing: com.google.firebase.firestore.DocumentSnapshot? = null
+                var batchAgregar = firestore.batch()
+                var opsAgregar = 0
+                var documentsProcessed = 0 // Contador solo para esta parte
 
-                for (document in lotsSnapshot.documents) {
-                    val lotRef = document.reference
-                    val data = document.data ?: continue
-                    val lotUpdates = mutableMapOf<String, Any?>()
-
-                    // Añade los nuevos campos como null si no existen
-                    if (!data.containsKey("unidadDeEmpaque")) lotUpdates["unidadDeEmpaque"] = null
-                    if (!data.containsKey("pesoPorUnidad")) lotUpdates["pesoPorUnidad"] = null
-                    if (!data.containsKey("cantidadInicialUnidades")) lotUpdates["cantidadInicialUnidades"] = null
-
-                    if (lotUpdates.isNotEmpty()) {
-                        batch.update(lotRef, lotUpdates)
-                        lotsProcessed++
-                        batchCounter++
+                do {
+                    // Nota: Firestore no tiene un operador "field does not exist".
+                    // Esta paginación revisará TODOS los lotes, pero solo actuará en los que falte el campo.
+                    // Es menos eficiente que la Parte 1, pero necesario.
+                    val queryMissing = if (lastVisibleMissing == null) {
+                        firestore.collection("inventoryLots").limit(batchSize.toLong())
+                    } else {
+                        firestore.collection("inventoryLots").startAfter(lastVisibleMissing).limit(batchSize.toLong())
                     }
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
-                }
-                if (batchCounter > 0) {
-                    batch.commit().await()
-                }
 
+                    val missingSnapshot = queryMissing.get().await()
+                    val missingDocs = missingSnapshot.documents
+
+                    if (missingDocs.isEmpty()) break
+
+                    Log.d(TAG_CLEANUP, "Parte 2: Revisando ${missingDocs.size} documentos...")
+                    documentsProcessed += missingDocs.size
+
+                    for (doc in missingDocs) {
+                        // Verificar si el campo NO existe
+                        if (!doc.contains("estadoTraspaso")) {
+                            Log.v(TAG_CLEANUP, "Parte 2: Añadiendo estadoTraspaso: null al lote ${doc.id}")
+                            batchAgregar.update(doc.reference, "estadoTraspaso", null)
+                            lotesCreadosCampo++
+                            opsAgregar++
+                            if (opsAgregar >= batchSize) {
+                                Log.d(TAG_CLEANUP, "Parte 2: Ejecutando batch de adición ${batchesCommitted}...")
+                                batchAgregar.commit().await()
+                                batchesCommitted++
+                                batchAgregar = firestore.batch()
+                                opsAgregar = 0
+                            }
+                        }
+                    }
+                    lastVisibleMissing = missingDocs.lastOrNull()
+                } while (lastVisibleMissing != null)
+
+                if (opsAgregar > 0) {
+                    Log.d(TAG_CLEANUP, "Parte 2: Ejecutando batch final de adición ${batchesCommitted}...")
+                    batchAgregar.commit().await()
+                    batchesCommitted++
+                }
+                Log.i(TAG_CLEANUP, "Parte 2 completada. Lotes con campo añadido: $lotesCreadosCampo. Documentos revisados: $documentsProcessed")
+
+                // --- Mensaje Final ---
                 withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    val message = "Mantenimiento completado:\n- $productsProcessed productos verificados/actualizados.\n- $lotsProcessed lotes preparados para la nueva versión."
+                    val message = "Limpieza completada:\n- Lotes liberados: $lotesLiberados\n- Lotes con campo añadido: $lotesCreadosCampo"
                     AlertDialog.Builder(requireContext())
-                        .setTitle("¡Éxito!")
+                        .setTitle("Éxito")
                         .setMessage(message)
                         .setPositiveButton("Aceptar", null)
                         .show()
-                    binding.buttonMigrateData.isEnabled = true
                 }
 
             } catch (e: Exception) {
+                Log.e(TAG_CLEANUP, "Error durante la limpieza completa de lotes", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Error durante la limpieza: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
                 withContext(Dispatchers.Main) {
                     progressDialog.dismiss()
-                    Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
-                    binding.buttonMigrateData.isEnabled = true
+                    if (_binding != null) { // Verificar si el binding todavía existe
+                        binding.buttonForceCleanupReservas.isEnabled = true
+                    }
                 }
             }
         }
     }
-        private fun showFullErrorLog(errors: List<String>) {
-            val errorText = errors.joinToString("\n\n")
-
-            AlertDialog.Builder(requireContext())
-                .setTitle("Log de Correcciones y Errores")
-                .setMessage(errorText)
-                .setPositiveButton("Cerrar", null)
-                .show()
-        }
-    /*borrar para activar */
 
     override fun onDestroyView() {
         super.onDestroyView()

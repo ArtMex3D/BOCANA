@@ -9,8 +9,8 @@
     android:layout_marginEnd="12dp"
     android:layout_marginBottom="8dp"
     app:cardElevation="4dp"
-    app:strokeWidth="1dp"
-    app:strokeColor="#FFC107">
+    app:strokeColor="#FFC107"
+    app:strokeWidth="2dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -23,7 +23,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceHeadline6"
-            tools:text="Plan de Traspaso: 25 / julio / 2025" />
+            tools:text="Plan del: 25/jul/2025 a las 14:30" />
 
         <TextView
             android:id="@+id/textViewCreatedBy"
@@ -41,27 +41,37 @@
             android:background="?android:attr/listDivider" />
 
         <TextView
+            android:id="@+id/textViewProductsLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Productos a mover:"
             android:textAppearance="?attr/textAppearanceBody2"
             android:textStyle="bold" />
 
-        <!-- Este LinearLayout se llenará programáticamente -->
         <LinearLayout
             android:id="@+id/linearLayoutProducts"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            tools:background="#EEE"
+            tools:minHeight="40dp"/>
 
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:layout_marginTop="16dp"
-            android:gravity="end">
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonImprimir"
+                style="@style/Widget.MaterialComponents.Button.TextButton.Icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PDF"
+                app:icon="@drawable/pdf" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonCancel"
@@ -76,8 +86,8 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonConfirm"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="10dp"
                 android:text="Confirmar"
                 app:icon="@drawable/verificado" />
 

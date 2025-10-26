@@ -93,7 +93,7 @@ class AddCompraDialogFragment : DialogFragment() {
         binding.textViewDialogTitle.text = "Compra: ${product.name}"
         binding.buttonSelectDate.text = dateFormat.format(selectedDate)
         // Muestra sugerencias de proveedor desde el primer carácter
-        binding.autoCompleteProveedor.threshold = 3
+        binding.autoCompleteProveedor.threshold = 1
     }
 
     // NUEVA FUNCIÓN: Configura el menú desplegable de unidades
@@ -139,13 +139,16 @@ class AddCompraDialogFragment : DialogFragment() {
     }
 
     private fun showDatePicker() {
+        val constraintsBuilder = CalendarConstraints.Builder().setValidator(DateValidatorPointBackward.now())
+
         val datePicker = MaterialDatePicker.Builder.datePicker()
             .setTitleText("Seleccionar Fecha de Recepción")
             .setSelection(selectedDate.time)
+            .setCalendarConstraints(constraintsBuilder.build())
             .build()
 
         datePicker.addOnPositiveButtonClickListener { selection ->
-           val utcCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+            val utcCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
             utcCalendar.timeInMillis = selection
 
             val localCalendar = Calendar.getInstance()
@@ -280,6 +283,9 @@ class AddCompraDialogFragment : DialogFragment() {
         binding.buttonDialogAceptar.isEnabled = false
         binding.buttonDialogCancelar.isEnabled = false
 
+        // Flag to check if a warning is needed
+        var requiresPackagingWarning = false
+
         lifecycleScope.launch {
             try {
                 firestore.runTransaction { transaction ->
@@ -342,26 +348,41 @@ class AddCompraDialogFragment : DialogFragment() {
                     )
                     transaction.update(productRef, productUpdateData)
 
-                    if (isBulkReception && currentProduct.requiresPackaging) {
-                        val newPackagingTaskRef = firestore.collection("pendingPackaging").document()
-                        val packagingTask = PendingPackagingTask(
-                            id = newPackagingTaskRef.id,
-                            productId = currentProduct.id,
-                            productName = currentProduct.name,
-                            quantityReceived = quantityValue,
-                            unit = currentProduct.unit,
-                            purchaseMovementId = newMovementRef.id,
-                            receivedAt = selectedDate,
-                            supplierId = supplier?.id,
-                            supplierName = supplier?.name
-                        )
-                        transaction.set(newPackagingTaskRef, packagingTask)
+                    // START MODIFICATION: Validate and create packaging task
+                    if (isBulkReception) {
+                        if (currentProduct.requiresPackaging) {
+                            val newPackagingTaskRef = firestore.collection("pendingPackaging").document()
+                            val packagingTask = PendingPackagingTask(
+                                id = newPackagingTaskRef.id,
+                                productId = currentProduct.id,
+                                productName = currentProduct.name,
+                                quantityReceived = quantityValue,
+                                unit = currentProduct.unit,
+                                purchaseMovementId = newMovementRef.id,
+                                receivedAt = selectedDate,
+                                supplierId = supplier?.id,
+                                supplierName = supplier?.name
+                            )
+                            transaction.set(newPackagingTaskRef, packagingTask)
+                        } else {
+                            // If it's a bulk reception but the product is not marked for packaging, set a flag to show a warning.
+                            requiresPackagingWarning = true
+                        }
                     }
+                    // END MODIFICATION
+
                 }.await()
 
                 if(isAdded) {
                     val msg = "Compra registrada: +${String.format("%.2f", quantityValue)} Kg"
-                    Snackbar.make(requireActivity().findViewById(android.R.id.content), msg, Snackbar.LENGTH_LONG).show()
+                    var finalMsg = msg
+
+                    // If the warning flag was set, append the warning message.
+                    if (requiresPackagingWarning) {
+                        finalMsg += "\nAVISO: No se creó tarea de empaque. El producto no está configurado para requerirlo."
+                    }
+
+                    Snackbar.make(requireActivity().findViewById(android.R.id.content), finalMsg, Snackbar.LENGTH_LONG).show()
 
                     val updatedProdDoc = firestore.collection("products").document(productArgument.id).get().await()
                     updatedProdDoc.toObject(Product::class.java)?.let {
@@ -379,7 +400,7 @@ class AddCompraDialogFragment : DialogFragment() {
                 if (isAdded) {
                     binding.buttonDialogAceptar.isEnabled = true
                     binding.buttonDialogCancelar.isEnabled = true
-                    // Cerramos el diálogo también si hay un error para que el usuario pueda reintentar.
+                    // Also dismiss on error so the user can retry
                     dismiss()
                 }
             }

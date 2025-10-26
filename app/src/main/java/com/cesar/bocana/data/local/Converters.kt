@@ -52,7 +52,6 @@ class Converters {
         return gson.toJson(list)
     }
 
-    // --- CONVERSOR PARA EL MAPA (LA SOLUCIÓN AL ERROR) ---
     @TypeConverter
     fun fromMapToString(map: Map<String, Any>?): String? {
         return map?.let { gson.toJson(it) }
@@ -66,3 +65,4 @@ class Converters {
         }
     }
 }
+

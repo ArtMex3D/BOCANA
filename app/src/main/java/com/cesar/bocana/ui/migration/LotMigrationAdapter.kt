@@ -33,20 +33,35 @@ class LotMigrationAdapter(
             val fecha = lote.receivedAt?.let { dateFormat.format(it) } ?: "Sin Fecha"
             val proveedor = lote.supplierName ?: "S/P"
             binding.textViewLotInfo.text = "$fecha - $proveedor - ${lote.location}"
-            binding.textViewStockInfo.text = "Stock Registrado: ${String.format("%.2f", lote.currentQuantity)} ${lote.unit}"
+            binding.textViewStockInfo.text = "Stock Actual: ${String.format("%.2f", lote.currentQuantity)} ${lote.unit}"
 
-            // Lógica para determinar si el lote necesita conversión
-            val necesitaConversion = lote.unidadDeEmpaque.isNullOrBlank() || lote.pesoPorUnidad == null || lote.cantidadInicialUnidades == null
+            // ***** LÓGICA DE VISUALIZACIÓN MEJORADA *****
+            // Distingue claramente entre lotes a granel y lotes ya empacados.
 
-            if (necesitaConversion) {
+            if (!lote.isPackaged) {
+                // Lotes a granel que nunca han sido procesados.
                 binding.statusIcon.setImageResource(android.R.drawable.stat_sys_warning)
                 binding.statusIcon.setColorFilter(ContextCompat.getColor(context, R.color.transfer_yellow))
-                binding.textViewStatus.text = "Requiere conversión"
+                binding.textViewStatus.text = "Requiere conversión (Granel)"
                 binding.buttonEditLote.text = "Convertir"
             } else {
+                // Lotes ya empacados que pueden ser editados/re-convertidos.
                 binding.statusIcon.setImageResource(R.drawable.verificado)
                 binding.statusIcon.setColorFilter(ContextCompat.getColor(context, R.color.positive_green))
-                binding.textViewStatus.text = "Convertido: ${String.format("%.1f", lote.cantidadInicialUnidades)} ${lote.unidadDeEmpaque} de ${String.format("%.2f", lote.pesoPorUnidad)} Kg c/u"
+
+                val unidad = lote.unidadDeEmpaque
+                val cantUnidades = lote.cantidadInicialUnidades
+                val pesoUnidad = lote.pesoPorUnidad
+
+                // Si no tiene unidad de empaque, es un lote variable (granel empacado).
+                if (unidad.isNullOrBlank()) {
+                    binding.textViewStatus.text = "Empacado (Variable / Granel)"
+                } else {
+                    val cantUnidadesStr = cantUnidades?.let { String.format("%.0f", it) } ?: "N/A"
+                    val pesoUnidadStr = pesoUnidad?.let { String.format("%.2f", it) } ?: "N/A"
+                    binding.textViewStatus.text = "Empacado: $cantUnidadesStr $unidad de $pesoUnidadStr Kg c/u"
+                }
+
                 binding.buttonEditLote.text = "Editar"
             }
 
@@ -61,3 +76,4 @@ class LotMigrationAdapter(
         override fun areContentsTheSame(oldItem: StockLot, newItem: StockLot): Boolean = oldItem == newItem
     }
 }
+

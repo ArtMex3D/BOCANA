@@ -20,6 +20,7 @@
             android:id="@+id/checkbox_include_in_pdf"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minHeight="48dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
@@ -28,12 +29,28 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:textAppearance="?attr/textAppearanceHeadline6"
+            android:textAppearance="?attr/textAppearanceSubtitle1"
+            android:textStyle="bold"
             app:layout_constraintBottom_toBottomOf="@+id/checkbox_include_in_pdf"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/icon_sugerencia_especial"
             app:layout_constraintStart_toEndOf="@+id/checkbox_include_in_pdf"
             app:layout_constraintTop_toTopOf="@+id/checkbox_include_in_pdf"
-            tools:text="Atún Aleta Amarilla" />
+            tools:text="Atún Aleta Amarilla Super Largo" />
+
+        <ImageView
+            android:id="@+id/icon_sugerencia_especial"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="8dp"
+            android:src="@android:drawable/ic_menu_info_details"
+            app:tint="?attr/colorPrimary"
+            android:visibility="gone"
+            tools:visibility="visible"
+            android:contentDescription="Sugerencia especial"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@+id/textview_product_name"
+            app:layout_constraintBottom_toBottomOf="@+id/textview_product_name"/>
+
 
         <TextView
             android:id="@+id/label_lotes_sugeridos"
@@ -41,13 +58,12 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:layout_marginTop="12dp"
-            android:text="Lotes a Utilizar (FIFO):"
+            android:text="Lotes a Utilizar (Sugerencia):"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
             android:textStyle="bold"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/checkbox_include_in_pdf" />
 
-        <!-- Este LinearLayout se llenará dinámicamente desde el Adapter -->
         <LinearLayout
             android:id="@+id/layout_lotes_a_mover"
             android:layout_width="0dp"
@@ -82,13 +98,12 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:layout_marginTop="16dp"
-            android:text="Cantidad a Mover:"
+            android:text="Cantidad Sugerida:"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
             android:textStyle="bold"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/button_seleccionar_lotes" />
 
-        <!-- Layout para la cantidad, ahora alineado y con loader -->
         <LinearLayout
             android:id="@+id/layout_cantidad"
             android:layout_width="0dp"
@@ -101,11 +116,11 @@
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/text_input_layout_cantidad"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Cantidad">
+                tools:hint="Cantidad">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/edit_text_cantidad"
@@ -117,7 +132,7 @@
 
             <TextView
                 android:id="@+id/textview_unidad_empaque"
-                android:layout_width="120dp"
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:textAppearance="?attr/textAppearanceBody1"
@@ -126,6 +141,7 @@
 
             <ProgressBar
                 android:id="@+id/mini_loader"
+                style="?android:attr/progressBarStyleSmall"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:layout_marginStart="8dp"
@@ -133,17 +149,64 @@
                 tools:visibility="visible" />
         </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/layout_granel_pdf_info"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            tools:visibility="visible"
+            app:layout_constraintTop_toBottomOf="@id/layout_cantidad"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/text_input_layout_unidades_pdf"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:hint="Unidades (PDF)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/edit_text_unidades_pdf"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:imeOptions="actionNext"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/text_input_layout_empaque_pdf"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense.ExposedDropdownMenu"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:hint="Empaque (PDF)">
+
+                <AutoCompleteTextView
+                    android:id="@+id/auto_complete_empaque_pdf"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
+
         <TextView
             android:id="@+id/textview_impacto"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="8dp"
             android:gravity="end"
             android:textAppearance="?attr/textAppearanceCaption"
             android:textColor="?attr/colorPrimary"
-            app:layout_constraintEnd_toEndOf="@id/layout_cantidad"
-            app:layout_constraintStart_toStartOf="@id/layout_cantidad"
-            app:layout_constraintTop_toBottomOf="@id/layout_cantidad"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/layout_granel_pdf_info"
             tools:text="Impacto: Quedarán 120.50 Kg en Matriz" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>

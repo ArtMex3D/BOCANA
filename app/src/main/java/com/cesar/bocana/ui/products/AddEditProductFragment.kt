@@ -7,8 +7,11 @@ import kotlinx.coroutines.launch
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.cesar.bocana.R
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.repository.InventoryRepository
@@ -21,6 +24,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.tasks.await
 import java.util.Date
 import java.util.Locale
 
@@ -36,6 +40,7 @@ class AddEditProductFragment : Fragment() {
     private var isEditing = false
     private var editingProductId: String? = null
     private var currentProductData: Product? = null
+    private var allProducts: List<Product> = emptyList() // Para el selector de Rector
 
     companion object {
         private const val TAG = "AddEditProductFragment"
@@ -74,6 +79,7 @@ class AddEditProductFragment : Fragment() {
             configureUiForAddMode()
         }
         setupListeners()
+        setupCategorySelectors()
         return binding.root
     }
 
@@ -111,6 +117,8 @@ class AddEditProductFragment : Fragment() {
                         binding.editTextStockIdealC04.setText(String.format(Locale.getDefault(), "%.2f", product.stockIdealC04))
                         binding.switchActive.isChecked = product.isActive
                         binding.switchRequiresPackaging.isChecked = product.requiresPackaging
+                        binding.autoCompleteCategoria.setText(product.categoria, false)
+                        handleRectorSelectorVisibility(product.categoria)
                         configureUiForEditMode(product)
                     } else {
                         handleLoadError("Error al procesar datos del producto.")
@@ -152,6 +160,50 @@ class AddEditProductFragment : Fragment() {
         }
     }
 
+    private fun setupCategorySelectors() {
+        val categories = listOf("FIJO", "PESCADO_GRANDE", "PESCADO_CHICO")
+        val categoryAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, categories)
+        binding.autoCompleteCategoria.setAdapter(categoryAdapter)
+
+        // Cargar todos los productos para el selector de rector
+        lifecycleScope.launch {
+            try {
+                val snapshot = firestore.collection("products")
+                    .whereEqualTo("isActive", true)
+                    .orderBy("name")
+                    .get().await()
+                allProducts = snapshot.toObjects(Product::class.java)
+                val productNames = allProducts.map { it.name }
+                val rectorAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, productNames)
+                binding.autoCompleteProductoRector.setAdapter(rectorAdapter)
+
+                // Si estamos editando, pre-seleccionar el producto rector
+                currentProductData?.productoRectorId?.let { rectorId ->
+                    val rectorProduct = allProducts.find { it.id == rectorId }
+                    rectorProduct?.let {
+                        binding.autoCompleteProductoRector.setText(it.name, false)
+                    }
+                }
+            } catch (e: Exception) {
+                if (isAdded) Toast.makeText(context, "Error al cargar productos para el selector.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.autoCompleteCategoria.setOnItemClickListener { _, _, _, _ ->
+            val selectedCategory = binding.autoCompleteCategoria.text.toString()
+            handleRectorSelectorVisibility(selectedCategory)
+        }
+    }
+
+    private fun handleRectorSelectorVisibility(category: String) {
+        if (category == "PESCADO_CHICO") {
+            binding.textFieldLayoutProductoRector.visibility = View.VISIBLE
+        } else {
+            binding.textFieldLayoutProductoRector.visibility = View.GONE
+            binding.autoCompleteProductoRector.setText("", false) // Limpiar selección si no aplica
+        }
+    }
+
     private fun validateInputFields(): Boolean {
         var isValid = true
         binding.textFieldLayoutProductName.error = null
@@ -170,13 +222,23 @@ class AddEditProductFragment : Fragment() {
         val currentUser = auth.currentUser ?: return
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
 
+        val categoria = binding.autoCompleteCategoria.text.toString()
+        val rectorName = binding.autoCompleteProductoRector.text.toString()
+        val rectorId = if (categoria == "PESCADO_CHICO" && rectorName.isNotBlank()) {
+            allProducts.find { it.name == rectorName }?.id
+        } else {
+            null
+        }
+
         val productDataMap = mutableMapOf<String, Any?>(
             "name" to binding.editTextProductName.text.toString().trim(),
             "minStock" to (binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0),
             "stockIdealC04" to (binding.editTextStockIdealC04.text.toString().toDoubleOrNull() ?: 0.0),
             "requiresPackaging" to binding.switchRequiresPackaging.isChecked,
             "updatedAt" to FieldValue.serverTimestamp(),
-            "lastUpdatedByName" to currentUserName
+            "lastUpdatedByName" to currentUserName,
+            "categoria" to categoria,
+            "productoRectorId" to rectorId
         )
 
         if (isEditing) {
@@ -195,21 +257,19 @@ class AddEditProductFragment : Fragment() {
                     view?.let { Snackbar.make(it, "Error al actualizar: ${e.message}", Snackbar.LENGTH_LONG).show() }
                 }
         } else {
-            // ***** INICIO DE LA SOLUCIÓN *****
-            // Al crear un producto nuevo, 'modoManualPDF' se establece automáticamente.
-            // Si 'requiresPackaging' es true (Granel), 'modoManualPDF' también será true.
             val requiresPackaging = binding.switchRequiresPackaging.isChecked
             val newProduct = Product(
                 name = binding.editTextProductName.text.toString().trim(),
                 minStock = binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0,
                 stockIdealC04 = binding.editTextStockIdealC04.text.toString().toDoubleOrNull() ?: 0.0,
                 requiresPackaging = requiresPackaging,
-                modoManualPDF = requiresPackaging, // Se establece el valor por defecto aquí.
+                categoria = categoria,
+                productoRectorId = rectorId,
+                modoManualPDF = requiresPackaging,
                 lastUpdatedByName = currentUserName,
                 createdAt = Date(),
                 updatedAt = Date()
             )
-            // ***** FIN DE LA SOLUCIÓN *****
 
             firestore.collection("products").add(newProduct)
                 .addOnSuccessListener {

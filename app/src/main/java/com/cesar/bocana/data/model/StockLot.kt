@@ -3,73 +3,73 @@ package com.cesar.bocana.data.model
 import android.os.Parcelable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.cesar.bocana.data.local.Converters
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
-import java.util.Date
-import kotlin.jvm.JvmField
-import androidx.room.Index
 import kotlinx.parcelize.Parcelize
+import java.util.Date
+import androidx.room.Index
 
-@Parcelize // <-- AÑADIDO PARA SOLUCIONAR EL ERROR
+@Parcelize
 @Entity(
     tableName = "stock_lots",
     indices = [
-        Index(value = ["productId"], unique = false),
-        Index(value = ["supplierId"], unique = false)
+        Index(value = ["productId"]),
+        Index(value = ["supplierId"])
     ]
 )
+@TypeConverters(Converters::class)
 data class StockLot(
-    @PrimaryKey
-    @DocumentId val id: String = "",
+    @PrimaryKey @DocumentId val id: String = "",
     val productId: String = "",
     val productName: String = "",
-    val unit: String = "",
-
+    val unit: String = "Kg",
     val location: String = Location.MATRIZ,
-
     val supplierId: String? = null,
     val supplierName: String? = null,
     @ServerTimestamp val receivedAt: Date? = null,
-    val movementIdIn: String = "",
-
-    val initialQuantity: Double = 0.0, // Siempre en la unidad base (Kg)
-    var currentQuantity: Double = 0.0, // Siempre en la unidad base (Kg)
-
-    // --- NUEVOS CAMPOS PARA TRAZABILIDAD DE EMPAQUE ---
-    val unidadDeEmpaque: String? = null,      // "Caja", "Bolsa", "Costal", etc.
-    val pesoPorUnidad: Double? = null,       // Ej: 4.54 (el peso de UNA caja de este lote)
-    val cantidadInicialUnidades: Double? = null, // Ej: 20.5 (el número de cajas que ingresaron) puede ser decimal
-
+    val movementIdIn: String? = null,
+    val initialQuantity: Double = 0.0,
+    val currentQuantity: Double = 0.0,
     val lotNumber: String? = null,
     val expirationDate: Date? = null,
-
-    @JvmField
-    var isDepleted: Boolean = false,
-    @JvmField
-    var isPackaged: Boolean = false,
-
+    @JvmField var isDepleted: Boolean = false,
+    @JvmField var isPackaged: Boolean = true,
+    val unidadDeEmpaque: String? = null,
+    val pesoPorUnidad: Double? = null,
+    val cantidadInicialUnidades: Double? = null,
     val originalLotId: String? = null,
     @ServerTimestamp val originalReceivedAt: Date? = null,
     val originalSupplierId: String? = null,
     val originalSupplierName: String? = null,
     val originalLotNumber: String? = null,
-    // CAMPO NUEVO PARA LA SOLUCIÓN 'TITÁNICA'
-    val estadoTraspaso: String? = null // Puede ser "RESERVADO"
-
-
-) : Parcelable { // <-- AÑADIDO PARA SOLUCIONAR EL ERROR
+    var estadoTraspaso: String? = null
+) : Parcelable {
     constructor() : this(
-        id = "", productId = "", productName = "", unit = "", location = Location.MATRIZ,
-        supplierId = null, supplierName = null, receivedAt = null, movementIdIn = "",
-        initialQuantity = 0.0, currentQuantity = 0.0,
-        // Valores por defecto para nuevos campos
-        unidadDeEmpaque = null, pesoPorUnidad = null, cantidadInicialUnidades = null,
-        lotNumber = null, expirationDate = null,
-        isDepleted = false, isPackaged = false,
-        originalLotId = null, originalReceivedAt = null,
+        id = "",
+        productId = "",
+        productName = "",
+        unit = "Kg",
+        location = Location.MATRIZ,
+        supplierId = null,
+        supplierName = null,
+        receivedAt = null,
+        movementIdIn = null,
+        initialQuantity = 0.0,
+        currentQuantity = 0.0,
+        lotNumber = null,
+        expirationDate = null,
+        isDepleted = false,
+        isPackaged = true,
+        unidadDeEmpaque = null,
+        pesoPorUnidad = null,
+        cantidadInicialUnidades = null,
+        originalLotId = null,
+        originalReceivedAt = null,
         originalSupplierId = null,
-        originalSupplierName = null, originalLotNumber = null,
-        estadoTraspaso = null // Valor inicial
-
+        originalSupplierName = null,
+        originalLotNumber = null,
+        estadoTraspaso = null
     )
 }

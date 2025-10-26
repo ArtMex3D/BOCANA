@@ -7,6 +7,7 @@ import com.cesar.bocana.data.model.DetalleTraspasoPlan
 import com.cesar.bocana.data.model.TraspasoEstado
 import com.cesar.bocana.data.model.TraspasoPlanificado
 import com.cesar.bocana.utils.FirestoreCollections
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -56,7 +57,6 @@ class ConfirmarTraspasoViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
-                // ***** INICIO DE SOLUCIÓN CANCELAR *****
                 // 1. Obtener los detalles para saber qué lotes liberar
                 val detallesSnapshot = db.collection(FirestoreCollections.TRASPASOS_PLANIFICADOS)
                     .document(plan.id).collection("detalles").get().await()
@@ -67,17 +67,28 @@ class ConfirmarTraspasoViewModel : ViewModel() {
                 // 2. Liberar cada lote que estaba reservado
                 detalles.forEach { detalle ->
                     detalle.lotesSugeridos.forEach { desglose ->
-                        val loteRef = db.collection(FirestoreCollections.INVENTORY_LOTS).document(desglose.loteId)
-                        batch.update(loteRef, mapOf("estadoTraspaso" to null))
+                        // Asegurarse de que el loteId no esté vacío antes de intentar actualizar
+                        if (desglose.loteId.isNotBlank()) {
+                            val loteRef = db.collection(FirestoreCollections.INVENTORY_LOTS).document(desglose.loteId)
+                            // --- CAMBIO CLAVE AQUÍ ---
+                            // Reemplazar FieldValue.delete() por null explícito
+                            batch.update(loteRef, "estadoTraspaso", null)
+                            Log.d("ConfirmarTraspasoVM", "Cancelando: Marcando lote ${desglose.loteId.takeLast(4)} como estadoTraspaso = null")
+                        } else {
+                            Log.w("ConfirmarTraspasoVM", "Cancelando: Se encontró un loteId vacío en el detalle ${detalle.id} para el producto ${detalle.productName}")
+                        }
                     }
                 }
 
                 // 3. Marcar el plan como cancelado
                 val planRef = db.collection(FirestoreCollections.TRASPASOS_PLANIFICADOS).document(plan.id)
                 batch.update(planRef, "estado", TraspasoEstado.CANCELADO.name)
+                // Considera añadir campos como "cancelledAt" y "cancelledBy" si necesitas auditoría
+                // batch.update(planRef, "cancelledAt", FieldValue.serverTimestamp())
+                // batch.update(planRef, "cancelledBy", auth.currentUser?.displayName ?: "Desconocido")
+
 
                 batch.commit().await()
-                // ***** FIN DE SOLUCIÓN CANCELAR *****
                 _uiState.update { it.copy(isLoading = false, userMessage = UiMessage(message = "Plan cancelado y lotes liberados.")) }
             } catch (e: Exception) {
                 Log.e("ConfirmarTraspasoVM", "Error al cancelar plan", e)
@@ -85,9 +96,7 @@ class ConfirmarTraspasoViewModel : ViewModel() {
             }
         }
     }
-
     fun onUserMessageShown() {
         _uiState.update { it.copy(userMessage = null) }
     }
 }
-

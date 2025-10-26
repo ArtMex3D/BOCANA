@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:textAppearance="?attr/textAppearanceCaption"
-            tools:text="Sugerido: 20 Cajas (90.80 Kg)" />
+            tools:text="Planificado: 20 Cajas (90.80 Kg)" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutCantidadKg"
@@ -66,4 +66,3 @@
 
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
-

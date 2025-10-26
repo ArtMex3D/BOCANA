@@ -25,7 +25,7 @@ import java.util.*
 
 object TraspasoPdfGenerator {
 
-    private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     private fun getAndroidColor(context: Context, key: String, defaultColor: Int): Int {
         val prefs = context.getSharedPreferences(ConfiguracionTraspasoFragment.PREFS_NAME, Context.MODE_PRIVATE)
@@ -83,48 +83,64 @@ object TraspasoPdfGenerator {
         }
 
         var isZebra = false
-        plan.filter { it.incluidoEnPdf && it.lotesParaTraspaso.isNotEmpty() }.forEach { item ->
+        plan.filter { it.incluidoEnPdf }.forEach { item ->
             val bgColor = if (isZebra) zebraColor else null
-            val totalLotes = item.lotesParaTraspaso.size
 
+            if (item.product.name == "FILA_VACIA") {
+                repeat(headers.size) {
+                    table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(calculateRowHeight(item, 1)))
+                }
+                isZebra = !isZebra
+                return@forEach
+            }
+
+            val totalLotes = item.lotesParaTraspaso.size.coerceAtLeast(1)
             val rowHeight = calculateRowHeight(item, totalLotes)
             val totalKgForProduct = item.lotesParaTraspaso.sumOf { it.cantidadATomarKg }
             val isManual = item.product.modoManualPDF
 
-            val esAlgunoFijo = !item.product.requiresPackaging
-            val totalKgStr = if (esAlgunoFijo && !isManual) String.format("%.2f Kg", totalKgForProduct) else ""
+            val totalKgStr = if (!isManual) String.format("%.2f Kg", totalKgForProduct) else ""
+            val cantidadStr = if (item.cantidadEditadaUnidades > 0) "${item.cantidadEditadaUnidades} ${item.unidadDeEmpaqueEditada}" else ""
 
-            item.lotesParaTraspaso.forEachIndexed { index, desglose ->
-                table.addCell(createCell(dateFormat.format(desglose.loteFecha ?: Date()), bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+            if (item.lotesParaTraspaso.isNotEmpty()) {
+                item.lotesParaTraspaso.forEachIndexed { index, desglose ->
+                    table.addCell(createCell(dateFormat.format(desglose.loteFecha ?: Date()), bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
 
-                if (index == 0) {
-                    table.addCell(
-                        Cell(totalLotes, 1)
-                            .add(Paragraph(item.product.name).setPaddingLeft(5f))
-                            .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                    if (index == 0) {
+                        table.addCell(Cell(totalLotes, 1).add(Paragraph(item.product.name).setPaddingLeft(5f)).setVerticalAlignment(VerticalAlignment.MIDDLE).setBold().setBackgroundColor(bgColor))
+
+                        // --- CORRECCIÓN DEFINITIVA APLICADA AQUÍ ---
+                        val cantidadCell = Cell(totalLotes, 1)
+                            .add(Paragraph(cantidadStr).setFontSize(8f).setPadding(2f))
                             .setBold()
-                            .setBackgroundColor(bgColor)
-                    )
-                }
+                            .setTextAlignment(TextAlignment.CENTER)
+                            .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                            .setMinHeight(rowHeight)
+                        bgColor?.let { cantidadCell.setBackgroundColor(it) }
+                        table.addCell(cantidadCell)
+                        // --- FIN DE LA CORRECCIÓN ---
+                    }
 
-                val cantidadStr = "${desglose.cantidadATomarUnidades?.toInt() ?: ""} ${desglose.loteUnidad ?: ""}".trim()
+                    table.addCell(createCell(desglose.loteProveedor ?: "S/P", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+
+                    val pesoUnitarioStr = if (!isManual && desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0) {
+                        String.format("%.2f Kg", desglose.lotePesoPorUnidad)
+                    } else {
+                        ""
+                    }
+                    table.addCell(createCell(pesoUnitarioStr, bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+
+                    if (index == 0) {
+                        table.addCell(Cell(totalLotes, 1).add(Paragraph(totalKgStr)).setTextAlignment(TextAlignment.RIGHT).setVerticalAlignment(VerticalAlignment.MIDDLE).setBold().setBackgroundColor(bgColor))
+                    }
+                }
+            } else {
+                table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+                table.addCell(Cell(1,1).add(Paragraph(item.product.name).setPaddingLeft(5f)).setBold().setBackgroundColor(bgColor))
                 table.addCell(createCell(cantidadStr, bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
-                table.addCell(createCell(desglose.loteProveedor ?: "S/P", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
-
-                val esFijo = !item.product.requiresPackaging && desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0
-                val pesoUnitarioStr = if (esFijo && !isManual) String.format("%.2f Kg", desglose.lotePesoPorUnidad) else ""
-                table.addCell(createCell(pesoUnitarioStr, bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
-
-                if (index == 0) {
-                    table.addCell(
-                        Cell(totalLotes, 1)
-                            .add(Paragraph(totalKgStr))
-                            .setTextAlignment(TextAlignment.RIGHT)
-                            .setVerticalAlignment(VerticalAlignment.MIDDLE)
-                            .setBold()
-                            .setBackgroundColor(bgColor)
-                    )
-                }
+                table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+                table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
+                table.addCell(createCell(totalKgStr, bgColor, TextAlignment.RIGHT).setBold().setMinHeight(rowHeight))
             }
             isZebra = !isZebra
         }
@@ -168,3 +184,4 @@ object TraspasoPdfGenerator {
             .setBorder(null)
     }
 }
+

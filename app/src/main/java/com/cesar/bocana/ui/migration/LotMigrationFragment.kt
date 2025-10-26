@@ -9,15 +9,18 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
-import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.R
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.databinding.DialogLotConversionBinding
 import com.cesar.bocana.databinding.FragmentLotMigrationBinding
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.*
 
@@ -67,9 +70,13 @@ class LotMigrationFragment : Fragment() {
 
                 adapter.submitList(state.lotsForProduct)
                 binding.recyclerViewLotes.isVisible = state.lotsForProduct.isNotEmpty()
+            }
+        }
 
-                if (binding.autoCompleteProduct.adapter == null && state.products.isNotEmpty()) {
-                    val productAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, state.products.map { it.name })
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.uiState.map { it.products }.distinctUntilChanged().collect { products ->
+                if (products.isNotEmpty()) {
+                    val productAdapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, products.map { it.name })
                     binding.autoCompleteProduct.setAdapter(productAdapter)
                 }
             }
@@ -84,84 +91,111 @@ class LotMigrationFragment : Fragment() {
 
         val product = viewModel.uiState.value.selectedProduct ?: return
 
-        // Lógica especial para Tilapia
-        val isTilapiaCase = product.name.contains("tilapia", ignoreCase = true) && product.unit.equals("cajas", ignoreCase = true)
-
         dialogBinding.textViewDialogTitle.text = "Convertir Lote de ${product.name}"
         dialogBinding.textViewStockActual.text = "Stock Registrado: ${String.format("%.2f", lote.currentQuantity)} ${lote.unit}"
 
-        if(isTilapiaCase){
-            dialogBinding.textViewConversionInfo.isVisible = true
-            dialogBinding.textViewConversionInfo.text = "¡Atención! Se asumirá que el stock son CAJAS y se calculará el total en Kg."
-            dialogBinding.editTextPesoUnidad.setText("4.54")
-            dialogBinding.editTextUnidadEmpaque.setText("caja")
-        } else {
-            // Pre-llenar con datos existentes si ya fue convertido antes
-            lote.unidadDeEmpaque?.let { dialogBinding.editTextUnidadEmpaque.setText(it) }
-            lote.pesoPorUnidad?.let { dialogBinding.editTextPesoUnidad.setText(it.toString()) }
-        }
+
+        lote.unidadDeEmpaque?.let { dialogBinding.editTextUnidadEmpaque.setText(it) }
+        lote.pesoPorUnidad?.let { dialogBinding.editTextPesoFijo.setText(it.toString()) }
+
 
         val textWatcher = object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                val pesoStr = dialogBinding.editTextPesoUnidad.text.toString()
-                val peso = pesoStr.toDoubleOrNull() ?: 0.0
-
-                if (isTilapiaCase) {
-                    val cajas = lote.currentQuantity
-                    val totalKg = cajas * peso
-                    dialogBinding.textViewCalculado.text = "Total Convertido: ${String.format("%.2f", totalKg)} Kg"
-                } else {
-                    val totalKg = lote.currentQuantity
-                    val unidades = if (peso > 0) totalKg / peso else 0.0
-                    dialogBinding.textViewCalculado.text = "= ${String.format("%.2f", unidades)} Unidades | Total: ${String.format("%.2f", totalKg)} Kg"
-                }
+                updateCalculoResultado(dialogBinding, lote.currentQuantity)
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         }
-        dialogBinding.editTextPesoUnidad.addTextChangedListener(textWatcher)
-        // Disparar el cálculo inicial
-        textWatcher.afterTextChanged(null)
+
+        dialogBinding.radioGroupCalculationType.setOnCheckedChangeListener { _, checkedId ->
+            val isRedondeo = checkedId == R.id.radioButtonRedondeo
+            val isVariable = checkedId == R.id.radioButtonVariable
+            dialogBinding.textFieldLayoutPesoFijo.isVisible = isRedondeo
+            dialogBinding.textFieldLayoutCantidadUnidades.isVisible = !isVariable
+            dialogBinding.textInputLayoutUnidadEmpaque.isVisible = !isVariable
+            updateCalculoResultado(dialogBinding, lote.currentQuantity)
+        }
+        // Set initial visibility
+        dialogBinding.radioButtonVariable.isChecked = true
+        dialogBinding.textFieldLayoutPesoFijo.isVisible = false
+        dialogBinding.textFieldLayoutCantidadUnidades.isVisible = false
+        dialogBinding.textInputLayoutUnidadEmpaque.isVisible = false
+
+
+        dialogBinding.editTextCantidadUnidades.addTextChangedListener(textWatcher)
+        dialogBinding.editTextPesoFijo.addTextChangedListener(textWatcher)
+        updateCalculoResultado(dialogBinding, lote.currentQuantity)
 
         builder.setPositiveButton("Guardar Conversión") { dialog, _ ->
             val unidad = dialogBinding.editTextUnidadEmpaque.text.toString().trim()
-            val peso = dialogBinding.editTextPesoUnidad.text.toString().toDoubleOrNull()
+            val cantidadUnidades = dialogBinding.editTextCantidadUnidades.text.toString().toIntOrNull()
+            val pesoFijo = dialogBinding.editTextPesoFijo.text.toString().toDoubleOrNull()
+            val isRedondeo = dialogBinding.radioButtonRedondeo.isChecked
+            val isVariable = dialogBinding.radioButtonVariable.isChecked
+            val isPromedio = dialogBinding.radioButtonPromedio.isChecked
 
-            if (unidad.isEmpty() || peso == null || peso <= 0) {
-                Toast.makeText(context, "Completa todos los campos con valores válidos.", Toast.LENGTH_LONG).show()
-                return@setPositiveButton
+            if (!isVariable) {
+                if (unidad.isEmpty()) {
+                    Toast.makeText(context, "Define un tipo de empaque.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                if (cantidadUnidades == null || cantidadUnidades <= 0) {
+                    Toast.makeText(context, "La cantidad de unidades debe ser mayor a cero.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                if(isRedondeo && (pesoFijo == null || pesoFijo <= 0)) {
+                    Toast.makeText(context, "El Peso Fijo es obligatorio en modo redondeo.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                if (isRedondeo && cantidadUnidades > 1 && pesoFijo != null) {
+                    if ((cantidadUnidades - 1) * pesoFijo >= lote.currentQuantity) {
+                        Toast.makeText(context, "Incongruencia: El total de las unidades fijas supera el stock a granel.", Toast.LENGTH_LONG).show()
+                        return@setPositiveButton
+                    }
+                }
             }
 
-            val updates = mutableMapOf<String, Any?>()
-
-            // ***** INICIO DE LA SOLUCIÓN *****
-            // Se agrega 'isPackaged' = true para que el sistema reconozca el lote como listo para traspaso.
-            // Esto es crucial para que los lotes convertidos sean visibles en la pantalla de planificación.
-            updates["isPackaged"] = true
-            // ***** FIN DE LA SOLUCIÓN *****
-
-            if(isTilapiaCase){
-                val cantidadCajas = lote.currentQuantity
-                val totalKg = cantidadCajas * peso
-                updates["currentQuantity"] = totalKg
-                updates["initialQuantity"] = totalKg // Asumimos que la cantidad inicial también estaba en cajas
-                updates["unit"] = "Kg"
-                updates["unidadDeEmpaque"] = unidad
-                updates["pesoPorUnidad"] = peso
-                updates["cantidadInicialUnidades"] = cantidadCajas
-            } else {
-                val totalKg = lote.currentQuantity
-                val unidades = totalKg / peso
-                updates["unidadDeEmpaque"] = unidad
-                updates["pesoPorUnidad"] = peso
-                updates["cantidadInicialUnidades"] = unidades
-            }
-
-            viewModel.convertLot(lote, updates)
+            viewModel.convertLot(lote, isRedondeo, isVariable, isPromedio, unidad, cantidadUnidades, pesoFijo)
             dialog.dismiss()
         }
 
         builder.create().show()
+    }
+
+    private fun updateCalculoResultado(dialogBinding: DialogLotConversionBinding, totalKg: Double) {
+        val cantidadUnidades = dialogBinding.editTextCantidadUnidades.text.toString().toIntOrNull() ?: 0
+        val unidadEmpaque = dialogBinding.editTextUnidadEmpaque.text.toString().trim().ifEmpty { "Unidad" }
+
+        dialogBinding.textViewCalculado.isVisible = false
+        if (cantidadUnidades <= 0 || totalKg <= 0 || dialogBinding.radioButtonVariable.isChecked) return
+
+        if (dialogBinding.radioButtonPromedio.isChecked) {
+            val promedio = totalKg / cantidadUnidades
+            dialogBinding.textViewCalculado.text = String.format(Locale.getDefault(), "= %.2f Kg promedio por %s", promedio, unidadEmpaque)
+            dialogBinding.textViewCalculado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+            dialogBinding.textViewCalculado.isVisible = true
+        } else if (dialogBinding.radioButtonRedondeo.isChecked) {
+            val pesoFijo = dialogBinding.editTextPesoFijo.text.toString().toDoubleOrNull() ?: 0.0
+            if (pesoFijo <= 0) return
+
+            if (cantidadUnidades == 1) {
+                dialogBinding.textViewCalculado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+                dialogBinding.textViewCalculado.text = String.format(Locale.getDefault(), "= 1 %s de %.2f Kg", unidadEmpaque, totalKg)
+            } else {
+                val cajasNormales = cantidadUnidades - 1
+                val totalEnCajasNormales = cajasNormales * pesoFijo
+                val pesoUltimaCaja = totalKg - totalEnCajasNormales
+
+                if (pesoUltimaCaja <= 0) {
+                    dialogBinding.textViewCalculado.text = "Incongruencia: El peso es mayor al disponible."
+                    dialogBinding.textViewCalculado.setTextColor(ContextCompat.getColor(requireContext(), R.color.negative_red))
+                } else {
+                    dialogBinding.textViewCalculado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+                    dialogBinding.textViewCalculado.text = String.format(Locale.getDefault(), "= %d %ss de %.2f Kg y 1 %s de %.2f Kg", cajasNormales, unidadEmpaque, pesoFijo, unidadEmpaque, pesoUltimaCaja)
+                }
+            }
+            dialogBinding.textViewCalculado.isVisible = true
+        }
     }
 
     override fun onDestroyView() {
@@ -169,3 +203,4 @@ class LotMigrationFragment : Fragment() {
         _binding = null
     }
 }
+

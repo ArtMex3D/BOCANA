@@ -8,7 +8,7 @@
     android:layout_marginTop="4dp"
     android:layout_marginEnd="8dp"
     android:layout_marginBottom="4dp"
-    app:cardBackgroundColor="#8304B1"
+    app:cardBackgroundColor="#57DBE2"
     app:cardCornerRadius="8dp">
 
     <LinearLayout
@@ -82,7 +82,7 @@
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Stock Ideal en C-04 (Kg)"
+                android:hint="Stock Mínimo en C-04 (Kg)"
                 app:boxStrokeColor="@color/Letras"
                 app:hintTextColor="@color/Letras">
 
@@ -93,6 +93,57 @@
                     android:inputType="numberDecimal"
                     android:textColor="@color/Letras"/>
             </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutStockMaximo"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Stock Máximo en C-04 (Kg)"
+                app:boxStrokeColor="@color/Letras"
+                app:hintTextColor="@color/Letras">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextStockMaximo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal"
+                    android:textColor="@color/Letras"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Prioridad de Reposición:"
+                android:textAppearance="?attr/textAppearanceCaption"
+                android:textColor="@color/Letras"/>
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupPrioridad"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:singleSelection="true"
+                app:chipSpacingHorizontal="4dp">
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPrioridadAlta"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ALTA"/>
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPrioridadMedia"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="MEDIA"/>
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipPrioridadBaja"
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="BAJA"/>
+            </com.google.android.material.chip.ChipGroup>
 
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/switchModoManual"
@@ -122,4 +173,3 @@
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
-

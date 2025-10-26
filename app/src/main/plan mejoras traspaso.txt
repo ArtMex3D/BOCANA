@@ -1,0 +1,205 @@
+Plan Detallado de Refactorización: Módulo Traspasos Inteligente v2.1 (Ajustado)
+
+Filosofía Central:
+
+Sugerencia Inteligente: La app sugiere proactivamente (basado en stockIdealC04 [mínimo], stockMaximoC04 [óptimo], liquidación de lotes por agotarse, lógica Rector/Regido por fechas), pero siempre es solo una sugerencia.
+
+Control Manual Total: El usuario puede anular cualquier sugerencia (cantidad, lotes FIFO, lotes por liquidar, lotes por categoría) en cualquier etapa (Planificación o Confirmación Final).
+
+Claridad Granel vs. Fijo: Se diferencia visualmente y funcionalmente el manejo de productos por KG (Granel) y por Unidades (Fijos) en la planificación, con campos específicos para el PDF en Granel.
+
+Liberación de Lotes Flexible: Los lotes se reservan (estadoTraspaso) durante la planificación para evitar conflictos. En la pantalla de Confirmación Final, el diálogo de selección de lotes debe mostrar todos los lotes disponibles (libres + los reservados por ese plan) para permitir la edición final. La confirmación o cancelación libera correctamente los lotes (quitando estadoTraspaso).
+
+Fase 0: Preparación del Modelo de Datos y Configuración
+
+Modelo Product.kt:
+
+Verificar/Mantener: stockIdealC04: Double (Representa el mínimo requerido en C-04).
+
+Añadir: stockMaximoC04: Double (Límite superior deseado en C-04).
+
+Añadir: prioridadDesabasto: String (Valores: "ALTA", "MEDIA", "BAJA"; Default: "MEDIA").
+
+Verificar/Mantener: categoria: String, productoRectorId: String?, requiresPackaging: Boolean, ordenTraspaso: Int, modoManualPDF: Boolean, espacioExtraPDF: Double.
+
+Pantalla Configuración (ConfiguracionTraspasoFragment.kt, ViewModel, item_configuracion_traspaso.xml):
+
+Añadir Inputs: En item_configuracion_traspaso.xml, dentro de expandable_layout, añadir:
+
+TextInputLayout + TextInputEditText para stockMaximoC04 (tipo numberDecimal).
+
+ChipGroup o Spinner para prioridadDesabasto con opciones "ALTA", "MEDIA", "BAJA".
+
+ViewModel: Actualizar updateProductConfig para guardar los nuevos campos.
+
+Confirmado: El Drag-and-Drop y guardado de ordenTraspaso se mantiene para el orden del PDF.
+
+Fase 1: Refactorización Inteligente - ViewModel Planificación (PlanificarTraspasoViewModel.kt)
+
+Carga de Datos:
+
+Cargar Products con todos los campos relevantes (incluyendo los nuevos).
+
+Cargar todos los lotes de MATRIZ (isDepleted == false y estadoTraspaso == null). Almacenarlos eficientemente (ej., Map<String, List<StockLot>>).
+
+Reescritura Lógica de Sugerencia (Función Principal generarSugerenciasInteligentes):
+
+Orden Inicial: Obtener productos ordenados por prioridadDesabasto (descendente) y luego ordenTraspaso (ascendente).
+
+Iteración por Producto:
+
+Identificar Tipo: Determinar si es Fijo, Granel, Rector, Regido.
+
+Necesidad Base: necesidadKg = max(0.0, stockIdealC04 - stockCongelador04) (Lo mínimo que falta).
+
+Espacio Disponible: espacioHastaMaximoKg = max(0.0, stockMaximoC04 - stockCongelador04).
+
+Sugerencia Base (FIFO):
+
+Fijo: Calcular unidadesNecesariasBase = ceil(necesidadKg / pesoUnidad). Desglosar lotes libres FIFO para cubrir unidadesNecesariasBase. Calcular kgSugeridosBase a partir de las unidades tomadas.
+
+Granel: kgSugeridosBase = min(necesidadKg, stockDisponibleMatriz). Desglosar lotes libres FIFO para cubrir kgSugeridosBase.
+
+Segunda Pasada (Liquidación Lotes por Agotar - Icono 💡):
+
+Buscar lotes libres del mismo producto en Matriz casi agotados (ej., currentQuantity < umbralLiquidacionKg o < 1.5 * pesoUnidad si es fijo).
+
+kgFaltantesParaMaximo = espacioHastaMaximoKg - kgSugeridosBase.
+
+Para cada lote por liquidar encontrado:
+
+kgParaLiquidar = lote.currentQuantity.
+
+Si kgParaLiquidar <= kgFaltantesParaMaximo:
+
+Añadir este lote al desglose (lotesParaTraspaso).
+
+Incrementar kgSugeridosTotal (kgSugeridosBase += kgParaLiquidar).
+
+Marcar el TraspasoSugerenciaItem con isSugerenciaLiquidacion = true.
+
+Actualizar kgFaltantesParaMaximo.
+
+Si no, pasar al siguiente lote por liquidar (no hay espacio suficiente).
+
+Tercera Pasada (Lógica Rector/Regido):
+
+Identificar meses/años de los lotes sugeridos para Rectores.
+
+Para productos Regidos sin sugerencia (kgSugeridosTotal == 0.0):
+
+Buscar lotes libres que coincidan en mes/año con su Rector.
+
+Si se encuentran, generar una sugerencia completa para el Regido (Necesidad Base + Liquidación) usando solo los lotes coincidentes.
+
+Finalizar Item: Calcular impactoStockMatriz, inicializar campos PDF Granel (cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = "Kg"), crear TraspasoSugerenciaItem.
+
+Manejo de Ediciones Manuales:
+
+Actualización Rector -> Regido: Implementar la función que re-ejecuta la "Tercera Pasada" cuando cambian los lotes de un Rector.
+
+recalcularSugerenciaPorUnidades: Para Fijos.
+
+recalcularSugerenciaPorKg (Nueva): Para Granel (si se habilita edición directa de KG).
+
+actualizarLotesManualmente / actualizarPorDesglloseManual: Recalcular sugerenciaKg y impactoStockMatriz basados en la selección/desglose manual. Poner lotesSeleccionadosManualmente = true en el TraspasoSugerenciaItem.
+
+Fase 2: Refactorización UI Planificación (PlanTraspasoAdapter.kt, item_plan_traspaso.xml)
+
+Layout (item_plan_traspaso.xml):
+
+Añadir LinearLayout (@+id/layout_granel_pdf_info) con visibilidad gone.
+
+Dentro, añadir EditText (@+id/edit_text_unidades_pdf) y AutoCompleteTextView (@+id/auto_complete_empaque_pdf).
+
+Añadir ImageView (@+id/icon_sugerencia_especial) con visibilidad gone.
+
+Adapter (PlanTraspasoAdapter.kt):
+
+En bind:
+
+Determinar tipo (Fijo/Granel).
+
+Si Fijo: layout_granel_pdf_info.visibility = View.GONE. Usar cantidadEditadaUnidades / unidadDeEmpaqueEditada. Listener en editTextCantidad llama a recalcularSugerenciaPorUnidades.
+
+Si Granel: layout_granel_pdf_info.visibility = View.VISIBLE. Mostrar sugerenciaKg (formateado, no editable o llama a recalcularSugerenciaPorKg). Poner "Kg" en textview_unidad_empaque. Poblar campos PDF (edit_text_unidades_pdf, auto_complete_empaque_pdf) y añadir listeners que solo guarden en el ViewModel (TraspasoSugerenciaItem) sin recalcular.
+
+Mostrar/ocultar icon_sugerencia_especial según item.isSugerenciaLiquidacion.
+
+addLoteView debe mostrar KG si es Granel.
+
+Fase 3: Refactorización Diálogo Selección/Desglose (Afecta Planificación y Confirmación)
+
+ViewModel (PlanificarTraspasoViewModel.kt y AjusteFinalTraspasoViewModel.kt):
+
+Modificar fetchLotesDisponibles (o crear una función similar en AjusteFinal) para que busque lotes estadoTraspaso == null O estadoTraspaso == ID_DEL_PLAN_ACTUAL. Esto es crucial para la edición en Confirmación.
+
+Adapter Diálogo (LoteCheckboxAdapter.kt):
+
+Modo Desglose:
+
+Si lote es Granel (ej., lote.unidadDeEmpaque == null): Mostrar currentQuantity en KG. Hint "KG". El Pair debe ser <StockLot, Double?>. Mostrar Double formateado.
+
+Si lote es Fijo: Lógica actual con unidades. El Pair puede ser <StockLot, Int?>.
+
+Dialog (SeleccionarLotesDialogFragment.kt):
+
+manualQuantities debe ser MutableMap<String, Double>.
+
+showEditQuantityDialog: Adaptar UI (título, hint, inputType) y validación según si el lote es Granel (KG) o Fijo (Unidades). Guardar Double en manualQuantities.
+
+onPositiveButtonClick: Si es modo desglose, crear DesgloseManualResult con Double.
+
+updateAdapterList: Pasar Pair<StockLot, Double?> al adapter.
+
+Layout Edición (dialog_edit_lote_cantidad.xml):
+
+El suffixText se ajustará programáticamente ("Kg" o Unidad).
+
+Fase 4: Refinar Confirmación Final
+
+ViewModel (AjusteFinalTraspasoViewModel.kt):
+
+Añadir isDesgloseManualConfirmado: Boolean a AjusteFinalItem. Ponerlo a true en actualizarLotesManualmente y actualizarPorDesglloseManual.
+
+En ejecutarTraspaso (Dentro de la Transacción):
+
+Al iterar itemsAjustados:
+
+Si item.isDesgloseManualConfirmado == true: Usar item.lotesConfirmados tal cual para descontar origen y crear/actualizar destino.
+
+Si item.isDesgloseManualConfirmado == false: Usar desglosarLotesParaCantidad (FIFO) sobre los lotes originalmente sugeridos o todos los disponibles (libres + reservados por este plan) para determinar de dónde sacar los item.cantidadConfirmadaKg.
+
+Liberación: Asegurarse de que transaction.update(loteOrigenRef, "estadoTraspaso", FieldValue.delete()) se ejecute para todos los lotes origen que fueron tocados (incluso si solo se usó una parte) y también para los lotes que estaban reservados por el plan pero finalmente no se usaron en la confirmación.
+
+Adapter (AjusteFinalTraspasoAdapter.kt):
+
+Confirmado: Ya muestra los KG tomados de cada lote. No requiere cambios mayores.
+
+Fase 5: PDF y Verificaciones Finales
+
+Generador PDF (TraspasoPdfGenerator.kt):
+
+Confirmado: Añadir botón "+ Fila Vacía" en PlanificarTraspasoFragment que llame a viewModel.agregarFilaVacia().
+
+Confirmado: agregarFilaVacia crea un TraspasoSugerenciaItem con product.name == "FILA_VACIA".
+
+Modificar: En createTraspasoPdf, si item.product.name == "FILA_VACIA", dibujar una fila en blanco.
+
+Modificar: Si item.product.modoManualPDF == true (generalmente para Granel):
+
+Usar item.cantidadEditadaUnidades y item.unidadDeEmpaqueEditada para la columna "CANTIDAD".
+
+Dejar "PESO C/U" en blanco.
+
+Poner totalKgForProduct en "TOTAL".
+
+Confirmado: El orden de los productos en el PDF se basa en la lista plan recibida, la cual debe venir ordenada por ordenTraspaso desde el ViewModel.
+
+Conservar:
+
+Impacto en Matriz: Se mantiene y se calcula correctamente en el ViewModel.
+
+Pruebas: Realizar pruebas exhaustivas de todos los flujos Fijo/Granel, sugerencias automáticas, liquidación, Rector/Regido, edición manual (cantidades y lotes), PDF, confirmación y cancelación.
+
+Este plan detallado integra todas tus especificaciones y aborda las inconsistencias actuales para lograr el "Traspaso Inteligente v2.1".

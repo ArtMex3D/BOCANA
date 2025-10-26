@@ -46,18 +46,20 @@ class AjusteFinalTraspasoAdapter(
 
             binding.editTextCantidadKg.setText(String.format("%.2f", item.cantidadConfirmadaKg))
 
+            // ***** INICIO DE LA SOLUCIÓN VISUAL MEJORADA *****
             val lotesInfo = item.lotesConfirmados.joinToString("\n") { desglose ->
+                val proveedor = desglose.loteProveedor ?: "S/P" // S/P = Sin Proveedor
                 val fecha = desglose.loteFecha?.let { lotDateFormat.format(it) } ?: "N/A"
-                "• Lote ($fecha): ${String.format("%.2f", desglose.cantidadATomarKg)} Kg"
+                "• ${proveedor} ($fecha): ${String.format("%.2f", desglose.cantidadATomarKg)} Kg"
             }
+            // ***** FIN DE LA SOLUCIÓN VISUAL MEJORADA *****
+
             binding.textViewLotesSeleccionados.text = if (lotesInfo.isNotEmpty()) lotesInfo else "No hay lotes asignados."
 
-            // Listener para el botón de editar lotes
             binding.buttonSeleccionarLotes.setOnClickListener {
                 listener.onEditarLotesClicked(item)
             }
 
-            // Listener para cuando el usuario termina de editar la cantidad
             val onEditDone = {
                 val newQty = binding.editTextCantidadKg.text.toString().toDoubleOrNull()
                 if (newQty != null && newQty != item.cantidadConfirmadaKg) {
@@ -92,3 +94,4 @@ class AjusteFinalTraspasoAdapter(
         }
     }
 }
+

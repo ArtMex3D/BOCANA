@@ -11,14 +11,35 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_traspaso_date"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="16dp"
-            app:icon="@android:drawable/ic_menu_today"
-            tools:text="Traspaso para: 24 / Julio / 2025" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_traspaso_date"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                app:icon="@android:drawable/ic_menu_today"
+                tools:text="Traspaso para: 24 / Julio / 2025" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_add_blank_row"
+                style="@style/Widget.MaterialComponents.Button.TextButton.Icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Fila Vacía"
+                app:icon="@drawable/add" />
+
+        </LinearLayout>
+
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler_view_plan_traspaso"
@@ -39,31 +60,16 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
-    <LinearLayout
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fab_create_plan"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:orientation="vertical"
-        android:gravity="end"
-        android:layout_margin="16dp">
-
-        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-            android:id="@+id/fab_generate_pdf"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Generar PDF"
-            app:icon="@drawable/pdf"
-            android:layout_marginBottom="8dp"/>
-
-        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-            android:id="@+id/fab_create_plan"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Crear Plan de Traspaso"
-            app:icon="@drawable/guardar"
-            app:backgroundTint="?attr/colorPrimary"
-            app:iconTint="?attr/colorOnPrimary"
-            android:textColor="?attr/colorOnPrimary"/>
-    </LinearLayout>
+        android:layout_margin="16dp"
+        android:text="Crear Plan de Traspaso"
+        app:backgroundTint="?attr/colorPrimary"
+        app:icon="@drawable/guardar"
+        app:iconTint="?attr/colorOnPrimary"
+        android:textColor="?attr/colorOnPrimary"/>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
