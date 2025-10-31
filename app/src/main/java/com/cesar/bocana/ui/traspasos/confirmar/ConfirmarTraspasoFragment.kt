@@ -86,24 +86,47 @@ class ConfirmarTraspasoFragment : Fragment() {
         binding.progressBarConfirmar.isVisible = true
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // 1. Obtener los detalles y productos asociados al plan
+                // ***** INICIO DE LA CORRECCIÓN (ORDEN) *****
+                // 1. Obtener los detalles ORDENADOS por el campo "orden"
                 val detallesSnapshot = Firebase.firestore.collection("traspasos_planificados")
-                    .document(plan.id).collection("detalles").get().await()
+                    .document(plan.id)
+                    .collection("detalles")
+                    .orderBy("orden") // <-- ¡AQUÍ ESTÁ EL ARREGLO DEL ORDEN!
+                    .get().await()
+                // ***** FIN DE LA CORRECCIÓN (ORDEN) *****
 
                 val sugerenciasParaPdf = detallesSnapshot.documents.mapNotNull { doc ->
                     val detalle = doc.toObject<com.cesar.bocana.data.model.DetalleTraspasoPlan>() ?: return@mapNotNull null
-                    val productSnapshot = Firebase.firestore.collection("products").document(detalle.productId).get().await()
-                    val product = productSnapshot.toObject<com.cesar.bocana.data.model.Product>() ?: return@mapNotNull null
 
-                    TraspasoSugerenciaItem(
-                        product = product,
-                        sugerenciaKg = detalle.sugerenciaKg,
-                        lotesParaTraspaso = detalle.lotesSugeridos,
-                        impactoStockMatriz = 0.0, // No es relevante para la reimpresión
-                        incluidoEnPdf = true, // Todos los detalles guardados se incluyen
-                        cantidadEditadaUnidades = detalle.sugerenciaUnidades,
-                        unidadDeEmpaqueEditada = detalle.unidadDeEmpaque
-                    )
+                    // ***** INICIO DE LA CORRECCIÓN (FILA VACÍA EN PDF) *****
+                    if (detalle.productName == "FILA_VACIA") {
+                        // Si es una fila vacía, crear un item "dummy" y no buscar el producto
+                        TraspasoSugerenciaItem(
+                            product = com.cesar.bocana.data.model.Product(id = detalle.productId, name = "FILA_VACIA"),
+                            sugerenciaKg = 0.0,
+                            lotesParaTraspaso = emptyList(),
+                            impactoStockMatriz = 0.0,
+                            incluidoEnPdf = true,
+                            cantidadEditadaUnidades = 0,
+                            unidadDeEmpaqueEditada = ""
+                        )
+                    } else {
+                        // Si es un producto normal, buscarlo en la base de datos
+                        val productSnapshot = Firebase.firestore.collection("products").document(detalle.productId).get().await()
+                        // Si el producto no se encuentra, AHORA sí lo descartamos
+                        val product = productSnapshot.toObject<com.cesar.bocana.data.model.Product>() ?: return@mapNotNull null
+
+                        TraspasoSugerenciaItem(
+                            product = product,
+                            sugerenciaKg = detalle.sugerenciaKg,
+                            lotesParaTraspaso = detalle.lotesSugeridos,
+                            impactoStockMatriz = 0.0, // No es relevante para la reimpresión
+                            incluidoEnPdf = true, // Todos los detalles guardados se incluyen
+                            cantidadEditadaUnidades = detalle.sugerenciaUnidades,
+                            unidadDeEmpaqueEditada = detalle.unidadDeEmpaque
+                        )
+                    }
+                    // ***** FIN DE LA CORRECCIÓN (FILA VACÍA EN PDF) *****
                 }
 
                 if (sugerenciasParaPdf.isEmpty()) {
@@ -128,7 +151,6 @@ class ConfirmarTraspasoFragment : Fragment() {
             }
         }
     }
-
 
     private fun mostrarDialogoDeCancelacion(plan: TraspasoPlanificado) {
         AlertDialog.Builder(requireContext())

@@ -47,8 +47,20 @@ class ConfirmarTraspasoAdapter(
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val detallesSnapshot = Firebase.firestore.collection("traspasos_planificados").document(plan.id).collection("detalles").get().await()
-                    val productos = detallesSnapshot.documents.mapNotNull { it.getString("productName") }
+                    // ***** INICIO DE LA CORRECCIÓN (FILA VACÍA EN LISTA) *****
+                    // Pedir los detalles ordenados por si acaso, aunque aquí no es crítico
+                    val detallesSnapshot = Firebase.firestore.collection("traspasos_planificados")
+                        .document(plan.id)
+                        .collection("detalles")
+                        .orderBy("orden") // Usar el orden que ya guardamos
+                        .get().await()
+
+                    // Añadir .filter { it != "FILA_VACIA" }
+                    val productos = detallesSnapshot.documents
+                        .mapNotNull { it.getString("productName") }
+                        .filter { it != "FILA_VACIA" }
+                    // ***** FIN DE LA CORRECCIÓN (FILA VACÍA EN LISTA) *****
+
                     withContext(Dispatchers.Main) {
                         if (productos.isNotEmpty()) {
                             binding.textViewProductsLabel.text = "Productos a mover:"

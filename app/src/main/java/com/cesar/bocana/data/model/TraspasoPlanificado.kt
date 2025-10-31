@@ -32,5 +32,6 @@ data class DetalleTraspasoPlan(
     val sugerenciaKg: Double = 0.0,
     val sugerenciaUnidades: Int = 0,
     val unidadDeEmpaque: String = "",
-    val lotesSugeridos: @RawValue List<LoteDesglosado> = emptyList()
+    val lotesSugeridos: @RawValue List<LoteDesglosado> = emptyList(),
+    val orden: Int = 0
 ) : Parcelable
