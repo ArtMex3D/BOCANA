@@ -232,94 +232,146 @@ class PlanificarTraspasoViewModel : ViewModel() {
         return productsOrdenados.mapNotNull { sugerenciasMutables[it.id] }
     }
 
+    /**
+     * Lógica de sugerencia corregida según "Opción A".
+     * 1. Cubre el MÍNIMO (stockIdealC04).
+     * 2. Revisa si el *resto del primer lote* cabe en el *espacio extra hasta el MÁXIMO* (stockMaximoC04).
+     * 3. Si cabe, lo sugiere como liquidación (💡). Si no, se queda con la sugerencia base.
+     */
     private fun generarSugerenciaBaseYLiquidacion(
         product: Product,
         lotesLibresDisponibles: List<StockLot>
-    ): Pair<TraspasoSugerenciaItem, List<LoteDesglosado>> { // Devuelve la sugerencia y la lista de LoteDesglosado usados
+    ): Pair<TraspasoSugerenciaItem, List<LoteDesglosado>> {
 
-        val necesidadKgBase = max(0.0, product.stockMaximoC04 - product.stockCongelador04)
+        // --- INICIO DE LA CORRECCIÓN DE LÓGICA (Opción A) ---
+        // 1. Calcular la "Necesidad Base" para llegar al MÍNIMO (stockIdealC04)
+        val necesidadKgBase = max(0.0, product.stockIdealC04 - product.stockCongelador04)
+
+        // 2. Calcular el "Espacio Total" disponible hasta el MÁXIMO (stockMaximoC04)
         val espacioHastaMaximoKg = max(0.0, product.stockMaximoC04 - product.stockCongelador04)
-        val kgFaltantesParaMaximoInicial = espacioHastaMaximoKg
+        // --- FIN DE LA CORRECCIÓN DE LÓGICA ---
 
-        val lotesUsadosTemporalmente = mutableSetOf<String>() // IDs
         var isLiquidacionAplicada = false
         var kgSugeridosTotal = 0.0
         var lotesDesglosadosFinal = mutableListOf<LoteDesglosado>()
 
         val esFijo = !product.requiresPackaging
-        val unidadDefault = if(esFijo) product.unit else "Kg" // Kg para granel, unidad del producto para fijo
-        val pesoUnidadDefault = if(esFijo) product.labelConfig?.get("weightPerUnit") as? Double ?: 1.0 else 1.0
+        // Fallback por si `labelConfig` no está, pero `unit` sí.
+        val unidadDefault = if(esFijo) product.unit.takeIf { !it.isNullOrBlank() } ?: "Unidad" else "Kg"
+        // Fallback para el peso (usado si el lote no tiene info)
+        val pesoUnidadFallback = if(esFijo) product.labelConfig?.get("weightPerUnit") as? Double ?: 1.0 else 1.0
 
+
+        // --- PASO 1: CUBRIR LA "SUGERENCIA BASE" (EL MÍNIMO) ---
         if (necesidadKgBase > stockEpsilon) {
             val (desgloseBase, kgTomadosBase) = if (esFijo) {
-                val unidadesNecesariasBase = ceil(necesidadKgBase / pesoUnidadDefault).toInt()
+                // ***** INICIO DE LA CORRECCIÓN DEL BUG *****
+                // El problema estaba aquí. Usaba `pesoUnidadDefault` (que era 1.0)
+                // La lógica correcta (la "antigua") es usar `convertirKgAUnidades`
+                // que mira los lotes disponibles para saber el peso por unidad.
+                Log.d(TAG, "Calculando [FIJO] para ${product.name}. Necesidad Base: ${String.format("%.2f", necesidadKgBase)} Kg")
+                // 1. Convertir KG a Unidades basándonos en los LOTES
+                val (unidadesNecesariasBase, _) = convertirKgAUnidades(necesidadKgBase, lotesLibresDisponibles)
+                Log.d(TAG, " -> Convertido a $unidadesNecesariasBase unidades (basado en lotes)")
+
+                // 2. Desglosar usando esas unidades
                 desglosarLotesParaCantidadUnidades(unidadesNecesariasBase, lotesLibresDisponibles)
+                // ***** FIN DE LA CORRECCIÓN DEL BUG *****
             } else {
+                // Lógica de Granel (esta estaba bien)
+                Log.d(TAG, "Calculando [GRANEL] para ${product.name}. Necesidad Base: ${String.format("%.2f", necesidadKgBase)} Kg")
                 desglosarLotesParaCantidadKg(necesidadKgBase, lotesLibresDisponibles)
             }
             lotesDesglosadosFinal.addAll(desgloseBase)
             kgSugeridosTotal = kgTomadosBase
-            lotesUsadosTemporalmente.addAll(desgloseBase.map { it.loteId })
+            Log.d(TAG, " -> Paso 1 completado. KG Tomados: ${String.format("%.2f", kgSugeridosTotal)}")
         }
 
-        var kgFaltantesParaMaximoActual = kgFaltantesParaMaximoInicial - kgSugeridosTotal
+        // --- PASO 2: INTENTAR "LIQUIDACIÓN" SI QUEDA ESPACIO HASTA EL MÁXIMO ---
 
-        if (kgFaltantesParaMaximoActual > stockEpsilon) {
-            val lotesLibresNoUsados = lotesLibresDisponibles.filter { it.id !in lotesUsadosTemporalmente }
+        // Calcular cuánto espacio queda *después* de sugerir el mínimo
+        var kgFaltantesParaMaximoActual = max(0.0, espacioHastaMaximoKg - kgSugeridosTotal)
 
-            for (lote in lotesLibresNoUsados) {
-                val kgParaLiquidar: Double
-                val umbral: Double
-                val pesoUnidadLote = lote.pesoPorUnidad ?: pesoUnidadDefault // Usar el del lote si existe, sino el default
-                if (esFijo && pesoUnidadLote > 0) {
-                    umbral = umbralLiquidacionFijoUnidades * pesoUnidadLote
-                    kgParaLiquidar = if (lote.currentQuantity < umbral) lote.currentQuantity else 0.0
-                } else {
-                    umbral = umbralLiquidacionGranelKg
-                    kgParaLiquidar = if (lote.currentQuantity < umbral) lote.currentQuantity else 0.0
-                }
+        // Solo intentar liquidar si hay espacio extra Y si ya tomamos algo en el Paso 1
+        if (kgFaltantesParaMaximoActual > stockEpsilon && lotesDesglosadosFinal.isNotEmpty()) {
 
-                if (kgParaLiquidar > stockEpsilon && kgParaLiquidar <= (kgFaltantesParaMaximoActual + stockEpsilon) ) {
-                    Log.d(TAG, "💡 Sugiriendo liquidación para ${product.name}, lote ${lote.id.takeLast(4)} (${String.format("%.2f", kgParaLiquidar)} Kg)")
-                    val unidadesLiquidar = if (esFijo && pesoUnidadLote > 0) floor(kgParaLiquidar / pesoUnidadLote) else null
+            // Lógica del usuario: "solo ese lote el primero siempre sera en base al primer lote"
+            val primerDesglose = lotesDesglosadosFinal.first()
+            val primerLoteUsado = primerDesglose.lote // Objeto StockLot completo
+            val kgTomadosDelPrimerLote = primerDesglose.cantidadATomarKg
 
-                    lotesDesglosadosFinal.add(
-                        LoteDesglosado(
-                            loteId = lote.id, cantidadATomarKg = kgParaLiquidar, cantidadATomarUnidades = unidadesLiquidar?.toDouble(),
-                            lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
-                            loteUnidad = lote.unidadDeEmpaque, lotePesoPorUnidad = lote.pesoPorUnidad
-                        )
+            if (primerLoteUsado != null) {
+                val kgRestantesEnPrimerLote = primerLoteUsado.currentQuantity - kgTomadosDelPrimerLote
+                val kgParaLiquidar = kgRestantesEnPrimerLote // Lo que queda de ese lote
+
+                // REGLA DE ORO: ¿Lo que queda del lote cabe en el espacio extra?
+                if (kgParaLiquidar > stockEpsilon && kgParaLiquidar <= (kgFaltantesParaMaximoActual + stockEpsilon)) {
+                    // SÍ CABE.
+                    Log.d(TAG, "💡 Sugiriendo liquidación para ${product.name}, lote ${primerLoteUsado.id.takeLast(4)} (${String.format("%.2f", kgParaLiquidar)} Kg extra)")
+
+                    val nuevaCantidadKg = primerDesglose.cantidadATomarKg + kgParaLiquidar
+                    var nuevasUnidades: Double? = primerDesglose.cantidadATomarUnidades
+
+                    // Actualizar unidades si es fijo
+                    if (esFijo && primerLoteUsado.pesoPorUnidad != null && primerLoteUsado.pesoPorUnidad > 0) {
+                        // Usar floor porque estamos liquidando, no cubriendo necesidad
+                        nuevasUnidades = floor(nuevaCantidadKg / primerLoteUsado.pesoPorUnidad)
+                    }
+
+                    // Crear una nueva instancia actualizada
+                    val desgloseActualizado = primerDesglose.copy(
+                        cantidadATomarKg = nuevaCantidadKg,
+                        cantidadATomarUnidades = nuevasUnidades
                     )
-                    lotesUsadosTemporalmente.add(lote.id)
+
+                    // Reemplazar el objeto antiguo en la lista con el nuevo
+                    lotesDesglosadosFinal[0] = desgloseActualizado
+
+                    // Actualizar totales
                     kgSugeridosTotal += kgParaLiquidar
-                    kgFaltantesParaMaximoActual -= kgParaLiquidar
                     isLiquidacionAplicada = true
-                    break // Solo liquidamos un lote por producto por pasada
+
+                } else if (kgParaLiquidar > stockEpsilon) {
+                    // NO CABE. (Ejemplo: 246 Kg total vs 245 Kg max)
+                    Log.d(TAG, "Liquidación de lote ${primerLoteUsado.id.takeLast(4)} no sugerida. " +
+                            "Restante (${String.format("%.2f", kgParaLiquidar)} Kg) " +
+                            "excede espacio extra (${String.format("%.2f", kgFaltantesParaMaximoActual)} Kg).")
                 }
             }
         }
 
-        val unidadesFinales = if (esFijo) {
-            ceil(kgSugeridosTotal / pesoUnidadDefault).toInt()
+        // --- PASO 3: RE-DESGLOSAR PARA FIJOS ---
+        // Si es Fijo, recalculamos las unidades totales y re-desglosamos para asegurar KGs correctos
+        // Esto es crucial si la "Liquidación" (Paso 2) cambió los KGs
+        val unidadesFinales: Int
+        if (esFijo) {
+            // Usar el peso de referencia del primer lote, o el fallback del producto
+            val pesoRef = lotesDesglosadosFinal.firstNotNullOfOrNull { it.lotePesoPorUnidad?.takeIf { p -> p > 0 } } ?: pesoUnidadFallback
+            // Usar ceil para asegurar que cubrimos la cantidad de KG total (que puede incluir liquidación)
+            unidadesFinales = ceil(kgSugeridosTotal / pesoRef).toInt()
+            Log.d(TAG, "Paso 3 [FIJO] ${product.name}: KG Totales ${String.format("%.2f", kgSugeridosTotal)} / PesoRef ${String.format("%.2f", pesoRef)} = $unidadesFinales unidades (ceil)")
+
+
+            // Si la cantidad de unidades es > 0, re-desglosar para obtener los KG exactos
+            if (unidadesFinales > 0) {
+                // Usamos *todos* los lotes libres, porque la liquidación podría haber requerido más de lo que cabía en el primer lote
+                val (desgloseFinalReal, kgTomadosFinalReal) = desglosarLotesParaCantidadUnidades(unidadesFinales, lotesLibresDisponibles)
+                lotesDesglosadosFinal = desgloseFinalReal.toMutableList()
+                kgSugeridosTotal = kgTomadosFinalReal
+                Log.d(TAG, " -> Re-desglose por $unidadesFinales unidades dio ${String.format("%.2f", kgSugeridosTotal)} Kg reales")
+            }
         } else {
-            0
+            unidadesFinales = 0 // 0 para granel
         }
 
-        // Re-desglosar para Fijos si se aplicó liquidación para asegurar unidades enteras
-        if (esFijo && isLiquidacionAplicada && kgSugeridosTotal > stockEpsilon) {
-            val (desgloseFinalReal, kgTomadosFinalReal) = desglosarLotesParaCantidadUnidades(unidadesFinales, lotesLibresDisponibles.filter { it.id in lotesUsadosTemporalmente })
-            lotesDesglosadosFinal = desgloseFinalReal.toMutableList()
-            kgSugeridosTotal = kgTomadosFinalReal
-        }
-
-
+        // --- PASO 4: CREAR EL ITEM FINAL ---
         val itemFinal = TraspasoSugerenciaItem(
             product = product,
             sugerenciaKg = kgSugeridosTotal,
             lotesParaTraspaso = lotesDesglosadosFinal.sortedBy { it.loteFecha },
             impactoStockMatriz = product.stockMatriz - kgSugeridosTotal,
             incluidoEnPdf = kgSugeridosTotal > stockEpsilon,
-            cantidadEditadaUnidades = unidadesFinales,
+            cantidadEditadaUnidades = unidadesFinales, // Usar las unidades finales calculadas
             unidadDeEmpaqueEditada = if (esFijo) lotesDesglosadosFinal.firstNotNullOfOrNull { it.loteUnidad } ?: unidadDefault else "Kg",
             lotesSeleccionadosManualmente = null, // Inicialmente no es manual
             isRecalculating = false,
@@ -328,6 +380,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
         // Devolver la lista final de LoteDesglosado que realmente se usaron
         return Pair(itemFinal, lotesDesglosadosFinal)
     }
+
 
     fun recalcularSugerenciaPorUnidades(productId: String, cantidadEnUnidades: Int) {
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
@@ -361,15 +414,44 @@ class PlanificarTraspasoViewModel : ViewModel() {
             }
         }
     }
-
     fun recalcularSugerenciaPorKg(productId: String, cantidadEnKg: Double) {
         // Esta función podría habilitarse si quieres permitir editar KG para Granel
         // La lógica sería similar a la de unidades, pero llamando a desglosarLotesParaCantidadKg
-        Log.w(TAG, "recalcularSugerenciaPorKg no está implementada actualmente.")
-        setRecalculatingState(productId, false) // Asegurarse de quitar el flag
+        val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
+        if (!sugerenciaAfectada.product.requiresPackaging) {
+            Log.w(TAG, "recalcularSugerenciaPorKg llamado para producto Fijo ${sugerenciaAfectada.product.name}")
+            return
+        }
+        setRecalculatingState(productId, true)
+        viewModelScope.launch {
+            val lotesDisponibles = allLotesLibresMatriz[productId] ?: emptyList()
+            val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadKg(cantidadEnKg, lotesDisponibles)
+            // Para granel, la unidad siempre es "Kg" y las unidades "0" (a menos que se edite en PDF)
+
+            _uiState.update { state ->
+                val nuevasSugerencias = state.sugerencias.map {
+                    if (it.product.id == productId) {
+                        val pdfUnidades = it.cantidadEditadaUnidades // Mantener las unidades de PDF
+                        val pdfUnidad = it.unidadDeEmpaqueEditada // Mantener la unidad de PDF
+                        it.copy(
+                            sugerenciaKg = kgRealesTomados,
+                            lotesParaTraspaso = lotesDesglosados,
+                            impactoStockMatriz = it.product.stockMatriz - kgRealesTomados,
+                            cantidadEditadaUnidades = pdfUnidades, // Mantener
+                            unidadDeEmpaqueEditada = pdfUnidad, // Mantener
+                            isRecalculating = false,
+                            lotesSeleccionadosManualmente = null,
+                            isSugerenciaLiquidacion = false
+                        )
+                    } else { it }
+                }
+                guardarEnCache(nuevasSugerencias)
+                state.copy(sugerencias = nuevasSugerencias)
+            }
+        }
     }
 
-    // --- FUNCIÓN MODIFICADA ---
+
     fun actualizarLotesManualmentePorIds(productId: String, loteIdsSeleccionados: List<String>) {
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
         setRecalculatingState(productId, true)
@@ -390,9 +472,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
             }
         }
     }
-    // --- FIN FUNCIÓN MODIFICADA ---
 
-    // Función auxiliar SÓLO para cargar lotes LIBRES por ID
     private suspend fun fetchLotesLibresCompletos(loteIds: List<String>): List<StockLot> {
         if (loteIds.isEmpty()) return emptyList()
         return loteIds.chunked(30).flatMap { chunk ->
@@ -411,11 +491,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
-    // --- FUNCIÓN OBSOLETA (será reemplazada por la lógica común) ---
-    // fun actualizarLotesManualmente(productId: String, lotesSeleccionadosManualmente: List<StockLot>) { ... }
-    // --- FIN FUNCIÓN OBSOLETA ---
-
-    // --- FUNCIÓN MODIFICADA Y CENTRALIZADA ---
     fun actualizarPorDesgloseManual(productId: String, desgloseManualUsuario: List<DesgloseManualResult>) {
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
         setRecalculatingState(productId, true)
@@ -518,9 +593,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
             }
         }
     }
-    // --- FIN FUNCIÓN MODIFICADA ---
 
-    // --- NUEVA FUNCIÓN PRIVADA PARA ACTUALIZAR ESTADO (CHECKBOX) ---
     private fun actualizarEstadoConLotesManuales(
         sugerenciaOriginal: TraspasoSugerenciaItem,
         lotesSeleccionadosCompletos: List<StockLot> // Lotes seleccionados por checkbox
@@ -528,22 +601,28 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val esFijo = !sugerenciaOriginal.product.requiresPackaging
         // Usar la cantidad que el usuario YA TENÍA (editada o sugerida) como base
         val cantidadUnidadesNecesarias = if (esFijo) sugerenciaOriginal.cantidadEditadaUnidades else 0
+        // **CORRECCIÓN**: Usar la cantidad de KG solo si es Granel
         val cantidadKgNecesarios = if (!esFijo) sugerenciaOriginal.sugerenciaKg else 0.0
 
         val (lotesDesglosados, kgRealesTomados) = if (esFijo && cantidadUnidadesNecesarias > 0) {
+            Log.d(TAG, "actualizarEstadoConLotesManuales (Fijo): Desglosando $cantidadUnidadesNecesarias unidades en ${lotesSeleccionadosCompletos.size} lotes")
             desglosarLotesParaCantidadUnidades(cantidadUnidadesNecesarias, lotesSeleccionadosCompletos)
         } else if (!esFijo && cantidadKgNecesarios > 0) {
+            Log.d(TAG, "actualizarEstadoConLotesManuales (Granel): Desglosando ${String.format("%.2f", cantidadKgNecesarios)} Kg en ${lotesSeleccionadosCompletos.size} lotes")
             desglosarLotesParaCantidadKg(cantidadKgNecesarios, lotesSeleccionadosCompletos)
         } else {
+            Log.d(TAG, "actualizarEstadoConLotesManuales: Cantidad necesaria es 0, resultado vacío.")
             Pair(emptyList<LoteDesglosado>(), 0.0) // Si no hay cantidad necesaria, el resultado es vacío
         }
+        Log.d(TAG, " -> Desglose manual (checkbox) dio ${String.format("%.2f", kgRealesTomados)} Kg reales")
+
 
         // Recalcular unidades reales tomadas si es fijo
-        val unidadesRealesTomadas = if (esFijo && kgRealesTomados > 0) {
+        val unidadesRealesTomadas = if (esFijo) {
             val pesoUnidadRef = lotesSeleccionadosCompletos.firstNotNullOfOrNull { it.pesoPorUnidad?.takeIf { p -> p > 0 } } ?: 1.0
             ceil(kgRealesTomados / pesoUnidadRef).toInt()
         } else {
-            if (esFijo) 0 else sugerenciaOriginal.cantidadEditadaUnidades // Mantener si granel
+            0 // Granel siempre es 0 unidades (a menos que se edite PDF)
         }
 
         val nuevaUnidad = lotesSeleccionadosCompletos.firstNotNullOfOrNull { it.unidadDeEmpaque?.takeIf { u -> u.isNotBlank() } }
@@ -560,24 +639,28 @@ class PlanificarTraspasoViewModel : ViewModel() {
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == sugerenciaOriginal.product.id) it.copy(
-                    lotesSeleccionadosManualmente = lotesSeleccionadosCompletos, // Guardar la lista COMPLETA seleccionada
-                    lotesParaTraspaso = lotesDesglosados.sortedBy { d -> d.loteFecha ?: Date(0) }, // Guardar el desglose REAL
-                    sugerenciaKg = kgRealesTomados, // Actualizar KG REALES
-                    impactoStockMatriz = it.product.stockMatriz - kgRealesTomados,
-                    cantidadEditadaUnidades = unidadesRealesTomadas, // Actualizar unidades REALES
-                    unidadDeEmpaqueEditada = nuevaUnidad,
-                    isRecalculating = false, // Quitar estado recalculando
-                    isSugerenciaLiquidacion = false // Selección manual anula sugerencia de liquidación
-                ) else it
+                if (it.product.id == sugerenciaOriginal.product.id) {
+                    // **CORRECCIÓN**: Mantener unidades PDF para granel
+                    val pdfUnidades = if (esFijo) 0 else it.cantidadEditadaUnidades
+                    val pdfUnidad = if (esFijo) nuevaUnidad else it.unidadDeEmpaqueEditada
+
+                    it.copy(
+                        lotesSeleccionadosManualmente = lotesSeleccionadosCompletos, // Guardar la lista COMPLETA seleccionada
+                        lotesParaTraspaso = lotesDesglosados.sortedBy { d -> d.loteFecha ?: Date(0) }, // Guardar el desglose REAL
+                        sugerenciaKg = kgRealesTomados, // Actualizar KG REALES
+                        impactoStockMatriz = it.product.stockMatriz - kgRealesTomados,
+                        cantidadEditadaUnidades = if(esFijo) unidadesRealesTomadas else pdfUnidades, // Actualizar unidades REALES (o mantener PDF)
+                        unidadDeEmpaqueEditada = if(esFijo) nuevaUnidad else pdfUnidad, // Actualizar unidad (o mantener PDF)
+                        isRecalculating = false, // Quitar estado recalculando
+                        isSugerenciaLiquidacion = false // Selección manual anula sugerencia de liquidación
+                    )
+                } else it
             }
             guardarEnCache(nuevasSugerencias) // Guardar en caché el nuevo estado
             state.copy(isLoading = false, sugerencias = nuevasSugerencias, snackbarMessage = msg)
         }
     }
-    // --- FIN NUEVA FUNCIÓN PRIVADA (CHECKBOX) ---
 
-    // --- NUEVA FUNCIÓN PRIVADA PARA ACTUALIZAR ESTADO (DESGLOSE MANUAL) ---
     private fun actualizarEstadoConDesgloseManual(
         sugerenciaOriginal: TraspasoSugerenciaItem,
         lotesSeleccionadosCompletos: List<StockLot>, // Lotes usados en el desglose
@@ -587,25 +670,30 @@ class PlanificarTraspasoViewModel : ViewModel() {
         unidadFinalCalculada: String,
         mensaje: String
     ) {
+        val esFijo = !sugerenciaOriginal.product.requiresPackaging
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == sugerenciaOriginal.product.id) it.copy(
-                    lotesSeleccionadosManualmente = lotesSeleccionadosCompletos, // Guardar lotes USADOS
-                    lotesParaTraspaso = lotesDesglosadosCalculados.sortedBy { ld -> ld.loteFecha ?: Date(0) }, // Guardar desglose calculado
-                    sugerenciaKg = totalKgCalculado, // KG totales calculados
-                    impactoStockMatriz = it.product.stockMatriz - totalKgCalculado,
-                    cantidadEditadaUnidades = totalUnidadesCalculadas, // Unidades totales calculadas (si aplica)
-                    unidadDeEmpaqueEditada = unidadFinalCalculada, // Unidad final calculada
-                    isRecalculating = false, // Quitar estado
-                    isSugerenciaLiquidacion = false // Desglose manual anula liquidación
-                ) else it
+                if (it.product.id == sugerenciaOriginal.product.id) {
+                    // **CORRECCIÓN**: Mantener unidades PDF para granel
+                    val pdfUnidades = if (esFijo) 0 else it.cantidadEditadaUnidades
+                    val pdfUnidad = if (esFijo) unidadFinalCalculada else it.unidadDeEmpaqueEditada
+
+                    it.copy(
+                        lotesSeleccionadosManualmente = lotesSeleccionadosCompletos, // Guardar lotes USADOS
+                        lotesParaTraspaso = lotesDesglosadosCalculados.sortedBy { ld -> ld.loteFecha ?: Date(0) }, // Guardar desglose calculado
+                        sugerenciaKg = totalKgCalculado, // KG totales calculados
+                        impactoStockMatriz = it.product.stockMatriz - totalKgCalculado,
+                        cantidadEditadaUnidades = if (esFijo) totalUnidadesCalculadas else pdfUnidades, // Unidades totales calculadas (o mantener PDF)
+                        unidadDeEmpaqueEditada = if (esFijo) unidadFinalCalculada else pdfUnidad, // Unidad final calculada (o mantener PDF)
+                        isRecalculating = false, // Quitar estado
+                        isSugerenciaLiquidacion = false // Desglose manual anula liquidación
+                    )
+                } else it
             }
             guardarEnCache(nuevasSugerencias)
             state.copy(isLoading = false, sugerencias = nuevasSugerencias, snackbarMessage = mensaje)
         }
     }
-    // --- FIN NUEVA FUNCIÓN PRIVADA (DESGLOSE MANUAL) ---
-
 
     private fun setRecalculatingState(productId: String, isRecalculating: Boolean) {
         _uiState.update { currentState ->
@@ -616,15 +704,79 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Esta es la función "antigua" que pegaste.
+     * La renombro y la dejo aquí para referencia, pero la lógica
+     * se ha integrado en `generarSugerenciaBaseYLiquidacion`.
+     * Las funciones auxiliares `desglosarLotesParaCantidadKg`,
+     * `desglosarLotesParaCantidadUnidades`, y `convertirKgAUnidades`
+     * se mantienen al final del archivo.
+     */
+    private fun generarSugerenciaInicial_OLD(product: Product, lotesDelProducto: List<StockLot>): TraspasoSugerenciaItem {
+        // 1. Calcular necesidad y sugerencia base en KILOS
+        val necesidadKg = product.stockIdealC04 - product.stockCongelador04
+        val disponibleKg = lotesDelProducto.sumOf { it.currentQuantity }
+        val sugerenciaKg = max(0.0, min(necesidadKg, disponibleKg))
+        val incluido = sugerenciaKg > 0.0
+
+        // 2. Comprobar si este producto se maneja por unidades (es "Fijo")
+        val tieneUnidadesDeEmpaque = lotesDelProducto.any { !it.unidadDeEmpaque.isNullOrBlank() && it.pesoPorUnidad != null && it.pesoPorUnidad > 0 }
+
+        if (tieneUnidadesDeEmpaque && sugerenciaKg > 0) {
+            // --- LÓGICA PARA "FIJOS" (Cajas, Piezas, etc.) ---
+            // Esta es la lógica que tenías y que funcionaba.
+
+            // 3. Convertir la necesidad (105kg) en unidades (7 cajas)
+            val (cantidadEnUnidades, unidad) = convertirKgAUnidades(sugerenciaKg, lotesDelProducto)
+
+            // 4. Buscar lotes para cumplir con las 7 cajas
+            val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDelProducto)
+
+            // 5. Devolver la sugerencia basada en UNIDADES
+            return TraspasoSugerenciaItem(
+                product,
+                kgTomados, // Kilos reales tomados (ej. 7 cajas * 15kg = 105kg)
+                lotesDesglosados,
+                product.stockMatriz - kgTomados,
+                incluidoEnPdf = incluido,
+                cantidadEditadaUnidades = cantidadEnUnidades, // 7
+                unidadDeEmpaqueEditada = unidad, // "Cajas"
+                isSugerenciaLiquidacion = false // Añadido flag faltante
+            )
+        } else {
+            // --- LÓGICA PARA "GRANEL" (Solo Kilos) ---
+            // Esta es la lógica que "arreglamos" y que ahora funciona.
+
+            // 3. Buscar lotes para cumplir con los 105kg
+            val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadKg(sugerenciaKg, lotesDelProducto)
+
+            // 4. Devolver la sugerencia basada en KILOS
+            return TraspasoSugerenciaItem(
+                product,
+                kgTomados, // Kilos reales tomados (ej. 105kg)
+                lotesDesglosados,
+                product.stockMatriz - kgTomados,
+                incluidoEnPdf = incluido,
+                cantidadEditadaUnidades = 0, // 0 unidades
+                unidadDeEmpaqueEditada = "Kg", // La unidad es "Kg"
+                isSugerenciaLiquidacion = false // Añadido flag faltante
+            )
+        }
+    }
+
+    /**
+     * Función auxiliar para productos "GRANEL".
+     * Toma una cantidad de KG y busca lotes para cubrirlos (FIFO).
+     */
     private fun desglosarLotesParaCantidadKg(
-        cantidadNecesaria: Double,
+        cantidadNecesariaKg: Double,
         lotesDisponibles: List<StockLot>
     ): Pair<List<LoteDesglosado>, Double> {
         val lotesDesglosados = mutableListOf<LoteDesglosado>()
         var kgAcumulados = 0.0
-        var kgRestantes = cantidadNecesaria
+        var kgRestantes = cantidadNecesariaKg
 
-        for (lote in lotesDisponibles.sortedBy { it.receivedAt }) {
+        for (lote in lotesDisponibles) { // Ya vienen ordenados por fecha
             if (kgRestantes <= stockEpsilon) break
 
             val aTomarDeEsteLote = min(lote.currentQuantity, kgRestantes)
@@ -632,9 +784,14 @@ class PlanificarTraspasoViewModel : ViewModel() {
             if (aTomarDeEsteLote > stockEpsilon) {
                 lotesDesglosados.add(
                     LoteDesglosado(
-                        loteId = lote.id, cantidadATomarKg = aTomarDeEsteLote, cantidadATomarUnidades = null,
-                        lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
-                        loteUnidad = lote.unidadDeEmpaque, lotePesoPorUnidad = lote.pesoPorUnidad
+                        loteId = lote.id,
+                        cantidadATomarKg = aTomarDeEsteLote,
+                        cantidadATomarUnidades = null, // Granel no maneja unidades
+                        lote = lote,
+                        loteFecha = lote.receivedAt,
+                        loteProveedor = lote.supplierName,
+                        loteUnidad = "Kg",
+                        lotePesoPorUnidad = null
                     )
                 )
                 kgRestantes -= aTomarDeEsteLote
@@ -643,38 +800,64 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
         return Pair(lotesDesglosados, kgAcumulados)
     }
-
-    private fun desglosarLotesParaCantidadUnidades(
-        unidadesNecesarias: Int,
-        lotesDisponibles: List<StockLot>
-    ): Pair<List<LoteDesglosado>, Double> {
+    /**
+     * Función auxiliar para productos "FIJOS".
+     * Toma una cantidad de UNIDADES y busca lotes para cubrirlas (FIFO).
+     */
+    private fun desglosarLotesParaCantidadUnidades(unidadesNecesarias: Int, lotesDisponibles: List<StockLot>): Pair<List<LoteDesglosado>, Double> {
         val lotesDesglosados = mutableListOf<LoteDesglosado>()
         var kgAcumulados = 0.0
         var unidadesRestantes = unidadesNecesarias
-
-        for (lote in lotesDisponibles.sortedBy { it.receivedAt }) {
+        for (lote in lotesDisponibles) { // Ya vienen ordenados por fecha
             if (unidadesRestantes <= 0) break
+            val pesoPorUnidad = lote.pesoPorUnidad // Es Double?
+            // Solo procesar si el lote tiene info de unidad válida
+            if (pesoPorUnidad != null && pesoPorUnidad > 0 && !lote.unidadDeEmpaque.isNullOrBlank()) {
 
-            val pesoPorUnidad = lote.pesoPorUnidad
-            if (pesoPorUnidad != null && pesoPorUnidad > 0) {
                 val unidadesDisponiblesEnLote = floor(lote.currentQuantity / pesoPorUnidad).toInt()
-                val unidadesATomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
+                val unidadesA_TomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
 
-                if (unidadesATomarDeEsteLote > 0) {
-                    val kgATomar = unidadesATomarDeEsteLote * pesoPorUnidad
+                if (unidadesA_TomarDeEsteLote > 0) {
+                    val kgA_TomarDeEsteLote = unidadesA_TomarDeEsteLote * pesoPorUnidad
                     lotesDesglosados.add(
                         LoteDesglosado(
-                            loteId = lote.id, cantidadATomarKg = kgATomar, cantidadATomarUnidades = unidadesATomarDeEsteLote.toDouble(),
-                            lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
-                            loteUnidad = lote.unidadDeEmpaque, lotePesoPorUnidad = lote.pesoPorUnidad
+                            loteId = lote.id,
+                            cantidadATomarKg = kgA_TomarDeEsteLote,
+                            cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
+                            lote = lote, // Se pasa el objeto para uso temporal en la UI
+                            loteFecha = lote.receivedAt,
+                            loteProveedor = lote.supplierName,
+                            loteUnidad = lote.unidadDeEmpaque,
+                            lotePesoPorUnidad = lote.pesoPorUnidad
                         )
                     )
-                    unidadesRestantes -= unidadesATomarDeEsteLote
-                    kgAcumulados += kgATomar
+                    kgAcumulados += kgA_TomarDeEsteLote
+                    unidadesRestantes -= unidadesA_TomarDeEsteLote
                 }
             }
         }
         return Pair(lotesDesglosados, kgAcumulados)
+    }
+
+    /**
+     * Función auxiliar para productos "FIJOS".
+     * Convierte una necesidad de KG en una cantidad de UNIDADES.
+     * Esta es la lógica "antigua" que queremos restaurar.
+     */
+    private fun convertirKgAUnidades(kg: Double, lotesDisponibles: List<StockLot>): Pair<Int, String> {
+        // Busca el primer lote con información de empaque válida para usarlo como referencia
+        val primerLoteConUnidad = lotesDisponibles.firstOrNull { it.pesoPorUnidad != null && it.pesoPorUnidad > 0 && !it.unidadDeEmpaque.isNullOrBlank() }
+
+        val unidad = primerLoteConUnidad?.unidadDeEmpaque ?: "Unidad" // Default a "Unidad" si no encuentra
+        val pesoPorUnidad = primerLoteConUnidad?.pesoPorUnidad ?: 1.0 // Default a 1.0
+
+        // Redondea hacia ARRIBA (ceil) para asegurar que se cubra la necesidad
+        // Ej: 105kg / 15kg/caja = 7.0 -> 7 cajas
+        // Ej: 106kg / 15kg/caja = 7.06 -> 8 cajas
+        val cantidadEnUnidades = if (kg > 0 && pesoPorUnidad > 0) ceil(kg / pesoPorUnidad).toInt() else 0
+
+        Log.d(TAG, "convertirKgAUnidades: ${String.format("%.2f", kg)} Kg -> $cantidadEnUnidades $unidad (usando peso ref: ${String.format("%.2f", pesoPorUnidad)})")
+        return Pair(cantidadEnUnidades, unidad)
     }
 
     fun guardarEnCache(sugerencias: List<TraspasoSugerenciaItem>) {
@@ -752,10 +935,17 @@ class PlanificarTraspasoViewModel : ViewModel() {
                         // Usar lotesParaTraspaso (que ya tiene la selección manual o FIFO)
                         val lotesAGuardar = item.lotesParaTraspaso.map { it.copy(lote=null) } // Quitar el objeto lote
 
+                        // **CORRECCIÓN AL GUARDAR**: Usar las unidades/unidad correctas
+                        val esFijo = !item.product.requiresPackaging
+                        val unidadesAGuardar = if(esFijo) item.cantidadEditadaUnidades else 0 // Guardar 0 para granel
+                        val unidadAGuardar = if(esFijo) item.unidadDeEmpaqueEditada else "Kg" // Guardar "Kg" para granel
+
                         val detalle = DetalleTraspasoPlan(
                             id = detalleDocRef.id, productId = item.product.id, productName = item.product.name,
-                            sugerenciaKg = item.sugerenciaKg, sugerenciaUnidades = item.cantidadEditadaUnidades,
-                            unidadDeEmpaque = item.unidadDeEmpaqueEditada, lotesSugeridos = lotesAGuardar // Guardar los lotes correctos
+                            sugerenciaKg = item.sugerenciaKg,
+                            sugerenciaUnidades = unidadesAGuardar, // Corregido
+                            unidadDeEmpaque = unidadAGuardar, // Corregido
+                            lotesSugeridos = lotesAGuardar // Guardar los lotes correctos
                         )
                         batch.set(detalleDocRef, detalle)
                         Log.v(TAG, " -> Detalle creado para ${item.product.name}. Lotes a reservar: ${lotesAGuardar.size}")

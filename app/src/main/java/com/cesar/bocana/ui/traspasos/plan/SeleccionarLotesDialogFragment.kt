@@ -18,11 +18,11 @@ import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
-import com.cesar.bocana.data.model.Location // Asumiendo que tienes esta clase/objeto
-import com.cesar.bocana.data.model.Product // Importar Product
+import com.cesar.bocana.data.model.Location
+import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.databinding.DialogSeleccionarLotesBinding
-import com.cesar.bocana.utils.FirestoreCollections // Asumiendo que tienes esta clase/objeto
+import com.cesar.bocana.utils.FirestoreCollections
 import com.google.android.material.textfield.TextInputEditText
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -42,9 +42,11 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
     private var allLotes: List<StockLot> = emptyList()
     private val selectedLotIds = mutableSetOf<String>()
+    // La clave es LoteID, el Valor es la cantidad (ya sea Unidades o KG)
     private val manualQuantities = mutableMapOf<String, Double>()
-    private var isBulkProductArg: Boolean = false // **CORREGIDO**: Renombrado para claridad
-    private var productInfo: Product? = null // **NUEVO**: Para almacenar info del producto
+    // Este flag es la clave: true = Granel (Kg), false = Fijo (Unidades)
+    private var isBulkProductArg: Boolean = false
+    private var productInfo: Product? = null // Para almacenar info del producto (ej. unidad por defecto)
 
     companion object {
         const val TAG = "SeleccionarLotesDialog"
@@ -54,17 +56,16 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         const val PRODUCT_ID_KEY = "product_id_for_result"
         private const val ARG_PRODUCT_ID = "product_id"
         private const val ARG_PRODUCT_NAME = "product_name"
-        // **CORREGIDO**: Nombre del argumento
+        // Flag que define el comportamiento del diálogo
         private const val ARG_IS_BULK_PRODUCT = "is_bulk_product"
         private const val ARG_SELECTED_IDS = "selected_ids"
         private const val ARG_MANUAL_DESGLOSE = "manual_desglose"
         private const val ARG_PLAN_ID = "plan_id"
 
-        // --- MÉTODO newInstance MODIFICADO ---
         fun newInstance(
             productId: String,
             productName: String,
-            isBulkProduct: Boolean, // **CORREGIDO**: Nombre del parámetro
+            isBulkProduct: Boolean, // true si es Granel(Kg), false si es Fijo(Unidades)
             selectedIdsOrDesglose: Any?,
             planId: String? = null
         ): SeleccionarLotesDialogFragment {
@@ -72,10 +73,10 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                 arguments = bundleOf(
                     ARG_PRODUCT_ID to productId,
                     ARG_PRODUCT_NAME to productName,
-                    // **CORREGIDO**: Usar el nombre de argumento correcto
-                    ARG_IS_BULK_PRODUCT to isBulkProduct
+                    ARG_IS_BULK_PRODUCT to isBulkProduct // Guardamos el flag
                 ).apply {
                     planId?.let { putString(ARG_PLAN_ID, it) }
+                    // Lógica para manejar selecciones iniciales
                     when (selectedIdsOrDesglose) {
                         is List<*> -> {
                             try {
@@ -115,19 +116,18 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // **CORREGIDO**: Recuperar usando el nombre correcto del argumento
+        // Recuperamos el flag que define el comportamiento
         isBulkProductArg = requireArguments().getBoolean(ARG_IS_BULK_PRODUCT)
-        // **NUEVO**: Cargar información del producto al inicio
+
         val productId = requireArguments().getString(ARG_PRODUCT_ID)
         if (productId != null) {
-            loadProductInfo(productId)
+            loadProductInfo(productId) // Cargar datos del producto
         } else {
             Log.e(TAG, "Product ID es nulo en onCreate")
-            dismissAllowingStateLoss() // Cerrar si no hay ID
+            dismissAllowingStateLoss()
         }
     }
 
-    // **NUEVO**: Función para cargar datos del Product
     private fun loadProductInfo(productId: String) {
         lifecycleScope.launch {
             try {
@@ -139,9 +139,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                     if (isAdded) Toast.makeText(context, "Error: Producto no encontrado.", Toast.LENGTH_SHORT).show()
                     dismissAllowingStateLoss()
                 } else {
-                    // Podríamos re-verificar isBulk si es necesario, aunque ya viene como argumento
-                    // isBulkProductArg = productInfo?.requiresPackaging ?: false
-                    Log.d(TAG, "Información del producto '${productInfo?.name}' cargada. Es Granel (arg): $isBulkProductArg")
+                    Log.d(TAG, "Info del producto '${productInfo?.name}' cargada. Es Granel (arg): $isBulkProductArg")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error al cargar información del producto $productId", e)
@@ -150,7 +148,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             }
         }
     }
-
 
     override fun onStart() {
         super.onStart()
@@ -174,7 +171,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
         binding.textviewDialogTitle.text = "Seleccionar Lotes para $productName"
 
-        // **CORREGIDO**: Pasar el flag isBulkProductArg al adapter
+        // **AQUÍ ESTÁ LA FUSIÓN**: Pasamos el flag (isBulkProductArg) al adaptador.
         adapter = LoteCheckboxAdapter(this, isBulkProductArg)
         binding.recyclerViewLotesSeleccion.adapter = adapter
 
@@ -191,19 +188,20 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             adapter.setSelectedIds(selectedLotIds)
         }
 
-
         binding.switchDesgloseManual.setOnCheckedChangeListener { _, isChecked ->
             adapter.setModoDesglose(isChecked)
             if (!isChecked) {
-                manualQuantities.clear()
-                adapter.setSelectedIds(selectedLotIds)
+                manualQuantities.clear() // Borrar cantidades manuales si salimos del modo desglose
+                adapter.setSelectedIds(selectedLotIds) // Re-aplicar selección de checkboxes
             } else {
-                selectedLotIds.forEach { id -> manualQuantities.putIfAbsent(id, 0.0) }
+                // Al entrar en modo desglose, inicializar cantidades de los ya chequeados
+                manualQuantities.clear() // Empezar de cero
+                selectedLotIds.forEach { id -> manualQuantities[id] = 0.0 }
             }
             updateAdapterList()
         }
 
-        loadLotes(productId, planId)
+        loadLotes(productId, planId) // Cargar los lotes disponibles
 
         return AlertDialog.Builder(requireContext())
             .setView(binding.root)
@@ -212,20 +210,20 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                 val bundle = bundleOf(PRODUCT_ID_KEY to productId)
                 if (binding.switchDesgloseManual.isChecked) {
                     val desgloseResult = manualQuantities
-                        .filter { it.value > 0.0 }
-                        .map { DesgloseManualResult(it.key, it.value) }
+                        .filter { it.value > 0.0 } // Enviar solo los que tienen cantidad
+                        .map { DesgloseManualResult(it.key, it.value) } // El valor es Double (Unidades o KG)
                     bundle.putParcelableArrayList(RESULT_DESGLOSE_KEY, ArrayList(desgloseResult))
                     Log.d(TAG, "Resultado Diálogo (Manual): ${desgloseResult.size} items con cantidad > 0")
                 } else {
                     bundle.putStringArrayList(RESULT_LOTES_KEY, ArrayList(selectedLotIds))
                     Log.d(TAG, "Resultado Diálogo (Checkbox): ${selectedLotIds.size} IDs seleccionados")
                 }
-                setFragmentResult(REQUEST_KEY, bundle)
+                setFragmentResult(REQUEST_KEY, bundle) // Enviar resultado al fragmento padre
             }
             .create()
     }
 
-
+    // Lógica del AdapterListener
     override fun onCheckboxToggled(lote: StockLot, isChecked: Boolean) {
         if (!binding.switchDesgloseManual.isChecked) {
             if (isChecked) selectedLotIds.add(lote.id) else selectedLotIds.remove(lote.id)
@@ -240,15 +238,14 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         }
     }
 
-    // --- showEditQuantityDialog CORREGIDA ---
+    // **DIÁLOGO DE EDICIÓN CON LÓGICA FUSIONADA**
     private fun showEditQuantityDialog(lote: StockLot) {
         val context = this.context ?: return
-        // **NUEVO**: Verificar que productInfo esté cargado
         val currentProduct = productInfo ?: run {
             Toast.makeText(context, "Error: Datos del producto no disponibles.", Toast.LENGTH_SHORT).show()
             return
         }
-        // **CORREGIDO**: Usar isBulkProductArg (el flag del producto general)
+        // **LA CLAVE DE LA FUSIÓN**: Usamos el flag del producto
         val esGranel = isBulkProductArg
 
         val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_edit_lote_cantidad, null)
@@ -263,13 +260,14 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         loteInfoTextView.text = "Editando: $fecha ($proveedor)"
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle(if (esGranel) "Asignar Cantidad (Kg)" else "Asignar Cantidad (Unidades)")
+            .setTitle(if (esGranel) "Asignar Cantidad (Kg)" else "Asignar Cantidad (Unidades)") // Título dinámico
             .setView(dialogView)
             .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Aceptar", null) // Desactivar cierre automático
             .create()
 
         if (esGranel) {
-            // --- MODO GRANEL (KG) ---
+            // --- LÓGICA PARA GRANEL (KG) ---
             stockDispTextView.text = "Disponible: ${String.format(Locale.getDefault(), "%.2f", lote.currentQuantity)} Kg"
             cantidadEditText.hint = "Cantidad en Kg"
             cantidadEditText.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -278,46 +276,46 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             cantidadEditText.setText(if (cantidadActualKg > 0) String.format(Locale.getDefault(), "%.2f", cantidadActualKg) else "")
 
         } else {
-            // --- MODO FIJO (UNIDADES) ---
-            // **NUEVO/CORREGIDO**: Usar unidad del producto si el lote no la tiene, o default
-            val pesoUnidad = lote.pesoPorUnidad ?: currentProduct.labelConfig?.get("weightPerUnit") as? Double ?: 1.0 // Tomar del producto o default
-            val unidad = lote.unidadDeEmpaque ?: currentProduct.unit ?: "Unidad" // Tomar del producto o default
+            // --- LÓGICA PARA FIJOS (UNIDADES) ---
+            // Usar el peso/unidad del lote si existe, si no, el del producto
+            val pesoUnidad = lote.pesoPorUnidad?.takeIf { it > 0 } ?: 1.0
+            val unidad = lote.unidadDeEmpaque?.takeIf { it.isNotBlank() } ?: currentProduct.unit ?: "Unidad"
             val unidadesDisponibles = if (pesoUnidad > 0) floor(lote.currentQuantity / pesoUnidad).toInt() else 0
 
             stockDispTextView.text = "Disponible: $unidadesDisponibles $unidad"
             cantidadEditText.hint = "Cantidad en $unidad"
-            cantidadEditText.inputType = InputType.TYPE_CLASS_NUMBER
+            cantidadEditText.inputType = InputType.TYPE_CLASS_NUMBER // Solo números enteros
             inputLayout.suffixText = unidad
             val cantidadActualUnidades = manualQuantities[lote.id]?.toInt() ?: 0
             cantidadEditText.setText(if (cantidadActualUnidades > 0) cantidadActualUnidades.toString() else "")
         }
 
-        // Mostrar teclado al abrir y seleccionar todo el texto
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
         cantidadEditText.requestFocus()
         cantidadEditText.selectAll()
 
-        // Lógica de validación movida al listener del botón positivo
-        val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        positiveButton?.setOnClickListener { v ->
+        // Lógica de validación en el botón positivo para evitar cierre
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             if (esGranel) {
+                // --- VALIDACIÓN GRANEL (KG) ---
                 val nuevaCantidadKg = cantidadEditText.text.toString().toDoubleOrNull()
                 if (nuevaCantidadKg == null || nuevaCantidadKg < 0) {
                     inputLayout.error = "Cantidad inválida (>= 0)"
-                } else if (nuevaCantidadKg > lote.currentQuantity + 0.01) {
+                } else if (nuevaCantidadKg > lote.currentQuantity + 0.01) { // 0.01 de epsilon
                     inputLayout.error = "Excede disponible (${String.format("%.2f", lote.currentQuantity)} Kg)"
                 } else {
                     inputLayout.error = null
                     manualQuantities[lote.id] = nuevaCantidadKg
-                    selectedLotIds.add(lote.id)
+                    if (nuevaCantidadKg > 0) selectedLotIds.add(lote.id) else selectedLotIds.remove(lote.id)
                     updateAdapterList()
                     dialog.dismiss()
                 }
             } else {
+                // --- VALIDACIÓN FIJOS (UNIDADES) ---
                 val nuevaCantidadUnidades = cantidadEditText.text.toString().toIntOrNull() ?: 0
-                val pesoUnidad = lote.pesoPorUnidad ?: currentProduct.labelConfig?.get("weightPerUnit") as? Double ?: 1.0
-                val unidad = lote.unidadDeEmpaque ?: currentProduct.unit ?: "Unidad"
+                val pesoUnidad = lote.pesoPorUnidad?.takeIf { it > 0 } ?: 1.0
+                val unidad = lote.unidadDeEmpaque?.takeIf { it.isNotBlank() } ?: currentProduct.unit ?: "Unidad"
                 val unidadesDisponibles = if (pesoUnidad > 0) floor(lote.currentQuantity / pesoUnidad).toInt() else 0
 
                 if (nuevaCantidadUnidades < 0) {
@@ -326,8 +324,8 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                     inputLayout.error = "Excede disponible ($unidadesDisponibles $unidad)"
                 } else {
                     inputLayout.error = null
-                    manualQuantities[lote.id] = nuevaCantidadUnidades.toDouble()
-                    selectedLotIds.add(lote.id)
+                    manualQuantities[lote.id] = nuevaCantidadUnidades.toDouble() // Guardar como Double
+                    if (nuevaCantidadUnidades > 0) selectedLotIds.add(lote.id) else selectedLotIds.remove(lote.id)
                     updateAdapterList()
                     dialog.dismiss()
                 }
@@ -339,6 +337,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
     private fun updateAdapterList() {
         if (!::adapter.isInitialized) return
         val listForAdapter = allLotes.map { lote ->
+            // El segundo valor es la cantidad (Kg o Unidades) guardada
             lote to manualQuantities[lote.id]
         }
         adapter.submitList(listForAdapter)
@@ -349,6 +348,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             binding.progressBarDialogLotes.isVisible = true
             binding.textviewNoLotes.isVisible = false
             try {
+                // Lotes Libres
                 val freeLotesDeferred = async {
                     Firebase.firestore.collection(FirestoreCollections.INVENTORY_LOTS)
                         .whereEqualTo("productId", productId)
@@ -357,6 +357,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                         .whereEqualTo("estadoTraspaso", null).get().await()
                 }
 
+                // Lotes ya reservados por ESTE plan (solo relevante en "AjusteFinal")
                 val reservedLotesDeferred = if (planId != null) {
                     async {
                         Firebase.firestore.collection(FirestoreCollections.INVENTORY_LOTS)
@@ -368,20 +369,16 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                 } else { null }
 
                 val freeLotesSnapshot = freeLotesDeferred.await()
-                val freeLotes = freeLotesSnapshot.toObjects(StockLot::class.java)
-                val reservedLotes = reservedLotesDeferred?.await()?.toObjects(StockLot::class.java) ?: emptyList()
+                val freeLotes = freeLotesSnapshot.documents.mapNotNull { it.toObject(StockLot::class.java)?.copy(id = it.id) }
 
-                val allIds = (freeLotes + reservedLotes).map { it.id }.distinct()
-                val lotesCompletos = allIds.mapNotNull { loteId ->
-                    try {
-                        Firebase.firestore.collection(FirestoreCollections.INVENTORY_LOTS).document(loteId).get().await()
-                            .toObject(StockLot::class.java)?.copy(id=loteId)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error cargando lote completo $loteId en loadLotes", e)
-                        null
-                    }
-                }
-                allLotes = lotesCompletos.sortedBy { it.receivedAt ?: Date(0) }
+                val reservedLotesSnapshot = reservedLotesDeferred?.await()
+                val reservedLotes = reservedLotesSnapshot?.documents?.mapNotNull { it.toObject(StockLot::class.java)?.copy(id = it.id) } ?: emptyList()
+
+                // Combinar listas y eliminar duplicados (por si acaso)
+                allLotes = (freeLotes + reservedLotes).distinctBy { it.id }.sortedBy { it.receivedAt ?: Date(0) }
+
+                Log.d(TAG, "Lotes cargados (Libres: ${freeLotes.size}, Reservados por $planId: ${reservedLotes.size}, Total: ${allLotes.size})")
+
                 updateAdapterList()
 
             } catch (e: Exception) {
@@ -405,9 +402,9 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         }
     }
 
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+

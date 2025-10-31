@@ -57,27 +57,20 @@ class AjusteFinalTraspasoFragment : Fragment(), MenuProvider, AjusteFinalAdapter
             val productId = bundle.getString(SeleccionarLotesDialogFragment.PRODUCT_ID_KEY) ?: return@setFragmentResultListener
             Log.d("AjusteFinalFrag", "Resultado recibido del diálogo para producto: $productId")
 
-            // Intentar obtener ambos tipos de resultado
             val desgloseManualList = bundle.getParcelableArrayList<DesgloseManualResult>(SeleccionarLotesDialogFragment.RESULT_DESGLOSE_KEY)
-            val lotesSeleccionadosIds = bundle.getStringArrayList(SeleccionarLotesDialogFragment.RESULT_LOTES_KEY) // Cambiado a IDs
+            val lotesSeleccionadosIds = bundle.getStringArrayList(SeleccionarLotesDialogFragment.RESULT_LOTES_KEY)
 
             when {
-                // Prioridad al desglose manual si existe y no está vacío
                 desgloseManualList != null && desgloseManualList.isNotEmpty() -> {
                     Log.d("AjusteFinalFrag", "Procesando resultado como Desglose Manual: ${desgloseManualList.size} items")
                     viewModel.actualizarPorDesgloseManual(productId, desgloseManualList)
                 }
-                // Si no hay desglose, verificar si hay IDs de checkboxes
                 lotesSeleccionadosIds != null -> {
                     Log.d("AjusteFinalFrag", "Procesando resultado como Checkbox: ${lotesSeleccionadosIds.size} IDs")
-                    // Pasar la lista de IDs al ViewModel para que cargue los StockLot completos si es necesario
                     viewModel.actualizarLotesManualmentePorIds(productId, lotesSeleccionadosIds)
                 }
                 else -> {
-                    // Caso donde no se devuelve nada o el bundle está mal formado
                     Log.w("AjusteFinalFrag", "Resultado del diálogo no contenía ni desglose ni IDs para producto: $productId")
-                    // Opcionalmente, podrías querer resetear la selección o mostrar un mensaje
-                    // viewModel.resetearSeleccionManual(productId)
                 }
             }
         }
@@ -107,8 +100,6 @@ class AjusteFinalTraspasoFragment : Fragment(), MenuProvider, AjusteFinalAdapter
 
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Verificar si hay cambios sin guardar antes de simplemente hacer popBackStack
-                // (Lógica de confirmación omitida por brevedad, se podría añadir aquí)
                 parentFragmentManager.popBackStack()
             }
         })
@@ -117,43 +108,28 @@ class AjusteFinalTraspasoFragment : Fragment(), MenuProvider, AjusteFinalAdapter
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
             title = "Ajuste y Confirmación"
-            setDisplayHomeAsUpEnabled(true) // Mostrar flecha de regreso
-            // setDisplayShowHomeEnabled(true) // Opcional, depende del estilo deseado
+            setDisplayHomeAsUpEnabled(true)
         }
     }
 
-    // --- Manejo Menú Toolbar ---
-    override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
-        // Limpiar menú existente si es necesario (depende de cómo manejes los menús en MainActivity)
-        // menu.clear()
-        // No inflar menú específico aquí si solo usamos la flecha de regreso
-    }
-
-    override fun onPrepareMenu(menu: Menu) {
-        // Ocultar ítems irrelevantes si fuera necesario
-    }
-
+    override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {}
+    override fun onPrepareMenu(menu: Menu) {}
 
     override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-        // Manejar clic en la flecha de regreso (home)
         return when (menuItem.itemId) {
             android.R.id.home -> {
-                // Simular botón de regreso del sistema
                 activity?.onBackPressedDispatcher?.onBackPressed()
                 true
             }
-            else -> false // Dejar que otros fragmentos o la actividad manejen otros ítems
+            else -> false
         }
     }
-    // --- Fin Manejo Menú Toolbar ---
-
 
     private fun setupRecyclerView() {
         adapter = AjusteFinalTraspasoAdapter(this)
         binding.recyclerViewAjusteFinal.apply {
-            this.adapter = this@AjusteFinalTraspasoFragment.adapter // Usar el adapter de la clase
+            this.adapter = this@AjusteFinalTraspasoFragment.adapter
             layoutManager = LinearLayoutManager(requireContext())
-            // Optimización: Evitar parpadeos al actualizar items
             (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
         }
     }
@@ -171,69 +147,60 @@ class AjusteFinalTraspasoFragment : Fragment(), MenuProvider, AjusteFinalAdapter
                     binding.textViewAjusteFinalTitle.text = "Ajuste Final - Cargando Plan..."
                 }
 
-                // Usar submitList para eficiencia del RecyclerView
                 adapter.submitList(state.itemsParaAjustar)
 
-                // Gestionar diálogo de carga
                 if (state.isExecuting && loadingDialog == null) {
                     showLoadingDialog("Ejecutando traspaso...")
                 } else if (!state.isExecuting && loadingDialog != null) {
                     hideLoadingDialog()
                 }
 
-                // Mostrar mensajes al usuario (Snackbar)
                 state.userMessage?.let {
                     Snackbar.make(binding.root, it.message, Snackbar.LENGTH_LONG).show()
-                    viewModel.onUserMessageShown() // Notificar al ViewModel que el mensaje se mostró
+                    viewModel.onUserMessageShown()
                 }
 
-                // Manejar eventos de navegación
                 if (state.navigationEvent is NavigationEvent.GoBack) {
                     parentFragmentManager.popBackStack()
-                    viewModel.onNavigationHandled() // Notificar al ViewModel que la navegación se manejó
+                    viewModel.onNavigationHandled()
                 }
             }
         }
     }
 
     override fun onCantidadConfirmadaChanged(detalleId: String, nuevaCantidad: Double) {
-        // Validar que la cantidad no sea negativa antes de enviarla al ViewModel
         if (nuevaCantidad >= 0) {
             viewModel.updateConfirmedQuantity(detalleId, nuevaCantidad)
         } else {
-            // Opcional: Mostrar un mensaje al usuario si intenta poner cantidad negativa
             Snackbar.make(binding.root, "La cantidad no puede ser negativa.", Snackbar.LENGTH_SHORT).show()
-            // Podrías forzar la reversión visual aquí si el adapter no lo hace automáticamente
-            // adapter.notifyItemChanged(...)
         }
     }
 
-    // --- CORRECCIÓN EN LA LLAMADA A newInstance ---
     override fun onEditarLotesClicked(item: AjusteFinalItem) {
         Log.d("AjusteFinalFrag", "onEditarLotesClicked para: ${item.product.name}")
         val productId = item.detalleOriginal.productId
         val productName = item.detalleOriginal.productName
         val currentPlanId = viewModel.uiState.value.plan?.id
-        // **CORREGIDO**: Obtener el flag 'requiresPackaging' del objeto Product dentro del item
-        val isBulk = item.product.requiresPackaging // <-- Obtenido de item.product
-        Log.d("AjusteFinalFrag", " -> Es Granel (isBulk): $isBulk")
 
+        // **AQUÍ SE DETERMINA EL MODO**:
+        // Usamos el flag del producto (que viene en AjusteFinalItem)
+        val isBulk = item.product.requiresPackaging
+        Log.d("AjusteFinalFrag", " -> Es Granel (isBulk): $isBulk (requiresPackaging=${item.product.requiresPackaging})")
 
         // Determinar qué pasar como selección inicial (IDs o Desglose)
-        val seleccionInicial: java.io.Serializable = if (item.lotesSeleccionadosManualmente) {
+        val seleccionInicial: java.io.Serializable
+        // **INICIO CORRECCIÓN**: Usar el flag booleano
+        if (item.lotesSeleccionadosManualmente) {
+            // **FIN CORRECCIÓN**
             Log.d("AjusteFinalFrag", " -> Pasando Desglose Manual existente: ${item.lotesConfirmados.size} lotes")
             // Si ya hay desglose manual, pasamos esa lista de DesgloseManualResult
-            ArrayList(item.lotesConfirmados.mapNotNull { desglose ->
-                // Asegurarse de que el lote no sea null (aunque no debería pasar aquí)
+            seleccionInicial = ArrayList(item.lotesConfirmados.mapNotNull { desglose ->
                 if (desglose.lote != null) {
-                    // La cantidad en DesgloseManualResult es siempre Double
                     val cantidad = if (isBulk) {
                         desglose.cantidadATomarKg
                     } else {
-                        // Para fijos, necesitamos las unidades
-                        desglose.cantidadATomarUnidades ?: 0.0 // Usar 0 si es null
+                        desglose.cantidadATomarUnidades ?: 0.0
                     }
-                    // Solo incluir si la cantidad es mayor a cero para evitar entradas vacías preseleccionadas
                     if (cantidad > 0) DesgloseManualResult(desglose.loteId, cantidad) else null
                 } else {
                     Log.w("AjusteFinalFrag", " -> Lote null encontrado en desglose manual para ${desglose.loteId}")
@@ -242,50 +209,40 @@ class AjusteFinalTraspasoFragment : Fragment(), MenuProvider, AjusteFinalAdapter
             })
         } else {
             Log.d("AjusteFinalFrag", " -> Pasando IDs de lotes sugeridos/checkbox: ${item.lotesConfirmados.size} IDs")
-            // Si no, pasamos la lista de IDs seleccionados (modo checkbox inicial o sugerencia FIFO)
-            ArrayList(item.lotesConfirmados.map { it.loteId })
+            // Si no, pasamos la lista de IDs seleccionados (sugerencia FIFO)
+            seleccionInicial = ArrayList(item.lotesConfirmados.map { it.loteId })
         }
 
-        // **CORREGIDO**: Llamada a newInstance ahora incluye isBulkProduct
+        // Llamamos a newInstance con el flag correcto
         SeleccionarLotesDialogFragment.newInstance(
             productId = productId,
             productName = productName,
-            isBulkProduct = isBulk, // <-- Pasar el flag aquí
+            isBulkProduct = isBulk, // <-- Aquí pasamos el flag
             selectedIdsOrDesglose = seleccionInicial,
-            planId = currentPlanId // Pasar el planId para que el diálogo cargue lotes reservados por este plan
+            planId = currentPlanId // Pasar el planId para cargar lotes reservados
         ).show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
     }
-    // --- FIN CORRECCIÓN ---
-
 
     private fun showLoadingDialog(message: String) {
-        // Evitar crear múltiples diálogos si ya existe uno
         if (loadingDialog == null || loadingDialog?.isAdded == false) {
             loadingDialog = LoadingDialogFragment.newInstance()
-            loadingDialog?.isCancelable = false // El usuario no debería poder cancelar la ejecución
-            // Usar childFragmentManager para diálogos dentro de fragments
+            loadingDialog?.isCancelable = false
             loadingDialog?.show(childFragmentManager, LoadingDialogFragment.TAG)
         }
-        // Actualizar mensaje si el diálogo ya está visible
         loadingDialog?.setMessage(message)
     }
 
-
     private fun hideLoadingDialog() {
-        // Verificar si el diálogo existe y está añadido antes de intentar cerrarlo
         if (loadingDialog != null && loadingDialog?.isAdded == true) {
-            loadingDialog?.dismissAllowingStateLoss() // Usar dismissAllowingStateLoss por seguridad en casos de lifecycle complejos
+            loadingDialog?.dismissAllowingStateLoss()
         }
-        loadingDialog = null // Limpiar la referencia
+        loadingDialog = null
     }
-
 
     override fun onDestroyView() {
         super.onDestroyView()
-        // Asegurarse de quitar la flecha de regreso al salir del fragment
         (activity as? AppCompatActivity)?.supportActionBar?.setDisplayHomeAsUpEnabled(false)
-        hideLoadingDialog() // Asegurarse de cerrar el diálogo si el fragment se destruye
-        _binding = null // Limpiar binding para evitar memory leaks
+        hideLoadingDialog()
+        _binding = null
     }
 }
-
