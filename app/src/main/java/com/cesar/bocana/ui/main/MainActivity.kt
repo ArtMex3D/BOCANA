@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         auth = Firebase.auth
         setSupportActionBar(binding.toolbar)
+        checkForUpdatesSilently()
 
         val database = AppDatabase.getDatabase(applicationContext)
         repository = InventoryRepository(database, db)
@@ -149,6 +150,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun checkForUpdatesSilently() {
+        val currentVersionCode = try {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toInt()
+            } else {
+                packageInfo.versionCode
+            }
+        } catch (e: Exception) { 1 }
+
+        com.google.firebase.ktx.Firebase.firestore.collection("app_config").document("update").get()
+            .addOnSuccessListener { document ->
+                if (document != null && document.exists()) {
+                    val cloudVersionCode = document.getLong("versionCode")?.toInt() ?: 0
+
+                    if (cloudVersionCode > currentVersionCode) {
+                        val updateBar = findViewById<android.widget.TextView>(R.id.tv_update_banner_sticky)
+                        updateBar?.visibility = android.view.View.VISIBLE
+
+                        // Opcional: Hacer que tenga un pequeño efecto de parpadeo (fade in/out)
+                        // para que llame la atención sin estorbar
+                        val animation = android.view.animation.AlphaAnimation(0.5f, 1.0f)
+                        animation.duration = 1000
+                        animation.repeatCount = android.view.animation.Animation.INFINITE
+                        animation.repeatMode = android.view.animation.Animation.REVERSE
+                        updateBar?.startAnimation(animation)
+                    }
+                }
+            }
+    }
     private fun handleDeepLink(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
 

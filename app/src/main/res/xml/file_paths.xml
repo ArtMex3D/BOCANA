@@ -3,4 +3,6 @@
     <external-files-path name="my_documents" path="Documents/" />
 
     <cache-path name="my_cache" path="." />
+
+    <external-path name="public_downloads" path="Download/" />
 </paths>

@@ -14,117 +14,194 @@
         android:padding="16dp"
         tools:context=".ui.masopciones.MoreOptionsFragment">
 
-    <!-- BOTÓN NUEVO AÑADIDO -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/button_advanced_history"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:text="Búsqueda Avanzada"
-        app:icon="@android:drawable/ic_menu_search"/>
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_update_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/pending_item_background"
+            app:strokeColor="@color/brand_purple"
+            app:strokeWidth="2dp"
+            tools:visibility="visible">
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToAjustes"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:backgroundTint="@color/pending_item_background"
-        android:text="Ajuste Manual de Lote"
-        app:icon="@drawable/ic_settings" />
+                <TextView
+                    android:id="@+id/tv_update_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="¡Nueva Actualización Disponible!"
+                    android:textAppearance="?attr/textAppearanceHeadline6"
+                    android:textStyle="bold"
+                    android:textColor="#0138FF" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToReportGenerator"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Generar Reporte PDF"
-        app:icon="@drawable/pdf"/>
+                <TextView
+                    android:id="@+id/tv_update_version"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    tools:text="Versión 2.0"
+                    android:textStyle="bold"
+                    android:textColor="#FF0101"
+                    android:textAppearance="?attr/textAppearanceSubtitle2" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToArchivedProducts"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:backgroundTint="@color/pending_item_background"
-        android:text="Productos Archivados"
-        app:icon="@drawable/guardar" />
+                <TextView
+                    android:id="@+id/tv_update_notes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    tools:text="- Mejoras en el PDF\n- Modo Oscuro nativo"
+                    android:textAppearance="?attr/textAppearanceBody2" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToDevoluciones"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Devoluciones Pendientes"
-        app:icon="@drawable/devolucion"/>
+                <ProgressBar
+                    android:id="@+id/progress_bar_download"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone"
+                    tools:visibility="visible"
+                    tools:progress="50" />
 
+                <TextView
+                    android:id="@+id/tv_download_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    tools:text="Descargando... 50%"
+                    android:textAlignment="center"
+                    android:textAppearance="?attr/textAppearanceCaption"
+                    android:visibility="gone"
+                    tools:visibility="visible"/>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/button_history"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:backgroundTint="@color/pending_item_background"
-        android:text="Historial de Movimientos"
-        app:icon="@drawable/historial"/>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_download_update"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Descargar Actualización"
+                    app:backgroundTint="@color/brand_purple"
+                    android:textColor="@android:color/white"
+                    app:icon="@android:drawable/stat_sys_download"
+                    app:iconTint="@android:color/white" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_advanced_history"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="Búsqueda Avanzada"
+            app:icon="@android:drawable/ic_menu_search"/>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToConfigTraspasos"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Configuración de Traspasos"
-        app:icon="@drawable/ic_settings" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToAjustes"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/pending_item_background"
+            android:text="Ajuste Manual de Lote"
+            app:icon="@drawable/ic_settings" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToProveedores"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:backgroundTint="@color/pending_item_background"
-        android:text="Gestionar Proveedores"
-        app:icon="@drawable/ic_manage_users"/>
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buttonNavToLotMigration"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Convertir Lotes Antiguos"
-        app:icon="@drawable/ic_exchange"
-        app:strokeColor="@android:color/holo_orange_dark"
-        android:textColor="@android:color/holo_orange_dark"/>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToReportGenerator"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Generar Reporte PDF"
+            app:icon="@drawable/pdf"/>
 
-    <!-- borra para Descomentar para activar -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/button_migrate_data"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        app:strokeColor="@android:color/holo_red_dark"
-        android:textColor="@android:color/holo_red_dark"
-        android:text="Mantenimiento de Datos v3.0"
-        app:icon="@android:drawable/ic_dialog_alert"/>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToArchivedProducts"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/pending_item_background"
+            android:text="Productos Archivados"
+            app:icon="@drawable/guardar" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/button_force_sync"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        app:strokeColor="@android:color/holo_orange_dark"
-        android:textColor="@android:color/holo_orange_dark"
-        android:text="Sincronización Forzada"
-        app:icon="@android:drawable/stat_notify_sync"/>
-        <!-- borrar esta linea para descomentar -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToDevoluciones"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Devoluciones Pendientes"
+            app:icon="@drawable/devolucion"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_history"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@color/pending_item_background"
+            android:text="Historial de Movimientos"
+            app:icon="@drawable/historial"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToConfigTraspasos"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Configuración de Traspasos"
+            app:icon="@drawable/ic_settings" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToProveedores"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/pending_item_background"
+            android:text="Gestionar Proveedores"
+            app:icon="@drawable/ic_manage_users"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonNavToLotMigration"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Convertir Lotes Antiguos"
+            app:icon="@drawable/ic_exchange"
+            app:strokeColor="@android:color/holo_orange_dark"
+            android:textColor="@android:color/holo_orange_dark"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_migrate_data"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            app:strokeColor="@android:color/holo_red_dark"
+            android:textColor="@android:color/holo_red_dark"
+            android:text="Mantenimiento de Datos v3.0"
+            app:icon="@android:drawable/ic_dialog_alert"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_force_sync"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            app:strokeColor="@android:color/holo_orange_dark"
+            android:textColor="@android:color/holo_orange_dark"
+            android:text="Sincronización Forzada"
+            app:icon="@android:drawable/stat_notify_sync"/>
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

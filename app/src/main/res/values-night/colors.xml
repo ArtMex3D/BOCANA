@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#E0E0E0</color> <color name="white">#121212</color> <color name="intense_black">#FFFFFF</color>
+    <color name="gray_400">#424242</color>
+    <color name="Letras">#FFFFFF</color> <color name="brand_purple">#FF4081</color> <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#03DAC5</color>
+    <color name="teal_700">#018786</color>
+
+    <color name="low_stock_red">#EF5350</color> <color name="negative_red">#E53935</color>
+    <color name="ok_stock_blue">#64B5F6</color> <color name="total_stock_green">#81C784</color> <color name="stock_ok">#81C784</color>
+    <color name="positive_green">#4CAF50</color>
+    <color name="transfer_yellow">#FFD54F</color> <color name="pending_item_yellow">#FFF59D</color>
+
+    <color name="completed_item_grey">#2C2C2C</color>
+    <color name="low_stock_red_background">#3E2723</color> <color name="pending_item_background">#1E1E1E</color>  <color name="zebra_oscuro">@color/low_stock_red_background</color>
+    <color name="zebra_claro">@color/pending_item_background</color>
+</resources>
