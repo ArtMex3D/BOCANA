@@ -2,86 +2,80 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/card_view_pdf"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="12dp"
-    android:layout_marginTop="8dp"
-    android:layout_marginEnd="12dp"
-    android:layout_marginBottom="8dp"
-    app:cardElevation="4dp"
-    app:strokeWidth="1dp"
-    app:strokeColor="#FFC107">
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="6dp"
+    app:cardElevation="2dp"
+    app:cardCornerRadius="8dp">
 
-    <LinearLayout
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
         android:padding="16dp">
 
-        <TextView
-            android:id="@+id/textViewPlanDate"
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_nuevo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="NUEVO"
+            android:textColor="@android:color/white"
+            app:chipBackgroundColor="#4CAF50"
+            app:chipMinHeight="24dp"
+            android:textSize="10sp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <TextView
+            android:id="@+id/text_view_plan_date"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            tools:text="24 / Julio / 2025"
             android:textAppearance="?attr/textAppearanceHeadline6"
-            tools:text="Plan de Traspaso: 25 / julio / 2025" />
+            android:textStyle="bold"
+            app:layout_constraintTop_toBottomOf="@id/chip_nuevo"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="4dp"/>
 
         <TextView
-            android:id="@+id/textViewCreatedBy"
+            android:id="@+id/text_view_created_by"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            tools:text="Generado por: César"
             android:textAppearance="?attr/textAppearanceCaption"
-            tools:text="Creado por: Cesar" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"
-            android:background="?android:attr/listDivider" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Productos a mover:"
-            android:textAppearance="?attr/textAppearanceBody2"
-            android:textStyle="bold" />
-
-        <!-- Este LinearLayout se llenará programáticamente -->
-        <LinearLayout
-            android:id="@+id/linearLayoutProducts"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical" />
-
+            app:layout_constraintTop_toBottomOf="@id/text_view_plan_date"
+            app:layout_constraintStart_toStartOf="parent" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
+            android:gravity="end"
             android:layout_marginTop="16dp"
-            android:gravity="end">
+            app:layout_constraintTop_toBottomOf="@id/text_view_created_by">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonCancel"
+                android:id="@+id/button_eliminar"
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Cancelar"
-                android:textColor="?attr/colorError"
-                app:icon="@android:drawable/ic_menu_close_clear_cancel"
-                app:iconTint="?attr/colorError" />
+                android:textColor="@android:color/holo_red_dark"
+                android:text="Eliminar"
+                app:icon="@android:drawable/ic_menu_delete"
+                app:iconTint="@android:color/holo_red_dark" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonConfirm"
+                android:id="@+id/button_ver_pdf"
+                style="@style/Widget.MaterialComponents.Button"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:text="Confirmar"
-                app:icon="@drawable/verificado" />
-
+                android:layout_marginStart="8dp"
+                app:backgroundTint="@color/brand_purple"
+                android:text="Ver PDF"
+                app:iconTint="@android:color/white"
+                app:icon="@drawable/pdf" />
         </LinearLayout>
-    </LinearLayout>
-
+    </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>

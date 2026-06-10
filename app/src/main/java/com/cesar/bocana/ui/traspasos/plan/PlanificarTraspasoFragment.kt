@@ -1,7 +1,6 @@
 package com.cesar.bocana.ui.traspasos.plan
 
 import android.os.Bundle
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -15,7 +14,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.databinding.FragmentPlanificarTraspasoBinding
-import com.cesar.bocana.ui.printing.PdfViewerFragment
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
@@ -31,7 +29,9 @@ class PlanificarTraspasoFragment : Fragment() {
 
     private val viewModel: PlanificarTraspasoViewModel by viewModels()
     private lateinit var adapter: PlanTraspasoAdapter
-    private val dateFormat = SimpleDateFormat("dd / MMMM / yyyy", Locale("es", "ES"))
+
+    // Formato de fecha corto ajustado para tu diseño
+    private val dateFormatDisplay = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
     private var selectedDate: Date = Date()
 
     override fun onCreateView(
@@ -60,14 +60,16 @@ class PlanificarTraspasoFragment : Fragment() {
         setupListeners()
         observeViewModel()
         updateDateButtonText()
+
+        // Cambiamos el texto del botón por código para no tener que tocar el XML
+        binding.btnGenerarPdfTop.text = "Previsualizar"
     }
 
     private fun observeViewModel() {
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.uiState.collectLatest { state ->
                 binding.progressBarPlan.isVisible = state.isLoading || state.isSaving
-                binding.fabCreatePlan.isEnabled = !state.isSaving
-                binding.fabGeneratePdf.isEnabled = !state.isSaving
+                binding.btnGenerarPdfTop.isEnabled = !state.isSaving
 
                 adapter.submitList(state.sugerencias)
 
@@ -79,98 +81,95 @@ class PlanificarTraspasoFragment : Fragment() {
                 state.error?.let {
                     Snackbar.make(binding.root, "Error: $it", Snackbar.LENGTH_LONG).show()
                 }
+
                 state.snackbarMessage?.let {
                     Snackbar.make(binding.root, it, Snackbar.LENGTH_SHORT).show()
                     viewModel.onSnackbarShown()
                 }
 
+                // MAGIA: El Salto automático a la pestaña 2 (Confirmar/Historial)
                 if (state.planGuardadoExitoso) {
-                    Snackbar.make(binding.root, "Plan creado. Ya puedes ir a 'Confirmar Traspaso'.", Snackbar.LENGTH_LONG)
-                        .setAction("IR") {
-                            val tabLayout = activity?.findViewById<TabLayout>(R.id.tab_layout_traspasos)
-                            tabLayout?.getTabAt(1)?.select()
-                        }
-                        .show()
+                    Snackbar.make(binding.root, "Plan enviado a PDFs Recientes", Snackbar.LENGTH_SHORT).show()
+                    val tabLayout = activity?.findViewById<TabLayout>(R.id.tab_layout_traspasos)
+                    tabLayout?.getTabAt(1)?.select() // Índice 1 es la segunda pestaña
                     viewModel.onPlanGuardadoNavegado()
-                    viewModel.cargarPlanDeTraspaso(descartarCache = true) // Recargar para empezar de cero
+                    viewModel.cargarPlanDeTraspaso(descartarCache = true) // Limpia la lista para el próximo
                 }
             }
         }
     }
 
     private fun mostrarDialogoDeCache() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Continuar Planificación")
-            .setMessage("Se encontró un plan sin terminar del día de hoy. ¿Deseas continuar con él?")
-            .setPositiveButton("Sí, continuar") { _, _ ->
-                viewModel.cargarPlanDesdeCache()
-            }
-            .setNegativeButton("No, empezar de cero") { _, _ ->
-                viewModel.cargarPlanDeTraspaso(descartarCache = true)
-            }
-            .setCancelable(false)
-            .show()
+        context?.let { ctx ->
+            AlertDialog.Builder(ctx)
+                .setTitle("Continuar Planificación")
+                .setMessage("Se encontró un plan sin terminar del día de hoy. ¿Deseas continuar con él?")
+                .setPositiveButton("Sí, continuar") { _, _ ->
+                    viewModel.cargarPlanDesdeCache()
+                }
+                .setNegativeButton("No, empezar de cero") { _, _ ->
+                    viewModel.cargarPlanDeTraspaso(descartarCache = true)
+                }
+                .setCancelable(false)
+                .show()
+        }
     }
 
     private fun setupRecyclerView() {
         adapter = PlanTraspasoAdapter(viewModel) { item ->
+            // Si el usuario toca la Fila Vacía, no hacemos nada o abrimos un diálogo distinto (se maneja en el adapter)
+            if (item.product.id == "FILA_VACIA") return@PlanTraspasoAdapter
+
             val selectedIds = item.lotesSeleccionadosManualmente?.map { it.id } ?: item.lotesParaTraspaso.map { it.loteId }
-            SeleccionarLotesDialogFragment.newInstance(item.product.id, item.product.name, selectedIds)
+            SeleccionarLotesDialogFragment.newInstance(item.product.id, item.product.name, ArrayList(selectedIds))
                 .show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
         }
-        binding.recyclerViewPlanTraspaso.layoutManager = LinearLayoutManager(context)
-        binding.recyclerViewPlanTraspaso.adapter = adapter
-        (binding.recyclerViewPlanTraspaso.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
+
+        binding.recyclerViewPlanTraspaso.apply {
+            layoutManager = LinearLayoutManager(context)
+            adapter = this@PlanificarTraspasoFragment.adapter
+            (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)?.supportsChangeAnimations = false
+        }
     }
 
     private fun setupListeners() {
         binding.buttonTraspasoDate.setOnClickListener { showDatePicker() }
-        binding.fabGeneratePdf.setOnClickListener { generarYVisualizarPdf() }
-        binding.fabCreatePlan.setOnClickListener {
+
+        // Al darle clic a Previsualizar, guardamos en la nube.
+        // El Observer se encargará de hacer el "Salto" cuando termine de guardar.
+        binding.btnGenerarPdfTop.setOnClickListener {
             viewModel.guardarPlanEnFirestore(selectedDate)
         }
-    }
 
-    private fun generarYVisualizarPdf() {
-        binding.progressBarPlan.isVisible = true
-        lifecycleScope.launch {
-            try {
-                val plan = viewModel.uiState.value.sugerencias.filter { it.incluidoEnPdf }
-                if (plan.isEmpty()) {
-                    Snackbar.make(binding.root, "No hay productos seleccionados para incluir en el PDF.", Snackbar.LENGTH_SHORT).show()
-                    return@launch
-                }
-
-                val pdfFile = TraspasoPdfGenerator.createTraspasoPdf(requireContext(), plan, selectedDate)
-                val pdfViewerFragment = PdfViewerFragment.newInstance(pdfFile.absolutePath)
-
-                // Usamos parentFragmentManager para reemplazar el contenido del container principal
-                parentFragmentManager.beginTransaction()
-                    .replace(R.id.traspasos_fragment_container, pdfViewerFragment)
-                    .addToBackStack(null)
-                    .commit()
-
-            } catch (e: Exception) {
-                Log.e("PlanificarTraspaso", "Error al generar PDF", e)
-                Snackbar.make(binding.root, "Error al generar el PDF: ${e.message}", Snackbar.LENGTH_LONG).show()
-            } finally {
-                if (isAdded) {
-                    binding.progressBarPlan.isVisible = false
-                }
+        // Lógica del botón inferior: Agregar Fila Vacía
+        binding.btnAgregarFilaVacia.setOnClickListener {
+            val cantidadStr = binding.etCantidadFilas.text.toString()
+            val cantidad = cantidadStr.toIntOrNull() ?: 1
+            if(cantidad > 0) {
+                viewModel.agregarFilaVacia(cantidad)
             }
+            binding.etCantidadFilas.clearFocus()
+            binding.etCantidadFilas.setText("1")
+            binding.recyclerViewPlanTraspaso.smoothScrollToPosition(adapter.itemCount)
         }
     }
 
     private fun showDatePicker() {
         val datePicker = MaterialDatePicker.Builder.datePicker()
-            .setTitleText("Seleccionar Fecha del Traspaso")
-            .setSelection(MaterialDatePicker.todayInUtcMilliseconds())
+            .setTitleText("Seleccionar Fecha")
+            .setSelection(selectedDate.time + TimeZone.getDefault().getOffset(selectedDate.time))
             .build()
-        datePicker.addOnPositiveButtonClickListener { selection ->
+        datePicker.addOnPositiveButtonClickListener { selectionUtc ->
             val utcCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-            utcCalendar.timeInMillis = selection
+            utcCalendar.timeInMillis = selectionUtc
             val localCalendar = Calendar.getInstance()
-            localCalendar.set(utcCalendar.get(Calendar.YEAR), utcCalendar.get(Calendar.MONTH), utcCalendar.get(Calendar.DAY_OF_MONTH))
+            localCalendar.set(
+                utcCalendar.get(Calendar.YEAR),
+                utcCalendar.get(Calendar.MONTH),
+                utcCalendar.get(Calendar.DAY_OF_MONTH),
+                0, 0, 0
+            )
+            localCalendar.set(Calendar.MILLISECOND, 0)
             selectedDate = localCalendar.time
             updateDateButtonText()
         }
@@ -178,8 +177,8 @@ class PlanificarTraspasoFragment : Fragment() {
     }
 
     private fun updateDateButtonText() {
-        val dateText = dateFormat.format(selectedDate).uppercase()
-        binding.buttonTraspasoDate.text = "Traspaso para: $dateText"
+        val dateText = dateFormatDisplay.format(selectedDate).uppercase(Locale.getDefault())
+        binding.buttonTraspasoDate.text = dateText
     }
 
     override fun onDestroyView() {

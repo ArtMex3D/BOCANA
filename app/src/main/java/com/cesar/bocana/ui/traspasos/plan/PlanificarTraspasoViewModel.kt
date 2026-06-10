@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.utils.FirestoreCollections
 import com.google.firebase.auth.ktx.auth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -22,7 +21,6 @@ import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
-// Objeto Singleton para mantener el plan en memoria mientras la app vive.
 object TraspasoPlanCache {
     var planGuardado: List<TraspasoSugerenciaItem>? = null
     var timestamp: Long = 0
@@ -126,7 +124,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
             _uiState.update { it.copy(snackbarMessage = "Error: Usuario no autenticado.") }
             return
         }
-        val planParaGuardar = _uiState.value.sugerencias.filter { it.incluidoEnPdf && it.sugerenciaKg > 0 }
+        val planParaGuardar = _uiState.value.sugerencias.filter { it.incluidoEnPdf }
         if (planParaGuardar.isEmpty()) {
             _uiState.update { it.copy(snackbarMessage = "No hay productos seleccionados para el traspaso.") }
             return
@@ -159,19 +157,13 @@ class PlanificarTraspasoViewModel : ViewModel() {
                         lotesSugeridos = item.lotesParaTraspaso
                     )
                     batch.set(detalleDocRef, detalle)
-
-                    // ***** INICIO DE SOLUCIÓN "CANDADO" *****
-                    // Marcar cada lote como "RESERVADO"
-                    item.lotesParaTraspaso.forEach { desglose ->
-                        val loteRef = db.collection(FirestoreCollections.INVENTORY_LOTS).document(desglose.loteId)
-                        batch.update(loteRef, "estadoTraspaso", "RESERVADO")
-                    }
-                    // ***** FIN DE SOLUCIÓN "CANDADO" *****
+                    // NOTA: Se eliminó la lógica de bloquear/reservar lotes para evitar problemas de stock.
+                    // El documento ahora es puramente para el PDF.
                 }
 
                 batch.commit().await()
-                TraspasoPlanCache.limpiar() // Limpiar caché después de guardar exitosamente
-                _uiState.update { it.copy(isSaving = false, snackbarMessage = "Plan de traspaso creado.", planGuardadoExitoso = true) }
+                TraspasoPlanCache.limpiar()
+                _uiState.update { it.copy(isSaving = false, planGuardadoExitoso = true) }
             } catch (e: Exception) {
                 Log.e(TAG, "Error al guardar plan de traspaso", e)
                 _uiState.update { it.copy(isSaving = false, snackbarMessage = "Error al guardar: ${e.message}") }
@@ -197,7 +189,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
 
         allLotesEnMatriz = lotesDisponibles.groupBy { it.productId }
     }
-
 
     fun actualizarInclusionEnPdf(productId: String, incluido: Boolean) {
         _uiState.update { currentState ->
@@ -279,7 +270,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
                     loteId = loteOriginal.id,
                     cantidadATomarKg = kgATomar,
                     cantidadATomarUnidades = unidadesATomar.toDouble(),
-                    lote = loteOriginal, // Mantener el objeto completo para la UI
+                    lote = loteOriginal,
                     loteFecha = loteOriginal.receivedAt,
                     loteProveedor = loteOriginal.supplierName,
                     loteUnidad = loteOriginal.unidadDeEmpaque,
@@ -324,7 +315,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
                         loteId = lote.id,
                         cantidadATomarKg = kgA_TomarDeEsteLote,
                         cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
-                        lote = lote, // Se pasa el objeto para uso temporal en la UI
+                        lote = lote,
                         loteFecha = lote.receivedAt,
                         loteProveedor = lote.supplierName,
                         loteUnidad = lote.unidadDeEmpaque,
@@ -345,5 +336,49 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val cantidadEnUnidades = if (kg > 0 && pesoPorUnidad > 0) ceil(kg / pesoPorUnidad).toInt() else 0
         return Pair(cantidadEnUnidades, unidad)
     }
-}
 
+    // --- NUEVAS FUNCIONES PARA EL "ÍTEM CAMALEÓN" (Fila Vacía) ---
+
+    fun agregarFilaVacia(cantidadFilas: Int) {
+        val filaVacia = TraspasoSugerenciaItem(
+            product = Product(id = "FILA_VACIA", name = "Fila vacía"),
+            sugerenciaKg = 0.0,
+            lotesParaTraspaso = emptyList(),
+            impactoStockMatriz = 0.0,
+            incluidoEnPdf = true,
+            cantidadEditadaUnidades = cantidadFilas,
+            unidadDeEmpaqueEditada = ""
+        )
+        _uiState.update { state ->
+            val nuevas = state.sugerencias.toMutableList()
+            val index = nuevas.indexOfFirst { it.product.id == "FILA_VACIA" }
+            if (index != -1) {
+                // Si ya existe, le sumamos a la cantidad que ya tenía
+                val cantidadActual = nuevas[index].cantidadEditadaUnidades
+                nuevas[index] = filaVacia.copy(cantidadEditadaUnidades = cantidadActual + cantidadFilas)
+            } else {
+                // Si no existe, la insertamos al final
+                nuevas.add(filaVacia)
+            }
+            state.copy(sugerencias = nuevas, snackbarMessage = "Filas vacías actualizadas")
+        }
+    }
+
+    fun eliminarFilaVacia() {
+        _uiState.update { state ->
+            state.copy(
+                sugerencias = state.sugerencias.filter { it.product.id != "FILA_VACIA" },
+                snackbarMessage = "Fila vacía eliminada"
+            )
+        }
+    }
+
+    fun actualizarCantidadFilaVacia(nuevaCantidad: Int) {
+        _uiState.update { state ->
+            state.copy(sugerencias = state.sugerencias.map {
+                if (it.product.id == "FILA_VACIA") it.copy(cantidadEditadaUnidades = nuevaCantidad)
+                else it
+            })
+        }
+    }
+}

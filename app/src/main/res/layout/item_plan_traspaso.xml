@@ -30,10 +30,23 @@
             android:layout_marginStart="8dp"
             android:textAppearance="?attr/textAppearanceHeadline6"
             app:layout_constraintBottom_toBottomOf="@+id/checkbox_include_in_pdf"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/btn_delete_fila_vacia"
             app:layout_constraintStart_toEndOf="@+id/checkbox_include_in_pdf"
             app:layout_constraintTop_toTopOf="@+id/checkbox_include_in_pdf"
             tools:text="Atún Aleta Amarilla" />
+
+        <!-- NUEVO: Botón de basura para la Fila Vacía -->
+        <ImageButton
+            android:id="@+id/btn_delete_fila_vacia"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_delete"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="@android:color/holo_red_dark"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="@+id/textview_product_name"/>
 
         <TextView
             android:id="@+id/label_lotes_sugeridos"
@@ -47,7 +60,6 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/checkbox_include_in_pdf" />
 
-        <!-- Este LinearLayout se llenará dinámicamente desde el Adapter -->
         <LinearLayout
             android:id="@+id/layout_lotes_a_mover"
             android:layout_width="0dp"
@@ -88,13 +100,13 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/button_seleccionar_lotes" />
 
-        <!-- Layout para la cantidad, ahora alineado y con loader -->
         <LinearLayout
             android:id="@+id/layout_cantidad"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
+            android:layout_marginTop="8dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_cantidad_mover">

@@ -1,6 +1,7 @@
 package com.cesar.bocana.ui.traspasos.confirmar
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,13 +13,19 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.TraspasoPlanificado
+import com.cesar.bocana.data.model.TraspasoSugerenciaItem
 import com.cesar.bocana.databinding.FragmentConfirmarTraspasoBinding
+import com.cesar.bocana.ui.printing.PdfViewerFragment
+import com.cesar.bocana.ui.traspasos.plan.TraspasoPdfGenerator
 import com.google.android.material.snackbar.Snackbar
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.firestore.ktx.toObject
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class ConfirmarTraspasoFragment : Fragment() {
-
     private var _binding: FragmentConfirmarTraspasoBinding? = null
     private val binding get() = _binding!!
 
@@ -41,17 +48,11 @@ class ConfirmarTraspasoFragment : Fragment() {
 
     private fun setupRecyclerView() {
         adapter = ConfirmarTraspasoAdapter(
-            onConfirmClick = { plan ->
-                // Navegación a la pantalla de ajuste final
-                val fragment = AjusteFinalTraspasoFragment.newInstance(plan.id)
-                parentFragmentManager.beginTransaction()
-                    .replace(R.id.traspasos_fragment_container, fragment) // Navega dentro del contenedor de traspasos
-                    .addToBackStack(null)
-                    .commit()
+            onEliminarClick = { plan ->
+                mostrarDialogoDeEliminacion(plan)
             },
-            onCancelClick = { plan ->
-                // Mostrar diálogo de confirmación antes de cancelar
-                mostrarDialogoDeCancelacion(plan)
+            onVerPdfClick = { plan ->
+                generarYVisualizarPdf(plan)
             }
         )
         binding.recyclerViewConfirmarTraspaso.adapter = adapter
@@ -73,13 +74,78 @@ class ConfirmarTraspasoFragment : Fragment() {
         }
     }
 
-    private fun mostrarDialogoDeCancelacion(plan: TraspasoPlanificado) {
+    private fun generarYVisualizarPdf(plan: TraspasoPlanificado) {
+        binding.progressBarConfirmar.isVisible = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // 🚀 OPTIMIZACIÓN EXTREMA: Descargamos todo el catálogo en 1 solo viaje
+                val productsSnapshot = Firebase.firestore.collection("products").get().await()
+                val todosLosProductos = productsSnapshot.toObjects(com.cesar.bocana.data.model.Product::class.java)
+
+                val detallesSnapshot = Firebase.firestore.collection("traspasos_planificados")
+                    .document(plan.id)
+                    .collection("detalles")
+                    .orderBy("productName")
+                    .get().await()
+
+                val sugerenciasParaPdf = detallesSnapshot.documents.mapNotNull { doc ->
+                    val detalle = doc.toObject<com.cesar.bocana.data.model.DetalleTraspasoPlan>() ?: return@mapNotNull null
+
+                    // 🐛 FIX: Ahora buscamos por productId, que siempre es "FILA_VACIA" exacto
+                    if (detalle.productId == "FILA_VACIA") {
+                        TraspasoSugerenciaItem(
+                            product = com.cesar.bocana.data.model.Product(id = "FILA_VACIA", name = "Espacios en Blanco para Notas"),
+                            sugerenciaKg = 0.0,
+                            lotesParaTraspaso = emptyList(),
+                            impactoStockMatriz = 0.0,
+                            incluidoEnPdf = true,
+                            cantidadEditadaUnidades = detalle.sugerenciaUnidades, // Aquí se rescatan las filas
+                            unidadDeEmpaqueEditada = ""
+                        )
+                    } else {
+                        // 🚀 Buscamos el producto en la memoria (Toma 0.001 segundos)
+                        val product = todosLosProductos.find { it.id == detalle.productId } ?: return@mapNotNull null
+
+                        TraspasoSugerenciaItem(
+                            product = product,
+                            sugerenciaKg = detalle.sugerenciaKg,
+                            lotesParaTraspaso = detalle.lotesSugeridos,
+                            impactoStockMatriz = 0.0,
+                            incluidoEnPdf = true,
+                            cantidadEditadaUnidades = detalle.sugerenciaUnidades,
+                            unidadDeEmpaqueEditada = detalle.unidadDeEmpaque
+                        )
+                    }
+                }
+
+                if (sugerenciasParaPdf.isEmpty()) {
+                    Snackbar.make(binding.root, "Este PDF está vacío.", Snackbar.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val pdfFile = TraspasoPdfGenerator.createTraspasoPdf(requireContext(), sugerenciasParaPdf, plan.fechaPlan!!)
+                val pdfViewerFragment = PdfViewerFragment.newInstance(pdfFile.absolutePath)
+
+                requireActivity().supportFragmentManager.beginTransaction()
+                    .replace(R.id.nav_host_fragment_content_main, pdfViewerFragment)
+                    .addToBackStack(null)
+                    .commit()
+
+            } catch (e: Exception) {
+                Log.e("ConfirmarTraspaso", "Error al generar PDF", e)
+                Snackbar.make(binding.root, "Error al abrir el PDF: ${e.message}", Snackbar.LENGTH_LONG).show()
+            } finally {
+                if(isAdded) binding.progressBarConfirmar.isVisible = false
+            }
+        }
+    }
+    private fun mostrarDialogoDeEliminacion(plan: TraspasoPlanificado) {
         AlertDialog.Builder(requireContext())
-            .setTitle("Cancelar Plan de Traspaso")
-            .setMessage("¿Estás seguro de que quieres cancelar este plan? Esta acción no se puede deshacer.")
-            .setNegativeButton("No", null)
-            .setPositiveButton("Sí, Cancelar") { _, _ ->
-                viewModel.cancelarPlan(plan)
+            .setTitle("Eliminar Documento")
+            .setMessage("¿Estás seguro de que quieres borrar este registro de PDF?")
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Sí, Eliminar") { _, _ ->
+                viewModel.eliminarPlan(plan)
             }
             .show()
     }

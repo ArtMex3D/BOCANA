@@ -11,24 +11,91 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_traspaso_date"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        <!-- CABECERA: Fecha a la izquierda, Generar PDF a la derecha -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="16dp"
-            app:icon="@android:drawable/ic_menu_today"
-            tools:text="Traspaso para: 24 / Julio / 2025" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="8dp">
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_traspaso_date"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="2dp"
+                app:backgroundTint="@color/brand_purple"
+                android:textColor="@android:color/white"
+                app:icon="@android:drawable/ic_menu_today"
+                tools:text="24 / Julio / 25" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_generar_pdf_top"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Generar PDF"
+                app:backgroundTint="@color/Letras"
+                android:textColor="@android:color/white"
+                app:icon="@drawable/pdf"
+                app:iconTint="@android:color/white" />
+        </LinearLayout>
+
+        <!-- LISTA DE PRODUCTOS -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recycler_view_plan_traspaso"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:paddingBottom="80dp"
+            android:paddingBottom="8dp"
             app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
             tools:listitem="@layout/item_plan_traspaso" />
+
+        <!-- CONTROL DE FILAS VACÍAS (Pegado abajo) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="8dp"
+            android:background="?android:attr/windowBackground"
+            android:elevation="8dp">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_cantidad_filas"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="1"
+                    android:textAlignment="center"
+                    android:hint="Cant."/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_agregar_fila_vacia"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:backgroundTint="@color/brand_purple"
+                android:textColor="@android:color/white"
+                android:layout_marginStart="16dp"
+                android:text=" Agregar Filas Vacías" />
+        </LinearLayout>
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="1dp"/>
     </LinearLayout>
 
     <ProgressBar
@@ -38,32 +105,5 @@
         android:layout_gravity="center"
         android:visibility="gone"
         tools:visibility="visible" />
-
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:orientation="vertical"
-        android:gravity="end"
-        android:layout_margin="16dp">
-
-        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-            android:id="@+id/fab_generate_pdf"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Generar PDF"
-            app:icon="@drawable/pdf"
-            android:layout_marginBottom="8dp"/>
-
-        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-            android:id="@+id/fab_create_plan"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Crear Plan de Traspaso"
-            app:icon="@drawable/guardar"
-            app:backgroundTint="?attr/colorPrimary"
-            app:iconTint="?attr/colorOnPrimary"
-            android:textColor="?attr/colorOnPrimary"/>
-    </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

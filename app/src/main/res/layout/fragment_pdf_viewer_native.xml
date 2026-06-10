@@ -6,14 +6,15 @@
     android:layout_height="match_parent"
     tools:context=".ui.printing.PdfViewerFragment">
 
-    <androidx.recyclerview.widget.RecyclerView
+    <!-- CAMBIO: Reemplazado RecyclerView por ViewPager2 -->
+    <!-- Esto asegura que ocupe toda la pantalla y muestre una página a la vez -->
+    <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/pdfRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#E0E0E0"
-        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-        tools:listitem="@layout/item_pdf_page" />
+        android:background="#E0E0E0" />
 
+    <!-- El ProgressBar (loader) SÍ está aquí -->
     <ProgressBar
         android:id="@+id/progressBarPdf"
         style="?android:attr/progressBarStyle"
@@ -23,6 +24,7 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
+    <!-- El botón Compartir SÍ está aquí -->
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
         android:id="@+id/fab_share_pdf"
         android:layout_width="wrap_content"
@@ -33,3 +35,4 @@
         app:icon="@android:drawable/ic_menu_share" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
