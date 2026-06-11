@@ -3,6 +3,7 @@ package com.cesar.bocana.ui.packaging
 import android.os.Bundle
 import android.util.Log
 import android.view.*
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.MenuProvider
 import androidx.fragment.app.Fragment
@@ -28,6 +29,7 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
     private lateinit var firestore: FirebaseFirestore
     private var packagingListener: ListenerRegistration? = null
     private var originalActivityTitle: CharSequence? = null
+    private var pendingTasks: List<PendingPackagingTask> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -80,10 +82,8 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
     }
 
     private fun observePackagingTasks() {
-        if (packagingListener != null) {
-            Log.w(TAG, "Packaging listener already attached.")
-            return
-        }
+        if (packagingListener != null) return
+
         showLoading(true)
         binding.textViewEmptyPackaging.visibility = View.GONE
 
@@ -92,7 +92,6 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
 
         packagingListener = query.addSnapshotListener { snapshots, error ->
             if (_binding == null || !isAdded) {
-                Log.w(TAG, "Snapshot received but binding is null or fragment not attached.")
                 packagingListener?.remove()
                 packagingListener = null
                 return@addSnapshotListener
@@ -107,28 +106,20 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
             }
 
             if (snapshots != null) {
-                val tasks = snapshots.toObjects(PendingPackagingTask::class.java)
-                packagingAdapter.submitList(tasks)
+                pendingTasks = snapshots.toObjects(PendingPackagingTask::class.java)
+                packagingAdapter.submitList(pendingTasks)
                 binding.textViewEmptyPackaging.text = "No hay items pendientes de empacar."
-                binding.textViewEmptyPackaging.visibility = if (tasks.isEmpty()) View.VISIBLE else View.GONE
-                Log.d(TAG, "Tareas pendientes de empaque: ${tasks.size}")
-            } else {
-                Log.w(TAG, "Received null snapshot for packaging query.")
-                binding.textViewEmptyPackaging.text = "No se encontraron tareas."
-                binding.textViewEmptyPackaging.visibility = View.VISIBLE
+
+                val hasTasks = pendingTasks.isNotEmpty()
+                binding.textViewEmptyPackaging.visibility = if (hasTasks) View.GONE else View.VISIBLE
             }
         }
     }
 
-    // ***** INICIO DE LA SOLUCIÓN ROBUSTA *****
-    // Esta función ahora abre un diálogo detallado en lugar de solo borrar la tarea.
     override fun onMarkPackagedClicked(task: PendingPackagingTask) {
-        Log.d(TAG, "Iniciando proceso de empaque para la tarea: ${task.id}")
-        // Muestra el nuevo DialogFragment y le pasa la tarea seleccionada.
         EmpaqueDialogFragment.newInstance(task)
             .show(parentFragmentManager, EmpaqueDialogFragment.TAG)
     }
-    // ***** FIN DE LA SOLUCIÓN ROBUSTA *****
 
     private fun showLoading(isLoading: Boolean) {
         if (_binding != null) {
@@ -144,4 +135,3 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
         private const val TAG = "PackagingFragment"
     }
 }
-

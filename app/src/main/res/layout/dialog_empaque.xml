@@ -16,7 +16,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceHeadline6"
-            tools:text="Empacar: Atún Aleta Amarilla" />
+            tools:text="Empacar: Pacotilla" />
 
         <TextView
             android:id="@+id/textViewTotalGranel"
@@ -24,47 +24,98 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:textAppearance="?attr/textAppearanceBody2"
-            tools:text="Total a Granel Recibido: 150.00 Kg" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutUnidadEmpaque"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Tipo de Empaque (ej. Costal, Caja)">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextUnidadEmpaque"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textCapWords" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutCantidadUnidades"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Cantidad de Unidades Empacadas">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextCantidadUnidades"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="numberDecimal" />
-        </com.google.android.material.textfield.TextInputLayout>
+            tools:text="Total a Granel Recibido: 597.00 Kg" />
 
         <TextView
-            android:id="@+id/textViewPesoPromedioCalculado"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Método de Empaque:"
+            android:textAppearance="?attr/textAppearanceBody2" />
+
+        <RadioGroup
+            android:id="@+id/radioGroupCalculationType"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="end"
-            android:layout_marginTop="4dp"
-            android:textAppearance="?attr/textAppearanceBody2"
-            android:textColor="?attr/colorPrimary"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/radioButtonVariable"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Variable (Solo KG)" />
+
+            <RadioButton
+                android:id="@+id/radioButtonRedondeo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Redondear a Peso Fijo (Cajas/Costales)" />
+
+        </RadioGroup>
+
+        <LinearLayout
+            android:id="@+id/layout_empaque_fijo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
             android:visibility="gone"
-            tools:visibility="visible"
-            tools:text="= 26.57 Kg promedio por unidad" />
+            tools:visibility="visible">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutUnidadEmpaque"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Tipo de Empaque (ej. Costal, Caja)">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextUnidadEmpaque"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textCapWords" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutPesoFijo"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Peso Fijo por Unidad (Kg)">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextPesoFijo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/textFieldLayoutCantidadUnidades"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Cantidad Total de Unidades">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/editTextCantidadUnidades"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/textViewCalculoResultado"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBody2"
+                android:textColor="?attr/colorPrimary"
+                android:visibility="gone"
+                tools:visibility="visible"
+                tools:text="= 19 Cajas de 30.00 Kg y 1 Caja de 27.00 Kg" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -91,4 +142,3 @@
 
     </LinearLayout>
 </ScrollView>
-

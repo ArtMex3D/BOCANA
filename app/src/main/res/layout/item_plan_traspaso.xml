@@ -4,22 +4,25 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="12dp"
-    android:layout_marginTop="6dp"
-    android:layout_marginEnd="12dp"
-    android:layout_marginBottom="6dp"
-    app:cardElevation="2dp">
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="6dp"
+    app:cardCornerRadius="20dp"
+    app:cardElevation="0dp"
+    app:strokeColor="?attr/colorOutlineVariant"
+    app:cardBackgroundColor="#BAB0C8"
+    app:strokeWidth="1dp">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/item_background"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="12dp">
+        android:padding="16dp">
 
         <CheckBox
             android:id="@+id/checkbox_include_in_pdf"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:buttonTint="?attr/colorPrimary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
@@ -28,35 +31,36 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:textAppearance="?attr/textAppearanceHeadline6"
+            android:textAppearance="?attr/textAppearanceSubtitle1"
+            android:textSize="18sp"
+            android:textStyle="bold"
             app:layout_constraintBottom_toBottomOf="@+id/checkbox_include_in_pdf"
             app:layout_constraintEnd_toStartOf="@id/btn_delete_fila_vacia"
             app:layout_constraintStart_toEndOf="@+id/checkbox_include_in_pdf"
             app:layout_constraintTop_toTopOf="@+id/checkbox_include_in_pdf"
             tools:text="Atún Aleta Amarilla" />
 
-        <!-- NUEVO: Botón de basura para la Fila Vacía -->
         <ImageButton
             android:id="@+id/btn_delete_fila_vacia"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:src="@android:drawable/ic_menu_delete"
             android:background="?attr/selectableItemBackgroundBorderless"
-            app:tint="@android:color/holo_red_dark"
+            android:src="@android:drawable/ic_menu_delete"
             android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@+id/textview_product_name"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="@+id/textview_product_name"/>
+            app:tint="#D32F2F" />
 
         <TextView
             android:id="@+id/label_lotes_sugeridos"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="16dp"
             android:text="Lotes a Utilizar (FIFO):"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            android:textStyle="bold"
+            android:textAppearance="?attr/textAppearanceCaption"
+            android:textColor="?android:attr/textColorSecondary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@+id/checkbox_include_in_pdf" />
 
@@ -65,6 +69,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
+            android:layout_marginTop="4dp"
             android:layout_marginEnd="4dp"
             android:orientation="vertical"
             app:layout_constraintEnd_toEndOf="parent"
@@ -83,8 +88,8 @@
             android:paddingEnd="8dp"
             android:text="(Seleccionar otros lotes)"
             android:textAllCaps="false"
-            android:textColor="@color/purple_500"
-            android:textSize="12sp"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="13sp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/layout_lotes_a_mover" />
 
@@ -95,8 +100,8 @@
             android:layout_marginStart="4dp"
             android:layout_marginTop="16dp"
             android:text="Cantidad a Mover:"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            android:textStyle="bold"
+            android:textAppearance="?attr/textAppearanceCaption"
+            android:textColor="?android:attr/textColorSecondary"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/button_seleccionar_lotes" />
 
@@ -104,34 +109,39 @@
             android:id="@+id/layout_cantidad"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_cantidad_mover">
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/text_input_layout_cantidad"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Cantidad">
+                app:boxCornerRadiusBottomEnd="12dp"
+                app:boxCornerRadiusBottomStart="12dp"
+                app:boxCornerRadiusTopEnd="12dp"
+                app:boxCornerRadiusTopStart="12dp">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/edit_text_cantidad"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
                     android:inputType="number"
-                    android:imeOptions="actionDone"/>
+                    android:textAlignment="center"
+                    android:textStyle="bold" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:id="@+id/textview_unidad_empaque"
                 android:layout_width="120dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="12dp"
                 android:textAppearance="?attr/textAppearanceBody1"
                 android:textStyle="bold"
                 tools:text="Cajas" />
@@ -149,10 +159,11 @@
             android:id="@+id/textview_impacto"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="8dp"
             android:gravity="end"
             android:textAppearance="?attr/textAppearanceCaption"
-            android:textColor="?attr/colorPrimary"
+            android:textColor="#388E3C"
+            android:textStyle="bold"
             app:layout_constraintEnd_toEndOf="@id/layout_cantidad"
             app:layout_constraintStart_toStartOf="@id/layout_cantidad"
             app:layout_constraintTop_toBottomOf="@id/layout_cantidad"

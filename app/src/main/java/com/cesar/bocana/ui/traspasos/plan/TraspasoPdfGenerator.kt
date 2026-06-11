@@ -22,6 +22,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.ceil
 
 object TraspasoPdfGenerator {
 
@@ -86,6 +87,9 @@ object TraspasoPdfGenerator {
         plan.filter { it.incluidoEnPdf && (it.lotesParaTraspaso.isNotEmpty() || it.product.id == "FILA_VACIA" || it.product.name == "FILA_VACIA") }.forEach { item ->
 
             if (item.product.id == "FILA_VACIA" || item.product.name == "FILA_VACIA") {
+                // ==========================================
+                // IMPRESIÓN DE FILAS VACÍAS
+                // ==========================================
                 val bgColor = if (isZebra) zebraColor else null
                 val cantidadFilas = if (item.cantidadEditadaUnidades > 0) item.cantidadEditadaUnidades else 1
                 for (i in 1..cantidadFilas) {
@@ -98,15 +102,19 @@ object TraspasoPdfGenerator {
                 }
                 isZebra = !isZebra
             } else {
+                // ==========================================
+                // IMPRESIÓN DE PRODUCTOS REALES
+                // ==========================================
                 val bgColor = if (isZebra) zebraColor else null
                 val totalLotes = item.lotesParaTraspaso.size.coerceAtLeast(1)
 
                 val rowHeight = calculateRowHeight(item, totalLotes)
                 val totalKgForProduct = item.lotesParaTraspaso.sumOf { it.cantidadATomarKg }
                 val isManual = item.product.modoManualPDF
+                val esGranel = item.product.requiresPackaging
 
-                val esAlgunoFijo = !item.product.requiresPackaging
-                val totalKgStr = if (esAlgunoFijo && !isManual) String.format("%.2f Kg", totalKgForProduct) else ""
+                // El Total en Kg se imprime siempre y cuando no esté oculto por el modoManualPDF
+                val totalKgStr = if (!isManual && totalKgForProduct > 0.0) String.format(Locale.getDefault(), "%.2f Kg", totalKgForProduct) else ""
 
                 if (item.lotesParaTraspaso.isNotEmpty()) {
                     item.lotesParaTraspaso.forEachIndexed { index, desglose ->
@@ -122,12 +130,19 @@ object TraspasoPdfGenerator {
                             )
                         }
 
-                        val cantidadStr = "${desglose.cantidadATomarUnidades?.toInt() ?: ""} ${desglose.loteUnidad ?: ""}".trim()
+                        // ✨ SOLUCIÓN AL BUG DE GRANEL EN PDF
+                        val esFijo = !esGranel && desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0
+                        val cantidadStr = if (esFijo && desglose.cantidadATomarUnidades != null) {
+                            val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
+                            "$unidadesEnteras ${desglose.loteUnidad ?: ""}".trim()
+                        } else {
+                            "${String.format(Locale.getDefault(), "%.2f", desglose.cantidadATomarKg)} Kg"
+                        }
+
                         table.addCell(createCell(cantidadStr, bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
                         table.addCell(createCell(desglose.loteProveedor ?: "S/P", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
 
-                        val esFijo = !item.product.requiresPackaging && desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0
-                        val pesoUnitarioStr = if (esFijo && !isManual) String.format("%.2f Kg", desglose.lotePesoPorUnidad) else ""
+                        val pesoUnitarioStr = if (esFijo && !isManual) String.format(Locale.getDefault(), "%.2f Kg", desglose.lotePesoPorUnidad) else ""
                         table.addCell(createCell(pesoUnitarioStr, bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
 
                         if (index == 0) {
@@ -142,6 +157,7 @@ object TraspasoPdfGenerator {
                         }
                     }
                 } else {
+                    // Producto sin lotes pero incluido manualmente
                     val cantidadStr = if (item.cantidadEditadaUnidades > 0) "${item.cantidadEditadaUnidades} ${item.unidadDeEmpaqueEditada}" else ""
                     table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
                     table.addCell(Cell(1,1).add(Paragraph(item.product.name).setPaddingLeft(5f)).setBold().setBackgroundColor(bgColor))
@@ -155,10 +171,12 @@ object TraspasoPdfGenerator {
         }
         document.add(table)
 
-        // FIRMAS EN PARALELO, PEGADAS A LA TABLA
+        // ==========================================
+        // FIRMAS (Diseño Paralelo Actual)
+        // ==========================================
         val signatureTable = Table(UnitValue.createPercentArray(floatArrayOf(1f, 1f)))
             .useAllAvailableWidth()
-            .setMarginTop(10f) // Salto de renglón pequeñito
+            .setMarginTop(10f)
             .setBorder(null)
 
         val celdaReviso = Cell().add(Paragraph("REVISÓ: ________________________").setFontSize(10f).setBold())

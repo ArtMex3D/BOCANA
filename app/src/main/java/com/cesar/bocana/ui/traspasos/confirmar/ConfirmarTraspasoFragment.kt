@@ -85,7 +85,7 @@ class ConfirmarTraspasoFragment : Fragment() {
                 val detallesSnapshot = Firebase.firestore.collection("traspasos_planificados")
                     .document(plan.id)
                     .collection("detalles")
-                    .orderBy("productName")
+                    .orderBy("orden") // 🛠️ LA CORRECCIÓN: Le ordenamos a Firebase que respete la posición exacta
                     .get().await()
 
                 val sugerenciasParaPdf = detallesSnapshot.documents.mapNotNull { doc ->
@@ -139,6 +139,7 @@ class ConfirmarTraspasoFragment : Fragment() {
             }
         }
     }
+
     private fun mostrarDialogoDeEliminacion(plan: TraspasoPlanificado) {
         AlertDialog.Builder(requireContext())
             .setTitle("Eliminar Documento")

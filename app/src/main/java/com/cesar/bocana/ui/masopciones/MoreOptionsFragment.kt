@@ -24,7 +24,6 @@ import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment
-import com.cesar.bocana.ui.migration.LotMigrationFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
 import com.google.firebase.firestore.FieldValue
@@ -68,7 +67,6 @@ class MoreOptionsFragment : Fragment() {
         binding.buttonNavToDevoluciones.setOnClickListener { navigateTo(DevolucionesFragment(), "DevolucionesFragment") }
         binding.buttonNavToProveedores.setOnClickListener { navigateTo(SupplierListFragment(), "SupplierListFragment") }
         binding.buttonNavToConfigTraspasos.setOnClickListener { navigateTo(ConfiguracionTraspasoFragment(), "ConfiguracionTraspasoFragment") }
-        binding.buttonNavToLotMigration.setOnClickListener { navigateTo(LotMigrationFragment(), "LotMigrationFragment") }
 
         // BOTONES OCULTOS (MANTENIMIENTO) CONECTADOS PARA EL FUTURO
         binding.buttonForceSync.setOnClickListener { showForceSyncConfirmationDialog() }
@@ -85,9 +83,6 @@ class MoreOptionsFragment : Fragment() {
             .commit()
     }
 
-    // =========================================================================
-    // LÓGICA DEL AUTO-ACTUALIZADOR (NUEVO)
-    // =========================================================================
 
     private fun checkForUpdates() {
         val currentVersionCode = try {
@@ -208,16 +203,32 @@ class MoreOptionsFragment : Fragment() {
 
     private fun installApk() {
         try {
-            val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Bocana_Update.apk")
-            if (file.exists()) {
-                val uri = FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.provider", file)
+            // 1. VERIFICAR PERMISO DE INSTALACIÓN AUTOMÁTICO (Android 8.0+)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (!requireContext().packageManager.canRequestPackageInstalls()) {
+                    // Si no tiene el permiso, lo mandamos directo a la pantalla de ajustes para que lo active
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${requireContext().packageName}")
+                    }
+                    startActivity(intent)
+                    Toast.makeText(requireContext(), "Por favor, autoriza la instalación y vuelve a presionar 'Instalar Ahora'.", Toast.LENGTH_LONG).show()
+                    return
+                }
+            }
+
+            // 2. OBTENER LA RUTA OFICIAL DESDE EL DOWNLOAD MANAGER
+            // (Esto esquiva el bloqueo de seguridad de Android y evita el 'Parse Error')
+            val downloadManager = requireContext().getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val uri = downloadManager.getUriForDownloadedFile(downloadId)
+
+            if (uri != null) {
                 val installIntent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
                 }
                 startActivity(installIntent)
             } else {
-                Toast.makeText(requireContext(), "Archivo no encontrado.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Error: No se pudo obtener la ruta del archivo descargado.", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
             Log.e("Updater", "Error al instalar APK", e)
@@ -225,10 +236,6 @@ class MoreOptionsFragment : Fragment() {
         }
     }
 
-
-    // =========================================================================
-    // TUS FUNCIONES ANTIGUAS Y DE MANTENIMIENTO (GUARDADAS INTACTAS)
-    // =========================================================================
 
     private fun showForceSyncConfirmationDialog() {
         AlertDialog.Builder(requireContext())

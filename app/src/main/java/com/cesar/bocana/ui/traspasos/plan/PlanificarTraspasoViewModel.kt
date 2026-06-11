@@ -68,17 +68,9 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
-    fun onSnackbarShown() {
-        _uiState.update { it.copy(snackbarMessage = null) }
-    }
-
-    fun onPlanGuardadoNavegado() {
-        _uiState.update { it.copy(planGuardadoExitoso = false) }
-    }
-
-    fun onDialogoMostrado() {
-        _uiState.update { it.copy(preguntaCache = false) }
-    }
+    fun onSnackbarShown() { _uiState.update { it.copy(snackbarMessage = null) } }
+    fun onPlanGuardadoNavegado() { _uiState.update { it.copy(planGuardadoExitoso = false) } }
+    fun onDialogoMostrado() { _uiState.update { it.copy(preguntaCache = false) } }
 
     fun cargarPlanDesdeCache() {
         if (TraspasoPlanCache.esValido()) {
@@ -96,6 +88,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
+                // 1. Descargamos usando tu orden de Configuración
                 val products = db.collection(FirestoreCollections.PRODUCTS)
                     .whereEqualTo("isActive", true)
                     .orderBy("ordenTraspaso")
@@ -104,7 +97,18 @@ class PlanificarTraspasoViewModel : ViewModel() {
 
                 cargarLotesEnMatriz()
 
-                val sugerencias = products.map { product ->
+                // ========================================================
+                // 2. EL FILTRO FANTASMA (Del actual)
+                // ========================================================
+                val (fantasmas, reales) = products.partition {
+                    val n = it.name.trim().lowercase()
+                    n.isEmpty() || n == "-" || n == "." || n == "_" || n.contains("vaci") || n.contains("espacio") || n.contains("fila")
+                }
+                // Unimos obligando a las filas vacías a ir al fondo
+                val ordenDefinitivo = reales + fantasmas
+                // ========================================================
+
+                val sugerencias = ordenDefinitivo.map { product ->
                     generarSugerenciaInicial(product, allLotesEnMatriz[product.id] ?: emptyList())
                 }
 
@@ -145,7 +149,8 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 val batch: WriteBatch = db.batch()
                 batch.set(planDocRef, planPrincipal)
 
-                planParaGuardar.forEach { item ->
+                // 🛠️ LA CORRECCIÓN: Guardamos el índice (0, 1, 2...) para forzar el orden
+                planParaGuardar.forEachIndexed { index, item ->
                     val detalleDocRef = planDocRef.collection("detalles").document()
                     val detalle = DetalleTraspasoPlan(
                         id = detalleDocRef.id,
@@ -154,11 +159,10 @@ class PlanificarTraspasoViewModel : ViewModel() {
                         sugerenciaKg = item.sugerenciaKg,
                         sugerenciaUnidades = item.cantidadEditadaUnidades,
                         unidadDeEmpaque = item.unidadDeEmpaqueEditada,
-                        lotesSugeridos = item.lotesParaTraspaso
+                        lotesSugeridos = item.lotesParaTraspaso,
+                        orden = index // <-- Aquí le clavamos la etiqueta de posición
                     )
                     batch.set(detalleDocRef, detalle)
-                    // NOTA: Se eliminó la lógica de bloquear/reservar lotes para evitar problemas de stock.
-                    // El documento ahora es puramente para el PDF.
                 }
 
                 batch.commit().await()
@@ -170,7 +174,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
             }
         }
     }
-
     private fun guardarEnCache(sugerencias: List<TraspasoSugerenciaItem>) {
         TraspasoPlanCache.planGuardado = sugerencias
         TraspasoPlanCache.timestamp = System.currentTimeMillis()
@@ -193,31 +196,45 @@ class PlanificarTraspasoViewModel : ViewModel() {
     fun actualizarInclusionEnPdf(productId: String, incluido: Boolean) {
         _uiState.update { currentState ->
             val nuevasSugerencias = currentState.sugerencias.map {
-                if (it.product.id == productId) {
-                    it.copy(incluidoEnPdf = incluido)
-                } else {
-                    it
-                }
+                if (it.product.id == productId) it.copy(incluidoEnPdf = incluido) else it
             }
             guardarEnCache(nuevasSugerencias)
             currentState.copy(sugerencias = nuevasSugerencias)
         }
     }
 
+    // =========================================================================
+    // MATEMÁTICAS RESCATADAS DEL VIEJO (Decaimiento de Kg y Unidades Perfecto)
+    // =========================================================================
+
     private fun generarSugerenciaInicial(product: Product, lotesDelProducto: List<StockLot>): TraspasoSugerenciaItem {
-        val necesidadKg = product.stockIdealC04 - product.stockCongelador04
+        val necesidadKg = max(0.0, product.stockIdealC04 - product.stockCongelador04)
         val disponibleKg = lotesDelProducto.sumOf { it.currentQuantity }
         val sugerenciaKg = max(0.0, min(necesidadKg, disponibleKg))
-        val tieneUnidadesDeEmpaque = lotesDelProducto.any { !it.unidadDeEmpaque.isNullOrBlank() && it.pesoPorUnidad != null && it.pesoPorUnidad > 0 }
-
         val incluido = sugerenciaKg > 0.0
 
-        if (tieneUnidadesDeEmpaque && sugerenciaKg > 0) {
+        if (!product.requiresPackaging && sugerenciaKg > 0) {
+            // Lógica FIJO (Cajas/Piezas)
             val (cantidadEnUnidades, unidad) = convertirKgAUnidades(sugerenciaKg, lotesDelProducto)
             val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDelProducto)
-            return TraspasoSugerenciaItem(product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados, incluidoEnPdf = incluido, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = unidad)
+            return TraspasoSugerenciaItem(
+                product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados,
+                incluidoEnPdf = incluido, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = unidad
+            )
+        } else if (product.requiresPackaging && sugerenciaKg > 0) {
+            // Lógica GRANEL (Kilos)
+            val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadKg(sugerenciaKg, lotesDelProducto)
+            return TraspasoSugerenciaItem(
+                product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados,
+                incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = "Kg"
+            )
         } else {
-            return TraspasoSugerenciaItem(product, 0.0, emptyList(), product.stockMatriz, incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = product.unit)
+            // Sin necesidad
+            val unidad = if (!product.requiresPackaging) product.unit ?: "Unidad" else "Kg"
+            return TraspasoSugerenciaItem(
+                product, 0.0, emptyList(), product.stockMatriz,
+                incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = unidad
+            )
         }
     }
 
@@ -229,7 +246,11 @@ class PlanificarTraspasoViewModel : ViewModel() {
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == productId) it.copy(sugerenciaKg = kgRealesTomados, lotesParaTraspaso = lotesDesglosados, impactoStockMatriz = it.product.stockMatriz - kgRealesTomados, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false, lotesSeleccionadosManualmente = null) else it
+                if (it.product.id == productId) it.copy(
+                    sugerenciaKg = kgRealesTomados, lotesParaTraspaso = lotesDesglosados,
+                    impactoStockMatriz = it.product.stockMatriz - kgRealesTomados, cantidadEditadaUnidades = cantidadEnUnidades,
+                    unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false, lotesSeleccionadosManualmente = null
+                ) else it
             }
             guardarEnCache(nuevasSugerencias)
             state.copy(sugerencias = nuevasSugerencias)
@@ -239,50 +260,83 @@ class PlanificarTraspasoViewModel : ViewModel() {
     fun actualizarLotesManualmente(productId: String, lotesSeleccionados: List<StockLot>) {
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
         setRecalculatingState(productId, true)
-        val unidadesNecesarias = sugerenciaAfectada.cantidadEditadaUnidades
-        val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadUnidades(unidadesNecesarias, lotesSeleccionados)
-        val unidadesRealesTomadas = lotesDesglosados.sumOf { it.cantidadATomarUnidades ?: 0.0 }.toInt()
+        val esFijo = !sugerenciaAfectada.product.requiresPackaging
+
+        // Detecta si mandamos desglosar por Unidades o por Kg
+        val (lotesDesglosados, kgRealesTomados) = if (esFijo) {
+            val unidadesNecesarias = sugerenciaAfectada.cantidadEditadaUnidades
+            desglosarLotesParaCantidadUnidades(unidadesNecesarias, lotesSeleccionados)
+        } else {
+            val kgNecesarios = sugerenciaAfectada.sugerenciaKg
+            desglosarLotesParaCantidadKg(kgNecesarios, lotesSeleccionados)
+        }
+
+        val unidadesRealesTomadas = if (esFijo) lotesDesglosados.sumOf { it.cantidadATomarUnidades ?: 0.0 }.toInt() else 0
         val nuevaUnidad = lotesSeleccionados.firstOrNull()?.unidadDeEmpaque ?: sugerenciaAfectada.unidadDeEmpaqueEditada
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == productId) it.copy(lotesSeleccionadosManualmente = lotesSeleccionados, lotesParaTraspaso = lotesDesglosados, sugerenciaKg = kgRealesTomados, impactoStockMatriz = it.product.stockMatriz - kgRealesTomados, cantidadEditadaUnidades = unidadesRealesTomadas, unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false) else it
+                if (it.product.id == productId) it.copy(
+                    lotesSeleccionadosManualmente = lotesSeleccionados, lotesParaTraspaso = lotesDesglosados,
+                    sugerenciaKg = kgRealesTomados, impactoStockMatriz = it.product.stockMatriz - kgRealesTomados,
+                    cantidadEditadaUnidades = if (esFijo) unidadesRealesTomadas else it.cantidadEditadaUnidades,
+                    unidadDeEmpaqueEditada = if (esFijo) nuevaUnidad else it.unidadDeEmpaqueEditada,
+                    isRecalculating = false
+                ) else it
             }
             guardarEnCache(nuevasSugerencias)
-            state.copy(sugerencias = nuevasSugerencias, snackbarMessage = if (unidadesNecesarias > unidadesRealesTomadas) "Cantidad ajustada al stock de los lotes seleccionados." else null)
+            state.copy(sugerencias = nuevasSugerencias, snackbarMessage = "Lotes actualizados al stock seleccionado.")
         }
     }
 
     fun actualizarPorDesgloseManual(productId: String, desglose: List<DesgloseManualResult>) {
         setRecalculatingState(productId, true)
         val lotesDisponibles = allLotesEnMatriz[productId] ?: emptyList()
+        val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
+        val esFijo = !sugerenciaAfectada.product.requiresPackaging
+
         var totalKgDesglosado = 0.0
         var totalUnidadesDesglosadas = 0
-        val lotesDesglosados = desglose.mapNotNull { desgloseItem ->
-            val loteOriginal = lotesDisponibles.find { it.id == desgloseItem.loteId }
+
+        val lotesDesglosados = desglose.mapNotNull { itemUsuario ->
+            val loteOriginal = lotesDisponibles.find { it.id == itemUsuario.loteId }
             if (loteOriginal != null) {
-                val pesoUnidad = loteOriginal.pesoPorUnidad ?: 1.0
-                val unidadesATomar = desgloseItem.cantidad.toInt()
-                val kgATomar = unidadesATomar * pesoUnidad
-                totalKgDesglosado += kgATomar
-                totalUnidadesDesglosadas += unidadesATomar
-                LoteDesglosado(
-                    loteId = loteOriginal.id,
-                    cantidadATomarKg = kgATomar,
-                    cantidadATomarUnidades = unidadesATomar.toDouble(),
-                    lote = loteOriginal,
-                    loteFecha = loteOriginal.receivedAt,
-                    loteProveedor = loteOriginal.supplierName,
-                    loteUnidad = loteOriginal.unidadDeEmpaque,
-                    lotePesoPorUnidad = loteOriginal.pesoPorUnidad
-                )
+                var kgATomar = 0.0
+                var unidadesATomar: Double? = null
+
+                // MAGIA RESCATADA: El ViewModel sabe procesar los Kg si es Granel, o las Unidades si es Fijo
+                if (esFijo) {
+                    val pesoUnidad = loteOriginal.pesoPorUnidad ?: 1.0
+                    val unidades = itemUsuario.cantidad.toInt()
+                    kgATomar = unidades * pesoUnidad
+                    unidadesATomar = unidades.toDouble()
+                    totalUnidadesDesglosadas += unidades
+                } else {
+                    kgATomar = itemUsuario.cantidad // Es Double, soporta decimales para el granel
+                }
+
+                if (kgATomar > 0) {
+                    totalKgDesglosado += kgATomar
+                    LoteDesglosado(
+                        loteId = loteOriginal.id, cantidadATomarKg = kgATomar, cantidadATomarUnidades = unidadesATomar,
+                        lote = loteOriginal, loteFecha = loteOriginal.receivedAt, loteProveedor = loteOriginal.supplierName,
+                        loteUnidad = if (esFijo) loteOriginal.unidadDeEmpaque else "Kg", lotePesoPorUnidad = loteOriginal.pesoPorUnidad
+                    )
+                } else null
             } else null
         }
-        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
+
+        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: sugerenciaAfectada.unidadDeEmpaqueEditada
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
-                if (it.product.id == productId) it.copy(lotesSeleccionadosManualmente = lotesDesglosados.mapNotNull { d -> d.lote }, lotesParaTraspaso = lotesDesglosados, sugerenciaKg = totalKgDesglosado, impactoStockMatriz = it.product.stockMatriz - totalKgDesglosado, cantidadEditadaUnidades = totalUnidadesDesglosadas, unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false) else it
+                if (it.product.id == productId) it.copy(
+                    lotesSeleccionadosManualmente = lotesDesglosados.mapNotNull { d -> d.lote },
+                    lotesParaTraspaso = lotesDesglosados, sugerenciaKg = totalKgDesglosado,
+                    impactoStockMatriz = it.product.stockMatriz - totalKgDesglosado,
+                    cantidadEditadaUnidades = totalUnidadesDesglosadas, unidadDeEmpaqueEditada = nuevaUnidad,
+                    isRecalculating = false
+                ) else it
             }
             guardarEnCache(nuevasSugerencias)
             state.copy(sugerencias = nuevasSugerencias, snackbarMessage = "Plan actualizado con desglose manual.")
@@ -298,6 +352,31 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
+    // Funciones Auxiliares Puras (Rescatadas del viejo)
+
+    private fun desglosarLotesParaCantidadKg(cantidadNecesariaKg: Double, lotesDisponibles: List<StockLot>): Pair<List<LoteDesglosado>, Double> {
+        val lotesDesglosados = mutableListOf<LoteDesglosado>()
+        var kgAcumulados = 0.0
+        var kgRestantes = cantidadNecesariaKg
+
+        for (lote in lotesDisponibles) {
+            if (kgRestantes <= 0.01) break
+            val aTomarDeEsteLote = min(lote.currentQuantity, kgRestantes)
+            if (aTomarDeEsteLote > 0.01) {
+                lotesDesglosados.add(
+                    LoteDesglosado(
+                        loteId = lote.id, cantidadATomarKg = aTomarDeEsteLote, cantidadATomarUnidades = null,
+                        lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
+                        loteUnidad = "Kg", lotePesoPorUnidad = null
+                    )
+                )
+                kgRestantes -= aTomarDeEsteLote
+                kgAcumulados += aTomarDeEsteLote
+            }
+        }
+        return Pair(lotesDesglosados, kgAcumulados)
+    }
+
     private fun desglosarLotesParaCantidadUnidades(unidadesNecesarias: Int, lotesDisponibles: List<StockLot>): Pair<List<LoteDesglosado>, Double> {
         val lotesDesglosados = mutableListOf<LoteDesglosado>()
         var kgAcumulados = 0.0
@@ -305,25 +384,21 @@ class PlanificarTraspasoViewModel : ViewModel() {
         for (lote in lotesDisponibles) {
             if (unidadesRestantes <= 0) break
             val pesoPorUnidad = lote.pesoPorUnidad ?: 1.0
-            if (pesoPorUnidad <= 0) continue
-            val unidadesDisponiblesEnLote = Math.floor(lote.currentQuantity / pesoPorUnidad).toInt()
-            val unidadesA_TomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
-            if (unidadesA_TomarDeEsteLote > 0) {
-                val kgA_TomarDeEsteLote = unidadesA_TomarDeEsteLote * pesoPorUnidad
-                lotesDesglosados.add(
-                    LoteDesglosado(
-                        loteId = lote.id,
-                        cantidadATomarKg = kgA_TomarDeEsteLote,
-                        cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
-                        lote = lote,
-                        loteFecha = lote.receivedAt,
-                        loteProveedor = lote.supplierName,
-                        loteUnidad = lote.unidadDeEmpaque,
-                        lotePesoPorUnidad = lote.pesoPorUnidad
+            if (pesoPorUnidad > 0 && !lote.unidadDeEmpaque.isNullOrBlank()) {
+                val unidadesDisponiblesEnLote = Math.floor(lote.currentQuantity / pesoPorUnidad).toInt()
+                val unidadesA_TomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
+                if (unidadesA_TomarDeEsteLote > 0) {
+                    val kgA_TomarDeEsteLote = unidadesA_TomarDeEsteLote * pesoPorUnidad
+                    lotesDesglosados.add(
+                        LoteDesglosado(
+                            loteId = lote.id, cantidadATomarKg = kgA_TomarDeEsteLote, cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
+                            lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
+                            loteUnidad = lote.unidadDeEmpaque, lotePesoPorUnidad = lote.pesoPorUnidad
+                        )
                     )
-                )
-                kgAcumulados += kgA_TomarDeEsteLote
-                unidadesRestantes -= unidadesA_TomarDeEsteLote
+                    kgAcumulados += kgA_TomarDeEsteLote
+                    unidadesRestantes -= unidadesA_TomarDeEsteLote
+                }
             }
         }
         return Pair(lotesDesglosados, kgAcumulados)
@@ -337,7 +412,9 @@ class PlanificarTraspasoViewModel : ViewModel() {
         return Pair(cantidadEnUnidades, unidad)
     }
 
-    // --- NUEVAS FUNCIONES PARA EL "ÍTEM CAMALEÓN" (Fila Vacía) ---
+    // =========================================================================
+    // FUNCIONES ÍTEM CAMALEÓN (Actual Intacto)
+    // =========================================================================
 
     fun agregarFilaVacia(cantidadFilas: Int) {
         val filaVacia = TraspasoSugerenciaItem(
@@ -353,11 +430,9 @@ class PlanificarTraspasoViewModel : ViewModel() {
             val nuevas = state.sugerencias.toMutableList()
             val index = nuevas.indexOfFirst { it.product.id == "FILA_VACIA" }
             if (index != -1) {
-                // Si ya existe, le sumamos a la cantidad que ya tenía
                 val cantidadActual = nuevas[index].cantidadEditadaUnidades
                 nuevas[index] = filaVacia.copy(cantidadEditadaUnidades = cantidadActual + cantidadFilas)
             } else {
-                // Si no existe, la insertamos al final
                 nuevas.add(filaVacia)
             }
             state.copy(sugerencias = nuevas, snackbarMessage = "Filas vacías actualizadas")

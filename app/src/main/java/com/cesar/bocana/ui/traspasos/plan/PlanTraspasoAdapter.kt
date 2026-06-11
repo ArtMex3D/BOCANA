@@ -42,6 +42,7 @@ class PlanTraspasoAdapter(
         fun bind(item: TraspasoSugerenciaItem) {
             val context = binding.root.context
             val isFilaVacia = item.product.id == "FILA_VACIA"
+            val esGranel = item.product.requiresPackaging
 
             // 1. Limpiar Listeners para evitar bugs de reciclaje
             binding.checkboxIncludeInPdf.setOnCheckedChangeListener(null)
@@ -61,7 +62,7 @@ class PlanTraspasoAdapter(
                 binding.textviewProductName.text = "Eliminar filas"
                 binding.textviewProductName.setTextColor(Color.DKGRAY)
 
-                // Ocultar basura innecesaria
+                // Ocultar elementos innecesarios
                 binding.checkboxIncludeInPdf.visibility = View.INVISIBLE
                 binding.labelLotesSugeridos.visibility = View.GONE
                 binding.layoutLotesAMover.visibility = View.GONE
@@ -100,7 +101,6 @@ class PlanTraspasoAdapter(
                         if (qty != item.cantidadEditadaUnidades && qty > 0) {
                             viewModel.actualizarCantidadFilaVacia(qty)
                         } else if (qty <= 0) {
-                            // Si pone 0, la eliminamos
                             viewModel.eliminarFilaVacia()
                         }
                     }
@@ -108,14 +108,16 @@ class PlanTraspasoAdapter(
 
             } else {
                 // ==========================================
-                // DISEÑO NORMAL (PRODUCTOS)
+                // DISEÑO NORMAL (PRODUCTOS REALES)
                 // ==========================================
                 val cardView = binding.root as MaterialCardView
-                cardView.setCardBackgroundColor(Color.WHITE)
+                // ✨ Rescatamos tu color gris-morado suave Eye-Care
+                cardView.setCardBackgroundColor(Color.parseColor("#F0EBF5"))
                 cardView.strokeWidth = 0
 
                 binding.textviewProductName.text = item.product.name
-                binding.textviewProductName.setTextColor(Color.BLACK)
+                // ✨ Rescatamos tu azul marino profundo para el texto
+                binding.textviewProductName.setTextColor(Color.parseColor("#020961"))
 
                 binding.checkboxIncludeInPdf.visibility = View.VISIBLE
                 binding.btnDeleteFilaVacia.visibility = View.GONE
@@ -133,9 +135,12 @@ class PlanTraspasoAdapter(
                 }
 
                 if (!binding.editTextCantidad.isFocused) {
-                    binding.editTextCantidad.setText(item.cantidadEditadaUnidades.toString())
+                    // Si es granel, mostramos los kilos; si es fijo, las unidades
+                    val displayQty = if (esGranel) String.format(Locale.getDefault(), "%.2f", item.sugerenciaKg) else item.cantidadEditadaUnidades.toString()
+                    binding.editTextCantidad.setText(displayQty)
                 }
-                binding.textviewUnidadEmpaque.text = item.unidadDeEmpaqueEditada
+
+                binding.textviewUnidadEmpaque.text = if (esGranel) "Kg" else item.unidadDeEmpaqueEditada
 
                 binding.editTextCantidad.setOnEditorActionListener { v, actionId, event ->
                     if (actionId == EditorInfo.IME_ACTION_DONE || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
@@ -147,7 +152,7 @@ class PlanTraspasoAdapter(
                 }
 
                 binding.editTextCantidad.setOnFocusChangeListener { _, hasFocus ->
-                    if (!hasFocus) {
+                    if (!hasFocus && !esGranel) { // Solo recalculamos por texto si NO es granel
                         val nuevaCantidad = binding.editTextCantidad.text.toString().toIntOrNull() ?: 0
                         if (nuevaCantidad == item.cantidadEditadaUnidades) return@setOnFocusChangeListener
 
@@ -167,13 +172,14 @@ class PlanTraspasoAdapter(
 
                 binding.miniLoader.isVisible = item.isRecalculating
                 binding.layoutCantidad.alpha = if (item.isRecalculating) 0.5f else 1.0f
-                binding.editTextCantidad.isEnabled = !item.isRecalculating
+                // ✨ Protegemos la edición directa si es Granel (Kg)
+                binding.editTextCantidad.isEnabled = !item.isRecalculating && !esGranel
 
                 binding.layoutLotesAMover.removeAllViews()
                 if (item.lotesParaTraspaso.isNotEmpty()) {
                     val labelText = if (item.lotesSeleccionadosManualmente != null) "Lotes Seleccionados:" else "Lotes a Usar (PEPS):"
                     binding.labelLotesSugeridos.text = labelText
-                    item.lotesParaTraspaso.forEach { desglose -> addLoteView(context, desglose) }
+                    item.lotesParaTraspaso.forEach { desglose -> addLoteView(context, desglose, esGranel) }
                 } else {
                     binding.labelLotesSugeridos.text = "Lotes a Usar (PEPS):"
                     val noLotesView = TextView(context).apply {
@@ -191,11 +197,11 @@ class PlanTraspasoAdapter(
             }
         }
 
-        private fun addLoteView(context: Context, desglose: LoteDesglosado) {
+        private fun addLoteView(context: Context, desglose: LoteDesglosado, esGranel: Boolean) {
             val fecha = dateFormat.format(desglose.loteFecha ?: Date())
             val proveedor = desglose.loteProveedor ?: "S/P"
 
-            val cantidadStr = if (desglose.cantidadATomarUnidades != null && !desglose.loteUnidad.isNullOrBlank()) {
+            val cantidadStr = if (!esGranel && desglose.cantidadATomarUnidades != null && !desglose.loteUnidad.isNullOrBlank()) {
                 val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
                 "$unidadesEnteras ${desglose.loteUnidad}"
             } else {

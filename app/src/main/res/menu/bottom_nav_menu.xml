@@ -24,6 +24,6 @@
     <item
         android:id="@+id/navigation_mas_opciones"
         android:icon="@drawable/mas"
-        android:title="confi..."/>
+        android:title="Confi..."/>
 
 </menu>

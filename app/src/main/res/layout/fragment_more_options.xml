@@ -5,6 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     android:fillViewport="true">
 
     <LinearLayout
@@ -14,82 +15,117 @@
         android:padding="16dp"
         tools:context=".ui.masopciones.MoreOptionsFragment">
 
+        <!-- ========================================== -->
+        <!-- BANNER DE ACTUALIZACIÓN (DISEÑO PREMIUM)   -->
+        <!-- ========================================== -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_update_banner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="24dp"
             android:visibility="gone"
-            app:cardBackgroundColor="@color/pending_item_background"
-            app:strokeColor="@color/brand_purple"
-            app:strokeWidth="2dp"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorPrimaryVariant"
+            app:strokeWidth="1dp"
             tools:visibility="visible">
 
-            <LinearLayout
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:background="?attr/colorSurfaceVariant"
+                android:padding="20dp">
+
+                <ImageView
+                    android:id="@+id/icon_update"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@android:drawable/stat_sys_download"
+                    app:tint="?attr/colorPrimary"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
 
                 <TextView
                     android:id="@+id/tv_update_title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="¡Nueva Actualización Disponible!"
-                    android:textAppearance="?attr/textAppearanceHeadline6"
+                    android:layout_marginStart="12dp"
+                    android:text="Nueva versión lista"
+                    android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="#0138FF" />
+                    app:layout_constraintStart_toEndOf="@id/icon_update"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="@id/icon_update"
+                    app:layout_constraintBottom_toTopOf="@id/tv_update_version" />
 
                 <TextView
                     android:id="@+id/tv_update_version"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
                     tools:text="Versión 2.0"
-                    android:textStyle="bold"
-                    android:textColor="#FF0101"
-                    android:textAppearance="?attr/textAppearanceSubtitle2" />
+                    android:textSize="14sp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    app:layout_constraintStart_toStartOf="@id/tv_update_title"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tv_update_title" />
 
                 <TextView
                     android:id="@+id/tv_update_notes"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    tools:text="- Mejoras en el PDF\n- Modo Oscuro nativo"
-                    android:textAppearance="?attr/textAppearanceBody2" />
+                    android:layout_marginTop="12dp"
+                    tools:text="- Mejoras de rendimiento\n- Corrección de bugs"
+                    android:textSize="14sp"
+                    android:lineSpacingExtra="4dp"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/icon_update" />
 
                 <ProgressBar
                     android:id="@+id/progress_bar_download"
                     style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:visibility="gone"
+                    tools:progress="50"
                     tools:visibility="visible"
-                    tools:progress="50" />
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/tv_update_notes" />
 
                 <TextView
                     android:id="@+id/tv_download_status"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    tools:text="Descargando... 50%"
-                    android:textAlignment="center"
-                    android:textAppearance="?attr/textAppearanceCaption"
+                    android:layout_marginTop="4dp"
+                    tools:text="50%"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
                     android:visibility="gone"
-                    tools:visibility="visible"/>
+                    tools:visibility="visible"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/progress_bar_download" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_download_update"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="56dp"
                     android:layout_marginTop="16dp"
                     android:text="Descargar Actualización"
-                    app:backgroundTint="@color/brand_purple"
-                    android:textColor="@android:color/white"
-                    app:icon="@android:drawable/stat_sys_download"
-                    app:iconTint="@android:color/white" />
-            </LinearLayout>
+                    android:textSize="16sp"
+                    app:cornerRadius="16dp"
+                    app:layout_constraintTop_toBottomOf="@id/tv_download_status"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- ========================================== -->
+        <!-- SECCIÓN DE BOTONES NORMALES                -->
+        <!-- ========================================== -->
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_advanced_history"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -153,6 +189,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:backgroundTint="@color/pending_item_background"
             android:text="Configuración de Traspasos"
             app:icon="@drawable/ic_settings" />
 

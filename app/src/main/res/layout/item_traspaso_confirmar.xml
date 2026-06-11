@@ -5,55 +5,63 @@
     android:id="@+id/card_view_pdf"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginHorizontal="12dp"
-    android:layout_marginVertical="6dp"
-    app:cardElevation="2dp"
-    app:cardCornerRadius="8dp">
+    android:layout_marginHorizontal="16dp"
+    android:layout_marginVertical="8dp"
+    app:cardCornerRadius="20dp"
+    app:cardElevation="0dp"
+    app:strokeColor="?attr/colorOutlineVariant"
+    app:strokeWidth="1dp">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp">
+        android:padding="20dp">
 
         <com.google.android.material.chip.Chip
             android:id="@+id/chip_nuevo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="NUEVO"
-            android:textColor="@android:color/white"
-            app:chipBackgroundColor="#4CAF50"
-            app:chipMinHeight="24dp"
-            android:textSize="10sp"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            android:textColor="#000000"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            app:chipBackgroundColor="#00D90E"
+            app:chipCornerRadius="8dp"
+            app:chipMinHeight="28dp"
+            app:chipStrokeWidth="0dp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
         <TextView
             android:id="@+id/text_view_plan_date"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            tools:text="24 / Julio / 2025"
-            android:textAppearance="?attr/textAppearanceHeadline6"
+            android:layout_marginTop="12dp"
+            android:textAppearance="?attr/textAppearanceHeadline5"
+            android:textSize="22sp"
             android:textStyle="bold"
-            app:layout_constraintTop_toBottomOf="@id/chip_nuevo"
-            app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            android:layout_marginTop="4dp"/>
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/chip_nuevo"
+            tools:text="24 / JULIO / 2025" />
 
         <TextView
             android:id="@+id/text_view_created_by"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            tools:text="Generado por: César"
-            android:textAppearance="?attr/textAppearanceCaption"
+            android:layout_marginTop="4dp"
+            android:textAppearance="?attr/textAppearanceBody2"
+            android:textColor="?android:attr/textColorSecondary"
+            app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/text_view_plan_date"
-            app:layout_constraintStart_toStartOf="parent" />
+            tools:text="Generado por: César" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:layout_marginTop="24dp"
             android:gravity="end"
-            android:layout_marginTop="16dp"
+            android:orientation="horizontal"
             app:layout_constraintTop_toBottomOf="@id/text_view_created_by">
 
             <com.google.android.material.button.MaterialButton
@@ -61,21 +69,22 @@
                 style="@style/Widget.MaterialComponents.Button.TextButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@android:color/holo_red_dark"
                 android:text="Eliminar"
+                android:textColor="#D32F2F"
                 app:icon="@android:drawable/ic_menu_delete"
-                app:iconTint="@android:color/holo_red_dark" />
+                app:iconTint="#D32F2F" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/button_ver_pdf"
                 style="@style/Widget.MaterialComponents.Button"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                app:backgroundTint="@color/brand_purple"
+                android:layout_height="50dp"
+                android:layout_marginStart="12dp"
                 android:text="Ver PDF"
-                app:iconTint="@android:color/white"
-                app:icon="@drawable/pdf" />
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/pdf"
+                app:iconTint="@android:color/white" />
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>

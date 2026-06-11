@@ -1,6 +1,7 @@
 package com.cesar.bocana.ui.traspasos.plan
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -30,7 +31,6 @@ class PlanificarTraspasoFragment : Fragment() {
     private val viewModel: PlanificarTraspasoViewModel by viewModels()
     private lateinit var adapter: PlanTraspasoAdapter
 
-    // Formato de fecha corto ajustado para tu diseño
     private val dateFormatDisplay = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
     private var selectedDate: Date = Date()
 
@@ -45,6 +45,7 @@ class PlanificarTraspasoFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // EL ACTUAL: Mantiene la eficiencia de usar objetos completos
         childFragmentManager.setFragmentResultListener(SeleccionarLotesDialogFragment.REQUEST_KEY, viewLifecycleOwner) { _, bundle ->
             val productId = bundle.getString(SeleccionarLotesDialogFragment.PRODUCT_ID_KEY) ?: return@setFragmentResultListener
             val desgloseManualList = bundle.getParcelableArrayList<DesgloseManualResult>(SeleccionarLotesDialogFragment.RESULT_DESGLOSE_KEY)
@@ -61,7 +62,6 @@ class PlanificarTraspasoFragment : Fragment() {
         observeViewModel()
         updateDateButtonText()
 
-        // Cambiamos el texto del botón por código para no tener que tocar el XML
         binding.btnGenerarPdfTop.text = "Previsualizar"
     }
 
@@ -87,13 +87,13 @@ class PlanificarTraspasoFragment : Fragment() {
                     viewModel.onSnackbarShown()
                 }
 
-                // MAGIA: El Salto automático a la pestaña 2 (Confirmar/Historial)
+                // EL ACTUAL: Salto automático a la pestaña de PDFs
                 if (state.planGuardadoExitoso) {
                     Snackbar.make(binding.root, "Plan enviado a PDFs Recientes", Snackbar.LENGTH_SHORT).show()
                     val tabLayout = activity?.findViewById<TabLayout>(R.id.tab_layout_traspasos)
-                    tabLayout?.getTabAt(1)?.select() // Índice 1 es la segunda pestaña
+                    tabLayout?.getTabAt(1)?.select()
                     viewModel.onPlanGuardadoNavegado()
-                    viewModel.cargarPlanDeTraspaso(descartarCache = true) // Limpia la lista para el próximo
+                    viewModel.cargarPlanDeTraspaso(descartarCache = true)
                 }
             }
         }
@@ -117,12 +117,35 @@ class PlanificarTraspasoFragment : Fragment() {
 
     private fun setupRecyclerView() {
         adapter = PlanTraspasoAdapter(viewModel) { item ->
-            // Si el usuario toca la Fila Vacía, no hacemos nada o abrimos un diálogo distinto (se maneja en el adapter)
             if (item.product.id == "FILA_VACIA") return@PlanTraspasoAdapter
 
-            val selectedIds = item.lotesSeleccionadosManualmente?.map { it.id } ?: item.lotesParaTraspaso.map { it.loteId }
-            SeleccionarLotesDialogFragment.newInstance(item.product.id, item.product.name, ArrayList(selectedIds))
-                .show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
+            // RESCATADO DEL VIEJO: Saber si es granel o no
+            val isBulk = item.product.requiresPackaging
+
+            // RESCATADO DEL VIEJO: Memoria Inteligente para recordar las cantidades que escribió el usuario
+            val seleccionInicial: java.io.Serializable
+            if (item.lotesSeleccionadosManualmente != null) {
+                if (item.lotesParaTraspaso.any { it.cantidadATomarKg > 0 } && item.lotesParaTraspaso.any { it.lote != null }) {
+                    seleccionInicial = ArrayList(item.lotesParaTraspaso.mapNotNull { desglose ->
+                        if (desglose.lote != null) {
+                            val cantidad = if (isBulk) desglose.cantidadATomarKg else (desglose.cantidadATomarUnidades ?: 0.0)
+                            if (cantidad > 0) DesgloseManualResult(desglose.loteId, cantidad) else null
+                        } else null
+                    })
+                } else {
+                    seleccionInicial = ArrayList(item.lotesSeleccionadosManualmente?.map { it.id } ?: emptyList<String>())
+                }
+            } else {
+                seleccionInicial = ArrayList(item.lotesParaTraspaso.map { it.loteId })
+            }
+
+            // RESCATADO: Pasamos isBulk y la selección con memoria al Diálogo
+            SeleccionarLotesDialogFragment.newInstance(
+                productId = item.product.id,
+                productName = item.product.name,
+                isBulkProduct = isBulk, // ¡El pase clave!
+                selectedIdsOrDesglose = seleccionInicial
+            ).show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
         }
 
         binding.recyclerViewPlanTraspaso.apply {
@@ -135,13 +158,11 @@ class PlanificarTraspasoFragment : Fragment() {
     private fun setupListeners() {
         binding.buttonTraspasoDate.setOnClickListener { showDatePicker() }
 
-        // Al darle clic a Previsualizar, guardamos en la nube.
-        // El Observer se encargará de hacer el "Salto" cuando termine de guardar.
         binding.btnGenerarPdfTop.setOnClickListener {
             viewModel.guardarPlanEnFirestore(selectedDate)
         }
 
-        // Lógica del botón inferior: Agregar Fila Vacía
+        // EL ACTUAL: Lógica avanzada para agregar múltiples filas vacías a la vez
         binding.btnAgregarFilaVacia.setOnClickListener {
             val cantidadStr = binding.etCantidadFilas.text.toString()
             val cantidad = cantidadStr.toIntOrNull() ?: 1

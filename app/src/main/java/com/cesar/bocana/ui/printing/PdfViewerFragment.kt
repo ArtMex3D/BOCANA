@@ -79,13 +79,11 @@ class PdfViewerFragment : Fragment(), MenuProvider {
 
     private fun renderPdf() {
         lifecycleScope.launch {
-            if (_binding == null) return@launch
             binding.progressBarPdf.visibility = View.VISIBLE
             try {
                 val pages = withContext(Dispatchers.IO) {
                     val pageBitmaps = mutableListOf<PdfPage>()
-                    val file = pdfFile ?: throw IllegalStateException("pdfFile no puede ser nulo aquí")
-                    val fileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    val fileDescriptor = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
                     val renderer = PdfRenderer(fileDescriptor)
                     for (i in 0 until renderer.pageCount) {
                         val page = renderer.openPage(i)
@@ -99,18 +97,11 @@ class PdfViewerFragment : Fragment(), MenuProvider {
                     fileDescriptor.close()
                     pageBitmaps
                 }
-                if (_binding == null) return@launch
                 binding.pdfRecyclerView.adapter = PdfPageAdapter(pages)
             } catch (e: Exception) {
-                val safeContext = activity?.applicationContext
-                if (safeContext != null) {
-                    Toast.makeText(safeContext, "Error al renderizar el PDF: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(context, "Error al renderizar el PDF: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {
-                if (_binding != null) {
-                    binding.progressBarPdf.visibility = View.GONE
-                }
-
+                binding.progressBarPdf.visibility = View.GONE
             }
         }
     }
