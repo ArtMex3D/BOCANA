@@ -45,7 +45,6 @@ class PlanificarTraspasoFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // EL ACTUAL: Mantiene la eficiencia de usar objetos completos
         childFragmentManager.setFragmentResultListener(SeleccionarLotesDialogFragment.REQUEST_KEY, viewLifecycleOwner) { _, bundle ->
             val productId = bundle.getString(SeleccionarLotesDialogFragment.PRODUCT_ID_KEY) ?: return@setFragmentResultListener
             val desgloseManualList = bundle.getParcelableArrayList<DesgloseManualResult>(SeleccionarLotesDialogFragment.RESULT_DESGLOSE_KEY)
@@ -87,7 +86,6 @@ class PlanificarTraspasoFragment : Fragment() {
                     viewModel.onSnackbarShown()
                 }
 
-                // EL ACTUAL: Salto automático a la pestaña de PDFs
                 if (state.planGuardadoExitoso) {
                     Snackbar.make(binding.root, "Plan enviado a PDFs Recientes", Snackbar.LENGTH_SHORT).show()
                     val tabLayout = activity?.findViewById<TabLayout>(R.id.tab_layout_traspasos)
@@ -119,10 +117,9 @@ class PlanificarTraspasoFragment : Fragment() {
         adapter = PlanTraspasoAdapter(viewModel) { item ->
             if (item.product.id == "FILA_VACIA") return@PlanTraspasoAdapter
 
-            // RESCATADO DEL VIEJO: Saber si es granel o no
-            val isBulk = item.product.requiresPackaging
+            // 🚀 AQUÍ AVISAMOS A LA VENTANITA QUE SE DESBLOQUEE
+            val isBulk = item.product.requiresPackaging && (item.unidadDeEmpaqueEditada == "Kg" || item.unidadDeEmpaqueEditada.isBlank())
 
-            // RESCATADO DEL VIEJO: Memoria Inteligente para recordar las cantidades que escribió el usuario
             val seleccionInicial: java.io.Serializable
             if (item.lotesSeleccionadosManualmente != null) {
                 if (item.lotesParaTraspaso.any { it.cantidadATomarKg > 0 } && item.lotesParaTraspaso.any { it.lote != null }) {
@@ -139,11 +136,10 @@ class PlanificarTraspasoFragment : Fragment() {
                 seleccionInicial = ArrayList(item.lotesParaTraspaso.map { it.loteId })
             }
 
-            // RESCATADO: Pasamos isBulk y la selección con memoria al Diálogo
             SeleccionarLotesDialogFragment.newInstance(
                 productId = item.product.id,
                 productName = item.product.name,
-                isBulkProduct = isBulk, // ¡El pase clave!
+                isBulkProduct = isBulk,
                 selectedIdsOrDesglose = seleccionInicial
             ).show(childFragmentManager, SeleccionarLotesDialogFragment.TAG)
         }
@@ -162,7 +158,6 @@ class PlanificarTraspasoFragment : Fragment() {
             viewModel.guardarPlanEnFirestore(selectedDate)
         }
 
-        // EL ACTUAL: Lógica avanzada para agregar múltiples filas vacías a la vez
         binding.btnAgregarFilaVacia.setOnClickListener {
             val cantidadStr = binding.etCantidadFilas.text.toString()
             val cantidad = cantidadStr.toIntOrNull() ?: 1

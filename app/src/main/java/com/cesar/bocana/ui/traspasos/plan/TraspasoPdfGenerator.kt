@@ -26,7 +26,7 @@ import kotlin.math.ceil
 
 object TraspasoPdfGenerator {
 
-    private val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
+    private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     private fun getAndroidColor(context: Context, key: String, defaultColor: Int): Int {
         val prefs = context.getSharedPreferences(ConfiguracionTraspasoFragment.PREFS_NAME, Context.MODE_PRIVATE)
@@ -87,9 +87,6 @@ object TraspasoPdfGenerator {
         plan.filter { it.incluidoEnPdf && (it.lotesParaTraspaso.isNotEmpty() || it.product.id == "FILA_VACIA" || it.product.name == "FILA_VACIA") }.forEach { item ->
 
             if (item.product.id == "FILA_VACIA" || item.product.name == "FILA_VACIA") {
-                // ==========================================
-                // IMPRESIÓN DE FILAS VACÍAS
-                // ==========================================
                 val bgColor = if (isZebra) zebraColor else null
                 val cantidadFilas = if (item.cantidadEditadaUnidades > 0) item.cantidadEditadaUnidades else 1
                 for (i in 1..cantidadFilas) {
@@ -102,18 +99,13 @@ object TraspasoPdfGenerator {
                 }
                 isZebra = !isZebra
             } else {
-                // ==========================================
-                // IMPRESIÓN DE PRODUCTOS REALES
-                // ==========================================
                 val bgColor = if (isZebra) zebraColor else null
                 val totalLotes = item.lotesParaTraspaso.size.coerceAtLeast(1)
 
                 val rowHeight = calculateRowHeight(item, totalLotes)
                 val totalKgForProduct = item.lotesParaTraspaso.sumOf { it.cantidadATomarKg }
                 val isManual = item.product.modoManualPDF
-                val esGranel = item.product.requiresPackaging
 
-                // El Total en Kg se imprime siempre y cuando no esté oculto por el modoManualPDF
                 val totalKgStr = if (!isManual && totalKgForProduct > 0.0) String.format(Locale.getDefault(), "%.2f Kg", totalKgForProduct) else ""
 
                 if (item.lotesParaTraspaso.isNotEmpty()) {
@@ -130,11 +122,28 @@ object TraspasoPdfGenerator {
                             )
                         }
 
-                        // ✨ SOLUCIÓN AL BUG DE GRANEL EN PDF
-                        val esFijo = !esGranel && desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0
+                        // ✨ FIX NULOS KOTLIN: Plurales correctos con validación segura
+                        val esFijo = desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0 && !desglose.loteUnidad.isNullOrBlank() && desglose.loteUnidad != "Kg"
+
                         val cantidadStr = if (esFijo && desglose.cantidadATomarUnidades != null) {
                             val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
-                            "$unidadesEnteras ${desglose.loteUnidad ?: ""}".trim()
+                            val unidadEscrita = desglose.loteUnidad?.trim() ?: ""
+
+                            val unidadFinal = if (unidadesEnteras == 1 || unidadEscrita.isEmpty()) {
+                                if (unidadEscrita.lowercase().endsWith("es")) unidadEscrita.dropLast(2)
+                                else if (unidadEscrita.lowercase().endsWith("s")) unidadEscrita.dropLast(1)
+                                else unidadEscrita
+                            } else {
+                                val ultimaLetra = unidadEscrita.lastOrNull()?.lowercaseChar()
+                                if (ultimaLetra == 'a' || ultimaLetra == 'e' || ultimaLetra == 'i' || ultimaLetra == 'o' || ultimaLetra == 'u') {
+                                    "${unidadEscrita}s"
+                                } else if (unidadEscrita.lowercase().endsWith("s")) {
+                                    unidadEscrita
+                                } else {
+                                    "${unidadEscrita}es"
+                                }
+                            }
+                            "$unidadesEnteras $unidadFinal"
                         } else {
                             "${String.format(Locale.getDefault(), "%.2f", desglose.cantidadATomarKg)} Kg"
                         }
@@ -157,7 +166,6 @@ object TraspasoPdfGenerator {
                         }
                     }
                 } else {
-                    // Producto sin lotes pero incluido manualmente
                     val cantidadStr = if (item.cantidadEditadaUnidades > 0) "${item.cantidadEditadaUnidades} ${item.unidadDeEmpaqueEditada}" else ""
                     table.addCell(createCell("", bgColor, TextAlignment.CENTER).setMinHeight(rowHeight))
                     table.addCell(Cell(1,1).add(Paragraph(item.product.name).setPaddingLeft(5f)).setBold().setBackgroundColor(bgColor))
@@ -171,12 +179,9 @@ object TraspasoPdfGenerator {
         }
         document.add(table)
 
-        // ==========================================
-        // FIRMAS (Diseño Paralelo Actual)
-        // ==========================================
         val signatureTable = Table(UnitValue.createPercentArray(floatArrayOf(1f, 1f)))
             .useAllAvailableWidth()
-            .setMarginTop(10f)
+            .setMarginTop(20f)
             .setBorder(null)
 
         val celdaReviso = Cell().add(Paragraph("REVISÓ: ________________________").setFontSize(10f).setBold())

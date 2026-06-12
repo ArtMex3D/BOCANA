@@ -40,7 +40,8 @@ data class Product(
     val labelConfig: @RawValue Map<String, Any>? = null,
 
 
-    // --- CAMPOS DE ESTADO (se mantienen) ---
+    val categoria: String = "FIJO",
+    val productoRectorId: String? = null,
     val stockMatriz: Double = 0.0,
     val stockCongelador04: Double = 0.0,
     val totalStock: Double = 0.0,

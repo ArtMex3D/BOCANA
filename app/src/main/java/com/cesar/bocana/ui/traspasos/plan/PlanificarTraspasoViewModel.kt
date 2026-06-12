@@ -88,7 +88,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             try {
-                // 1. Descargamos usando tu orden de Configuración
                 val products = db.collection(FirestoreCollections.PRODUCTS)
                     .whereEqualTo("isActive", true)
                     .orderBy("ordenTraspaso")
@@ -97,19 +96,22 @@ class PlanificarTraspasoViewModel : ViewModel() {
 
                 cargarLotesEnMatriz()
 
-                // ========================================================
-                // 2. EL FILTRO FANTASMA (Del actual)
-                // ========================================================
                 val (fantasmas, reales) = products.partition {
                     val n = it.name.trim().lowercase()
                     n.isEmpty() || n == "-" || n == "." || n == "_" || n.contains("vaci") || n.contains("espacio") || n.contains("fila")
                 }
-                // Unimos obligando a las filas vacías a ir al fondo
                 val ordenDefinitivo = reales + fantasmas
-                // ========================================================
 
-                val sugerencias = ordenDefinitivo.map { product ->
-                    generarSugerenciaInicial(product, allLotesEnMatriz[product.id] ?: emptyList())
+                // 💡 MAGIA APLICADA: mapNotNull ignora los que devuelven 'null'
+                val sugerencias = ordenDefinitivo.mapNotNull { product ->
+                    val lotes = allLotesEnMatriz[product.id] ?: emptyList()
+
+                    // Si el producto es a granel, y NO tiene costales físicos en almacén...
+                    if (product.requiresPackaging && !isTraspasoFijo(product, lotes)) {
+                        null // ¡Bórralo de la lista! No se muestra en pantalla.
+                    } else {
+                        generarSugerenciaInicial(product, lotes)
+                    }
                 }
 
                 _uiState.update { it.copy(isLoading = false, sugerencias = sugerencias) }
@@ -149,7 +151,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 val batch: WriteBatch = db.batch()
                 batch.set(planDocRef, planPrincipal)
 
-                // 🛠️ LA CORRECCIÓN: Guardamos el índice (0, 1, 2...) para forzar el orden
                 planParaGuardar.forEachIndexed { index, item ->
                     val detalleDocRef = planDocRef.collection("detalles").document()
                     val detalle = DetalleTraspasoPlan(
@@ -160,7 +161,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
                         sugerenciaUnidades = item.cantidadEditadaUnidades,
                         unidadDeEmpaque = item.unidadDeEmpaqueEditada,
                         lotesSugeridos = item.lotesParaTraspaso,
-                        orden = index // <-- Aquí le clavamos la etiqueta de posición
+                        orden = index
                     )
                     batch.set(detalleDocRef, detalle)
                 }
@@ -174,6 +175,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
             }
         }
     }
+
     private fun guardarEnCache(sugerencias: List<TraspasoSugerenciaItem>) {
         TraspasoPlanCache.planGuardado = sugerencias
         TraspasoPlanCache.timestamp = System.currentTimeMillis()
@@ -203,9 +205,11 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
-    // =========================================================================
-    // MATEMÁTICAS RESCATADAS DEL VIEJO (Decaimiento de Kg y Unidades Perfecto)
-    // =========================================================================
+    // 💡 MAGIA RESTAURADA: Detecta si la mercancía está en costales/cajas reales
+    private fun isTraspasoFijo(product: Product, lotes: List<StockLot>): Boolean {
+        if (!product.requiresPackaging) return true
+        return lotes.any { !it.unidadDeEmpaque.isNullOrBlank() && it.unidadDeEmpaque != "Kg" && (it.pesoPorUnidad ?: 0.0) > 0.0 }
+    }
 
     private fun generarSugerenciaInicial(product: Product, lotesDelProducto: List<StockLot>): TraspasoSugerenciaItem {
         val necesidadKg = max(0.0, product.stockIdealC04 - product.stockCongelador04)
@@ -213,24 +217,23 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val sugerenciaKg = max(0.0, min(necesidadKg, disponibleKg))
         val incluido = sugerenciaKg > 0.0
 
-        if (!product.requiresPackaging && sugerenciaKg > 0) {
-            // Lógica FIJO (Cajas/Piezas)
+        val esFijo = isTraspasoFijo(product, lotesDelProducto)
+
+        if (esFijo && sugerenciaKg > 0) {
             val (cantidadEnUnidades, unidad) = convertirKgAUnidades(sugerenciaKg, lotesDelProducto)
             val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDelProducto)
             return TraspasoSugerenciaItem(
                 product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados,
                 incluidoEnPdf = incluido, cantidadEditadaUnidades = cantidadEnUnidades, unidadDeEmpaqueEditada = unidad
             )
-        } else if (product.requiresPackaging && sugerenciaKg > 0) {
-            // Lógica GRANEL (Kilos)
+        } else if (!esFijo && sugerenciaKg > 0) {
             val (lotesDesglosados, kgTomados) = desglosarLotesParaCantidadKg(sugerenciaKg, lotesDelProducto)
             return TraspasoSugerenciaItem(
                 product, kgTomados, lotesDesglosados, product.stockMatriz - kgTomados,
                 incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = "Kg"
             )
         } else {
-            // Sin necesidad
-            val unidad = if (!product.requiresPackaging) product.unit ?: "Unidad" else "Kg"
+            val unidad = if (esFijo) product.unit ?: "Unidad" else "Kg"
             return TraspasoSugerenciaItem(
                 product, 0.0, emptyList(), product.stockMatriz,
                 incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = unidad
@@ -239,10 +242,15 @@ class PlanificarTraspasoViewModel : ViewModel() {
     }
 
     fun recalcularSugerenciaPorUnidades(productId: String, cantidadEnUnidades: Int) {
-        setRecalculatingState(productId, true)
+        val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
         val lotesDisponibles = allLotesEnMatriz[productId] ?: emptyList()
+
+        val esFijo = isTraspasoFijo(sugerenciaAfectada.product, lotesDisponibles)
+        if (!esFijo) return
+
+        setRecalculatingState(productId, true)
         val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDisponibles)
-        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: _uiState.value.sugerencias.find { it.product.id == productId }?.unidadDeEmpaqueEditada ?: ""
+        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: sugerenciaAfectada.unidadDeEmpaqueEditada
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
@@ -260,9 +268,10 @@ class PlanificarTraspasoViewModel : ViewModel() {
     fun actualizarLotesManualmente(productId: String, lotesSeleccionados: List<StockLot>) {
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
         setRecalculatingState(productId, true)
-        val esFijo = !sugerenciaAfectada.product.requiresPackaging
 
-        // Detecta si mandamos desglosar por Unidades o por Kg
+        val lotesDisponibles = allLotesEnMatriz[productId] ?: emptyList()
+        val esFijo = isTraspasoFijo(sugerenciaAfectada.product, lotesDisponibles)
+
         val (lotesDesglosados, kgRealesTomados) = if (esFijo) {
             val unidadesNecesarias = sugerenciaAfectada.cantidadEditadaUnidades
             desglosarLotesParaCantidadUnidades(unidadesNecesarias, lotesSeleccionados)
@@ -293,7 +302,8 @@ class PlanificarTraspasoViewModel : ViewModel() {
         setRecalculatingState(productId, true)
         val lotesDisponibles = allLotesEnMatriz[productId] ?: emptyList()
         val sugerenciaAfectada = _uiState.value.sugerencias.find { it.product.id == productId } ?: return
-        val esFijo = !sugerenciaAfectada.product.requiresPackaging
+
+        val esFijo = isTraspasoFijo(sugerenciaAfectada.product, lotesDisponibles)
 
         var totalKgDesglosado = 0.0
         var totalUnidadesDesglosadas = 0
@@ -304,7 +314,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 var kgATomar = 0.0
                 var unidadesATomar: Double? = null
 
-                // MAGIA RESCATADA: El ViewModel sabe procesar los Kg si es Granel, o las Unidades si es Fijo
                 if (esFijo) {
                     val pesoUnidad = loteOriginal.pesoPorUnidad ?: 1.0
                     val unidades = itemUsuario.cantidad.toInt()
@@ -312,7 +321,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
                     unidadesATomar = unidades.toDouble()
                     totalUnidadesDesglosadas += unidades
                 } else {
-                    kgATomar = itemUsuario.cantidad // Es Double, soporta decimales para el granel
+                    kgATomar = itemUsuario.cantidad
                 }
 
                 if (kgATomar > 0) {
@@ -351,8 +360,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
             currentState.copy(sugerencias = updatedSugerencias)
         }
     }
-
-    // Funciones Auxiliares Puras (Rescatadas del viejo)
 
     private fun desglosarLotesParaCantidadKg(cantidadNecesariaKg: Double, lotesDisponibles: List<StockLot>): Pair<List<LoteDesglosado>, Double> {
         val lotesDesglosados = mutableListOf<LoteDesglosado>()
@@ -411,10 +418,6 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val cantidadEnUnidades = if (kg > 0 && pesoPorUnidad > 0) ceil(kg / pesoPorUnidad).toInt() else 0
         return Pair(cantidadEnUnidades, unidad)
     }
-
-    // =========================================================================
-    // FUNCIONES ÍTEM CAMALEÓN (Actual Intacto)
-    // =========================================================================
 
     fun agregarFilaVacia(cantidadFilas: Int) {
         val filaVacia = TraspasoSugerenciaItem(

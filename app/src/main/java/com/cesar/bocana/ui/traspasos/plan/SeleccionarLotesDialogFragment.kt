@@ -39,10 +39,8 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
     private var allLotes: List<StockLot> = emptyList()
     private val selectedLotIds = mutableSetOf<String>()
 
-    // ✨ RESCATADO: Usamos Double para soportar decimales en los kilos
     private val manualQuantities = mutableMapOf<String, Double>()
 
-    // ✨ RESCATADO: Saber si es granel o fijo
     private var isBulkProductArg: Boolean = false
     private var productInfo: Product? = null
 
@@ -71,7 +69,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                     ARG_PRODUCT_NAME to productName,
                     ARG_IS_BULK_PRODUCT to isBulkProduct
                 ).apply {
-                    // Lógica para detectar si nos mandan Checkboxes (Strings) o Desglose Manual
                     when (selectedIdsOrDesglose) {
                         is ArrayList<*> -> {
                             if (selectedIdsOrDesglose.firstOrNull() is DesgloseManualResult) {
@@ -174,7 +171,9 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                         .map { DesgloseManualResult(it.key, it.value) }
                     bundle.putParcelableArrayList(RESULT_DESGLOSE_KEY, ArrayList(desgloseResult))
                 } else {
-                    bundle.putStringArrayList(RESULT_LOTES_KEY, ArrayList(selectedLotIds))
+                    // 💡 FIX CRASHEO: Convertimos los IDs en objetos completos (StockLot) para mandarlos de vuelta.
+                    val selectedLotes = allLotes.filter { selectedLotIds.contains(it.id) }
+                    bundle.putParcelableArrayList(RESULT_LOTES_KEY, ArrayList(selectedLotes))
                 }
                 setFragmentResult(REQUEST_KEY, bundle)
             }
@@ -197,7 +196,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         val context = this.context ?: return
         val currentProduct = productInfo ?: return
 
-        // ✨ RESCATADO: Usamos el flag para definir la lógica del teclado y las validaciones
         val esGranel = isBulkProductArg
 
         val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_edit_lote_cantidad, null)
@@ -221,7 +219,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         if (esGranel) {
             stockDispTextView.text = "Disponible: ${String.format(Locale.getDefault(), "%.2f", lote.currentQuantity)} Kg"
             cantidadEditText.hint = "Cantidad en Kg"
-            // ✨ RESCATADO: Permite escribir decimales en el teclado
             cantidadEditText.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             inputLayout.suffixText = "Kg"
 
@@ -234,7 +231,6 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
             stockDispTextView.text = "Disponible: $unidadesDisponibles $unidad"
             cantidadEditText.hint = "Cantidad en $unidad"
-            // ✨ RESCATADO: Bloquea el teclado solo a enteros
             cantidadEditText.inputType = InputType.TYPE_CLASS_NUMBER
             inputLayout.suffixText = unidad
 
@@ -294,12 +290,12 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         lifecycleScope.launch {
             binding.progressBarDialogLotes.isVisible = true
             try {
-                // 🛡️ ACTUAL: Consulta súper rápida y limpia, sin lógicas muertas de reservas.
+                // 💡 FIX LISTA VACÍA: Quitamos la condición ".whereEqualTo("estadoTraspaso", null)"
+                // Firestore no busca "null" de forma directa, se filtra en la memoria en Kotlin.
                 val snapshot = Firebase.firestore.collection("inventoryLots")
                     .whereEqualTo("productId", productId)
                     .whereEqualTo("location", "MATRIZ")
                     .whereEqualTo("isDepleted", false)
-                    .whereEqualTo("estadoTraspaso", null)
                     .orderBy("receivedAt")
                     .get().await()
 

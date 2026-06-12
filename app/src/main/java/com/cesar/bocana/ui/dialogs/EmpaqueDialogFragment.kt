@@ -83,7 +83,6 @@ class EmpaqueDialogFragment : DialogFragment() {
     private fun setupUI(task: PendingPackagingTask) {
         binding.textViewDialogTitle.text = "Empacar: ${task.productName}"
         binding.textViewTotalGranel.text = "Total a Granel Recibido: ${String.format(Locale.getDefault(), "%.2f", task.quantityReceived)} ${task.unit}"
-        binding.layoutEmpaqueFijo.isVisible = binding.radioButtonRedondeo.isChecked
     }
 
     private fun setupListeners() {
@@ -91,12 +90,9 @@ class EmpaqueDialogFragment : DialogFragment() {
 
         binding.radioGroupCalculationType.setOnCheckedChangeListener { _, checkedId ->
             val isRedondeo = checkedId == R.id.radioButtonRedondeo
-            binding.layoutEmpaqueFijo.isVisible = isRedondeo
-            if (isRedondeo) {
-                updateCalculoResultado()
-            } else {
-                binding.textViewCalculoResultado.isVisible = false
-            }
+            // El campo Peso Fijo solo se muestra en modo Semifijo
+            binding.textFieldLayoutPesoFijo.isVisible = isRedondeo
+            updateCalculoResultado()
         }
 
         val textWatcher = object : TextWatcher {
@@ -106,52 +102,53 @@ class EmpaqueDialogFragment : DialogFragment() {
         }
         binding.editTextCantidadUnidades.addTextChangedListener(textWatcher)
         binding.editTextPesoFijo.addTextChangedListener(textWatcher)
+        binding.editTextUnidadEmpaque.addTextChangedListener(textWatcher)
     }
 
     private fun updateCalculoResultado() {
-        if (!binding.layoutEmpaqueFijo.isVisible) {
-            binding.textViewCalculoResultado.isVisible = false
-            return
-        }
-
         val cantidadUnidades = binding.editTextCantidadUnidades.text.toString().toIntOrNull() ?: 0
         val totalGranel = packagingTask?.quantityReceived ?: 0.0
         val unidadEmpaque = binding.editTextUnidadEmpaque.text.toString().trim().ifEmpty { "Unidad" }
+        val isVariable = binding.radioButtonVariable.isChecked
 
         binding.textViewCalculoResultado.isVisible = false
         if (cantidadUnidades <= 0 || totalGranel <= 0) return
 
-        val pesoFijo = binding.editTextPesoFijo.text.toString().toDoubleOrNull() ?: 0.0
-        if (pesoFijo <= 0) return
-
-        if (cantidadUnidades == 1) {
+        if (isVariable) {
+            // LÓGICA NUEVA: PROMEDIO VARIABLE
+            val promedio = totalGranel / cantidadUnidades
             binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
-            binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= 1 %s de %.2f Kg", unidadEmpaque, totalGranel)
+            binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= %d %ss de %.2f Kg promedio c/u", cantidadUnidades, unidadEmpaque, promedio)
             binding.textViewCalculoResultado.isVisible = true
-            return
-        }
-
-        val cajasNormales = cantidadUnidades - 1
-        val totalEnCajasNormales = cajasNormales * pesoFijo
-        val pesoUltimaCaja = totalGranel - totalEnCajasNormales
-
-        if (pesoUltimaCaja <= 0) {
-            binding.textViewCalculoResultado.text = "Incongruencia: El peso es mayor al disponible."
-            binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.negative_red))
         } else {
-            binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
-            binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= %d %ss de %.2f Kg y 1 %s de %.2f Kg", cajasNormales, unidadEmpaque, pesoFijo, unidadEmpaque, pesoUltimaCaja)
+            // LÓGICA VIEJA INTACTA: SEMIFIJO / REDONDEO
+            val pesoFijo = binding.editTextPesoFijo.text.toString().toDoubleOrNull() ?: 0.0
+            if (pesoFijo <= 0) return
+
+            if (cantidadUnidades == 1) {
+                binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+                binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= 1 %s de %.2f Kg", unidadEmpaque, totalGranel)
+                binding.textViewCalculoResultado.isVisible = true
+                return
+            }
+
+            val cajasNormales = cantidadUnidades - 1
+            val totalEnCajasNormales = cajasNormales * pesoFijo
+            val pesoUltimaCaja = totalGranel - totalEnCajasNormales
+
+            if (pesoUltimaCaja <= 0) {
+                binding.textViewCalculoResultado.text = "Incongruencia: El peso es mayor al disponible."
+                binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark))
+            } else {
+                binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+                binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= %d %ss de %.2f Kg y 1 %s de %.2f Kg", cajasNormales, unidadEmpaque, pesoFijo, unidadEmpaque, pesoUltimaCaja)
+            }
+            binding.textViewCalculoResultado.isVisible = true
         }
-        binding.textViewCalculoResultado.isVisible = true
     }
 
     private fun validateAndPerformPackaging(task: PendingPackagingTask) {
-        if (binding.radioButtonVariable.isChecked) {
-            performPackagingTransaction(task, null, 0, null)
-            return
-        }
-
-        // --- Validation for "Redondeo a Peso Fijo" ---
+        val isVariable = binding.radioButtonVariable.isChecked
         val unidad = binding.editTextUnidadEmpaque.text.toString().trim()
         val cantidadUnidades = binding.editTextCantidadUnidades.text.toString().toIntOrNull()
         val pesoFijo = binding.editTextPesoFijo.text.toString().toDoubleOrNull()
@@ -170,23 +167,26 @@ class EmpaqueDialogFragment : DialogFragment() {
             binding.textFieldLayoutCantidadUnidades.error = "Debe ser > 0"
             isValid = false
         }
-        if (pesoFijo == null || pesoFijo <= 0) {
-            binding.textFieldLayoutPesoFijo.error = "Define un peso fijo > 0"
-            isValid = false
-        } else if (cantidadUnidades != null && cantidadUnidades > 1) {
-            val totalEstimado = (cantidadUnidades -1) * pesoFijo
-            if (totalEstimado >= totalGranel) {
-                binding.textFieldLayoutPesoFijo.error = "Incongruencia: El total de las unidades fijas supera el stock a granel."
+
+        if (!isVariable) {
+            if (pesoFijo == null || pesoFijo <= 0) {
+                binding.textFieldLayoutPesoFijo.error = "Define un peso fijo > 0"
                 isValid = false
+            } else if (cantidadUnidades != null && cantidadUnidades > 1) {
+                val totalEstimado = (cantidadUnidades - 1) * pesoFijo
+                if (totalEstimado >= totalGranel) {
+                    binding.textFieldLayoutPesoFijo.error = "Incongruencia: El total de las unidades fijas supera el stock a granel."
+                    isValid = false
+                }
             }
         }
 
         if (isValid) {
-            performPackagingTransaction(task, unidad, cantidadUnidades!!, pesoFijo)
+            performPackagingTransaction(task, unidad, cantidadUnidades!!, pesoFijo, isVariable)
         }
     }
 
-    private fun performPackagingTransaction(task: PendingPackagingTask, unidad: String?, cantidadUnidades: Int, pesoFijo: Double?) {
+    private fun performPackagingTransaction(task: PendingPackagingTask, unidad: String, cantidadUnidades: Int, pesoFijo: Double?, isVariable: Boolean) {
         binding.buttonDialogAceptar.isEnabled = false
         binding.buttonDialogCancelar.isEnabled = false
 
@@ -211,11 +211,18 @@ class EmpaqueDialogFragment : DialogFragment() {
 
                     if (lotToUpdate.isPackaged) throw FirebaseFirestoreException("Este lote ya fue marcado como empacado.", FirebaseFirestoreException.Code.ABORTED)
 
-                    if (binding.radioButtonVariable.isChecked) {
-                        // MODO VARIABLE (SOLO KG): Simplemente marcamos el lote original como empacado.
-                        transaction.update(originalLotRef, "isPackaged", true)
+                    if (isVariable) {
+                        // LÓGICA NUEVA: VARIABLE (PROMEDIADOR)
+                        val pesoPromedio = lotToUpdate.currentQuantity / cantidadUnidades
+                        val updates = mapOf(
+                            "isPackaged" to true,
+                            "unidadDeEmpaque" to unidad,
+                            "pesoPorUnidad" to pesoPromedio,
+                            "cantidadInicialUnidades" to cantidadUnidades.toDouble()
+                        )
+                        transaction.update(originalLotRef, updates)
                     } else {
-                        // MODO REDONDEO A PESO FIJO: Depletamos el original y creamos los nuevos.
+                        // LÓGICA VIEJA INTACTA: SEMIFIJO (REDONDEO)
                         transaction.update(originalLotRef, "isDepleted", true)
 
                         val totalKg = lotToUpdate.currentQuantity
@@ -250,13 +257,12 @@ class EmpaqueDialogFragment : DialogFragment() {
                         }
                     }
 
-                    // Eliminar la tarea de la cola de pendientes.
                     val taskRef = firestore.collection("pendingPackaging").document(task.id)
                     transaction.delete(taskRef)
                 }.await()
 
                 if (isAdded) {
-                    Snackbar.make(requireActivity().findViewById(android.R.id.content), "Producto empacado y lote(s) actualizado(s).", Snackbar.LENGTH_LONG).show()
+                    Snackbar.make(requireActivity().findViewById(android.R.id.content), "Producto empacado correctamente.", Snackbar.LENGTH_LONG).show()
                     dismiss()
                 }
 
