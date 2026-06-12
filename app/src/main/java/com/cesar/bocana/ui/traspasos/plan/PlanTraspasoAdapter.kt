@@ -17,7 +17,6 @@ import com.cesar.bocana.data.model.LoteDesglosado
 import com.cesar.bocana.data.model.TraspasoSugerenciaItem
 import com.cesar.bocana.databinding.ItemPlanTraspasoBinding
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.snackbar.Snackbar
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.ceil
@@ -45,7 +44,7 @@ class PlanTraspasoAdapter(
             val context = binding.root.context
             val isFilaVacia = item.product.id == "FILA_VACIA"
 
-            // 🚀 DESBLOQUEO VISUAL
+            // 🚀 AQUÍ ESTÁ EL DESBLOQUEO VISUAL
             val esGranel =
                 item.product.requiresPackaging && (item.unidadDeEmpaqueEditada == "Kg" || item.unidadDeEmpaqueEditada.isBlank())
 
@@ -155,23 +154,8 @@ class PlanTraspasoAdapter(
                             binding.editTextCantidad.text.toString().toIntOrNull() ?: 0
                         if (nuevaCantidad == item.cantidadEditadaUnidades) return@setOnFocusChangeListener
 
-                        val totalUnidadesDisponibles = item.lotesParaTraspaso.sumOf { desglose ->
-                            val pesoUnidad = desglose.lote?.pesoPorUnidad ?: 1.0
-                            if (pesoUnidad > 0) Math.floor(
-                                (desglose.lote?.currentQuantity ?: 0.0) / pesoUnidad
-                            ) else 0.0
-                        }.toInt()
-
-                        val cantidadFinal = if (nuevaCantidad > totalUnidadesDisponibles) {
-                            Snackbar.make(
-                                binding.root,
-                                "Stock máximo es $totalUnidadesDisponibles. Cantidad ajustada.",
-                                Snackbar.LENGTH_LONG
-                            ).show()
-                            totalUnidadesDisponibles
-                        } else nuevaCantidad
-
-                        viewModel.recalcularSugerenciaPorUnidades(item.product.id, cantidadFinal)
+                        // 💡 FIX: Le mandamos el número directo al ViewModel. Él calculará si nos pasamos.
+                        viewModel.recalcularSugerenciaPorUnidades(item.product.id, nuevaCantidad)
                     }
                 }
 
@@ -217,14 +201,13 @@ class PlanTraspasoAdapter(
             val esFijo = desglose.lotePesoPorUnidad != null && desglose.lotePesoPorUnidad > 0.0 && !desglose.loteUnidad.isNullOrBlank() && desglose.loteUnidad != "Kg"
 
             val cantidadStr = if (esFijo && desglose.cantidadATomarUnidades != null) {
-                val unidadesEnteras = ceil(desglose.cantidadATomarUnidades).toInt()
-                // FIX NULOS KOTLIN: Uso de ?.trim() ?: ""
+                val unidadesEnteras = Math.ceil(desglose.cantidadATomarUnidades).toInt()
                 val unidadEscrita = desglose.loteUnidad?.trim() ?: ""
 
+                // ✨ TRADUCCIÓN INTELIGENTE: Pluralizar en español seguro
                 val unidadPlural = if (unidadesEnteras == 1 || unidadEscrita.isEmpty()) {
                     unidadEscrita
                 } else {
-                    // FIX NULOS KOTLIN: Obtener char seguro
                     val ultimaLetra = unidadEscrita.lastOrNull()?.lowercaseChar()
                     if (ultimaLetra == 'a' || ultimaLetra == 'e' || ultimaLetra == 'i' || ultimaLetra == 'o' || ultimaLetra == 'u') {
                         "${unidadEscrita}s"
@@ -248,7 +231,6 @@ class PlanTraspasoAdapter(
         }
     }
 
-    // CLASE DIFFCALLBACK TOTALMENTE AFUERA DE ADAPTER
     class DiffCallback : DiffUtil.ItemCallback<TraspasoSugerenciaItem>() {
         override fun areItemsTheSame(
             oldItem: TraspasoSugerenciaItem,

@@ -102,13 +102,11 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 }
                 val ordenDefinitivo = reales + fantasmas
 
-                // 💡 MAGIA APLICADA: mapNotNull ignora los que devuelven 'null'
                 val sugerencias = ordenDefinitivo.mapNotNull { product ->
                     val lotes = allLotesEnMatriz[product.id] ?: emptyList()
 
-                    // Si el producto es a granel, y NO tiene costales físicos en almacén...
                     if (product.requiresPackaging && !isTraspasoFijo(product, lotes)) {
-                        null // ¡Bórralo de la lista! No se muestra en pantalla.
+                        null
                     } else {
                         generarSugerenciaInicial(product, lotes)
                     }
@@ -205,10 +203,16 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 
-    // 💡 MAGIA RESTAURADA: Detecta si la mercancía está en costales/cajas reales
+    // 💡 DETECTOR DE EMPAQUE
     private fun isTraspasoFijo(product: Product, lotes: List<StockLot>): Boolean {
         if (!product.requiresPackaging) return true
         return lotes.any { !it.unidadDeEmpaque.isNullOrBlank() && it.unidadDeEmpaque != "Kg" && (it.pesoPorUnidad ?: 0.0) > 0.0 }
+    }
+
+    // 💡 MEMORIA DE UNIDAD
+    private fun getUnidadReal(product: Product, lotes: List<StockLot>): String {
+        val loteEmpacado = lotes.firstOrNull { !it.unidadDeEmpaque.isNullOrBlank() && it.unidadDeEmpaque != "Kg" }
+        return loteEmpacado?.unidadDeEmpaque ?: product.unit ?: "Unidad"
     }
 
     private fun generarSugerenciaInicial(product: Product, lotesDelProducto: List<StockLot>): TraspasoSugerenciaItem {
@@ -218,6 +222,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val incluido = sugerenciaKg > 0.0
 
         val esFijo = isTraspasoFijo(product, lotesDelProducto)
+        val unidadFisica = getUnidadReal(product, lotesDelProducto)
 
         if (esFijo && sugerenciaKg > 0) {
             val (cantidadEnUnidades, unidad) = convertirKgAUnidades(sugerenciaKg, lotesDelProducto)
@@ -233,10 +238,11 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = "Kg"
             )
         } else {
-            val unidad = if (esFijo) product.unit ?: "Unidad" else "Kg"
+            // FIX: Ya no avienta "Kg" ciegamente
+            val unidadFinal = if (esFijo) unidadFisica else "Kg"
             return TraspasoSugerenciaItem(
                 product, 0.0, emptyList(), product.stockMatriz,
-                incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = unidad
+                incluidoEnPdf = incluido, cantidadEditadaUnidades = 0, unidadDeEmpaqueEditada = unidadFinal
             )
         }
     }
@@ -248,15 +254,30 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val esFijo = isTraspasoFijo(sugerenciaAfectada.product, lotesDisponibles)
         if (!esFijo) return
 
+        // 💡 FIX: Cálculo de máximo real viendo TODO el almacén de ese producto
+        val totalUnidadesDisponibles = lotesDisponibles.sumOf { lote ->
+            val pesoUnidad = lote.pesoPorUnidad ?: 1.0
+            if (pesoUnidad > 0 && !lote.unidadDeEmpaque.isNullOrBlank()) {
+                Math.floor(lote.currentQuantity / pesoUnidad).toInt()
+            } else 0
+        }
+
+        val cantidadFinal = if (cantidadEnUnidades > totalUnidadesDisponibles) {
+            _uiState.update { it.copy(snackbarMessage = "Stock máximo en almacén es $totalUnidadesDisponibles. Ajustado.") }
+            totalUnidadesDisponibles
+        } else {
+            cantidadEnUnidades
+        }
+
         setRecalculatingState(productId, true)
-        val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadUnidades(cantidadEnUnidades, lotesDisponibles)
-        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: sugerenciaAfectada.unidadDeEmpaqueEditada
+        val (lotesDesglosados, kgRealesTomados) = desglosarLotesParaCantidadUnidades(cantidadFinal, lotesDisponibles)
+        val nuevaUnidad = lotesDesglosados.firstOrNull()?.loteUnidad ?: getUnidadReal(sugerenciaAfectada.product, lotesDisponibles)
 
         _uiState.update { state ->
             val nuevasSugerencias = state.sugerencias.map {
                 if (it.product.id == productId) it.copy(
                     sugerenciaKg = kgRealesTomados, lotesParaTraspaso = lotesDesglosados,
-                    impactoStockMatriz = it.product.stockMatriz - kgRealesTomados, cantidadEditadaUnidades = cantidadEnUnidades,
+                    impactoStockMatriz = it.product.stockMatriz - kgRealesTomados, cantidadEditadaUnidades = cantidadFinal,
                     unidadDeEmpaqueEditada = nuevaUnidad, isRecalculating = false, lotesSeleccionadosManualmente = null
                 ) else it
             }
