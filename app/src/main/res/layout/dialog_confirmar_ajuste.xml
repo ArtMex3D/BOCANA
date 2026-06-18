@@ -3,146 +3,97 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:orientation="vertical">
 
-    <!-- Título con ícono de advertencia -->
+    <!-- TÍTULO Y RESUMEN (siempre visibles) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="12dp">
-
-        <ImageView
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@android:drawable/ic_dialog_alert"
-            android:tint="?attr/colorPrimary" />
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="?attr/colorPrimary"
+        android:backgroundTint="?attr/colorPrimaryVariant">
 
         <TextView
-            android:layout_width="0dp"
+            android:id="@+id/textViewResumenCambios"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
-            android:text="Confirmar Ajuste de Inventario"
+            android:text="Confirmar Ajuste"
             android:textSize="18sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:textColor="@android:color/white" />
 
     </LinearLayout>
 
-    <!-- Línea divisoria -->
-    <View
+    <!-- CONTENIDO SCROLLABLE -->
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@android:color/darker_gray"
-        android:layout_marginBottom="12dp" />
-
-    <!-- Subtítulo con resumen de cambios -->
-    <TextView
-        android:id="@+id/textViewResumenCambios"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Se registrarán los siguientes cambios:"
-        android:textSize="14sp"
-        android:layout_marginBottom="8dp" />
-
-    <!-- RecyclerView para lista de productos ajustados -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerViewResumenAjuste"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxHeight="350dp"
-        android:nestedScrollingEnabled="false" />
-
-    <!-- Leyenda de colores -->
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        app:cardCornerRadius="4dp"
-        app:cardElevation="0dp"
-        app:strokeColor="@android:color/darker_gray"
-        app:strokeWidth="1dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:maxHeight="500dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="8dp"
-            android:gravity="center">
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp">
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <!-- Productos CON cambios -->
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="horizontal"
-                android:gravity="center">
-                <View
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:background="@android:color/darker_gray"
-                    android:layout_marginEnd="4dp" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Sin cambios"
-                    android:textSize="11sp" />
-            </LinearLayout>
+                android:text="📝 Productos con ajuste:"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="8dp" />
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recyclerViewResumenAjuste"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="horizontal"
-                android:gravity="center">
-                <View
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:background="@android:color/holo_green_dark"
-                    android:layout_marginEnd="4dp" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Ajuste moderado (&lt;50%)"
-                    android:textSize="11sp" />
-            </LinearLayout>
+                android:nestedScrollingEnabled="false" />
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <!-- Productos SIN cambios -->
+            <TextView
+                android:id="@+id/textViewSinCambios"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="horizontal"
-                android:gravity="center">
-                <View
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:background="@android:color/holo_red_dark"
-                    android:layout_marginEnd="4dp" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Ajuste alto (≥50%)"
-                    android:textSize="11sp" />
-            </LinearLayout>
+                android:text="✅ Productos sin cambios:"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recyclerViewSinCambios"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                android:visibility="gone" />
+
+            <!-- Espacio extra al final para que no quede pegado -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="16dp" />
 
         </LinearLayout>
 
-    </com.google.android.material.card.MaterialCardView>
+    </androidx.core.widget.NestedScrollView>
 
-    <!-- Línea divisoria -->
+    <!-- BOTONES (siempre visibles al final) -->
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="@android:color/darker_gray"
-        android:layout_marginVertical="12dp" />
+        android:background="@android:color/darker_gray" />
 
-    <!-- Botones -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="end">
+        android:gravity="end"
+        android:padding="16dp">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonCancelar"

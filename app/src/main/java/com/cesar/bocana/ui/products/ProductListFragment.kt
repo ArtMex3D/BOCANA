@@ -175,10 +175,30 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         requireActivity().addMenuProvider(this, viewLifecycleOwner, Lifecycle.State.RESUMED)
-        setupTabLayoutListener()
-        setupAjusteCompletoBannerClick() // ✨ Invocamos el botón del Banner
-    }
+        setupAjusteCompletoBannerClick()
 
+        // 🔥 PASO 3 y 4: FORZAR ACTUALIZACIÓN SEGÚN LA PESTAÑA ACTUAL
+        binding.tabLayoutLocation.post {
+            val currentTabPosition = binding.tabLayoutLocation.selectedTabPosition
+            Log.d(TAG, "onViewCreated: pestaña inicial = $currentTabPosition")
+
+            val currentLocation = if (currentTabPosition == 0) Location.MATRIZ else Location.CONGELADOR_04
+            currentLocationContext = currentLocation
+
+            // 🛡️ CHALECO ANTIBALAS: Solo le avisamos al adaptador si ya existe
+            if (::productAdapter.isInitialized) {
+                productAdapter.setCurrentLocationContext(currentLocation)
+            }
+
+            if (currentLocation == Location.CONGELADOR_04) {
+                showAjusteCompletoBanner(true)
+                Log.d(TAG, "✅ Forzada actualización a CONGELADOR_04 en onViewCreated")
+            } else {
+                showAjusteCompletoBanner(false)
+                Log.d(TAG, "✅ Forzada actualización a MATRIZ en onViewCreated")
+            }
+        }
+    }
     override fun onTraspasoC04Clicked(product: Product, anchorView: View) {
         if (isDialogOpen) return
         TraspasoMatrizC04DialogFragment.newInstance(product)
@@ -238,7 +258,11 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
 
                 if (newLocationContext != currentLocationContext) {
                     currentLocationContext = newLocationContext
-                    productAdapter.setCurrentLocationContext(currentLocationContext)
+
+                    // 🛡️ CHALECO ANTIBALAS: Solo avisar si el adaptador ya nació
+                    if (::productAdapter.isInitialized) {
+                        productAdapter.setCurrentLocationContext(currentLocationContext)
+                    }
 
                     // ✨ MAGIA ACORDEÓN: Mostrar/Ocultar dependiendo de la pestaña
                     when (currentLocationContext) {
@@ -251,8 +275,6 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
             override fun onTabReselected(tab: TabLayout.Tab?) {}
         })
     }
-
-
 
     private fun showDebouncedDialog(builder: AlertDialog.Builder) {
         if (!isAdded || context == null) {
@@ -710,7 +732,6 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
 
         val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoTitleProduct)
         val directionTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoDirection)
-        val lotSelectionLabelTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoLotSelectionLabel)
         val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
         val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
         val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)
@@ -721,7 +742,6 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
 
         titleProductTextView.text = "Traspaso: ${product.name}"
         directionTextView.text = "Origen: C-04  --->  Destino: MATRIZ"
-        lotSelectionLabelTextView.text = "Selecciona Lote(s) Origen (Congelador 04):"
         inputLayoutQuantity.hint = "Cantidad NETA Total a Regresar a Matriz"
         buttonAceptar.text = "Regresar a Matriz"
 

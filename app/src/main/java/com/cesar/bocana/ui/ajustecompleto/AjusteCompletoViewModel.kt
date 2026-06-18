@@ -115,8 +115,8 @@ class AjusteCompletoViewModel : ViewModel() {
                     Log.d(TAG, "▶️ REDUCIENDO stock: ${product.name}, cantidad: $difference kg")
                     processFifoReduction(product, difference, batch, currentUserName)
                 } else {
-                    Log.d(TAG, "▶️ AUMENTANDO stock: ${product.name}, cantidad: ${-difference} kg")
-                    processIncrease(product, -difference, batch, currentUserName)
+                    Log.e(TAG, "❌ AUMENTO DE STOCK DETECTADO para ${product.name}: $difference kg - ESTO NO DEBERÍA OCURRIR")
+                    throw Exception("No se permiten aumentos de stock en ajuste completo. Producto: ${product.name}")
                 }
 
                 val productRef = firestore.collection("products").document(productId)
@@ -133,10 +133,10 @@ class AjusteCompletoViewModel : ViewModel() {
                     userName = currentUserName,
                     productId = product.id,
                     productName = product.name,
-                    type = if (difference > 0) MovementType.AJUSTE_STOCK_C04 else MovementType.COMPRA,
+                    type = MovementType.AJUSTE_STOCK_C04,
                     quantity = kotlin.math.abs(difference),
-                    locationFrom = if (difference > 0) Location.CONGELADOR_04 else null,
-                    locationTo = if (difference < 0) Location.CONGELADOR_04 else Location.EXTERNO,
+                    locationFrom = Location.CONGELADOR_04,
+                    locationTo = Location.EXTERNO,
                     reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(Locale.getDefault(), "%.2f", newPhysicalStock)}",
                     stockAfterCongelador04 = newPhysicalStock,
                     stockAfterMatriz = product.stockMatriz,
@@ -180,7 +180,6 @@ class AjusteCompletoViewModel : ViewModel() {
         }
     }
 
-    // 🔥 VERSIÓN SIN ORDERBY - Ordenamiento en RAM
     private suspend fun processFifoReduction(
         product: Product,
         quantityToReduce: Double,
@@ -190,7 +189,6 @@ class AjusteCompletoViewModel : ViewModel() {
         Log.d(TAG, "processFifoReduction: ${product.name}, reducir: $quantityToReduce kg")
         var remainingToReduce = quantityToReduce
 
-        // 🔥 IMPORTANTE: SIN .orderBy() para evitar error de índice
         val lotsSnapshot = firestore.collection("inventoryLots")
             .whereEqualTo("productId", product.id)
             .whereEqualTo("location", Location.CONGELADOR_04)
@@ -198,7 +196,6 @@ class AjusteCompletoViewModel : ViewModel() {
             .get()
             .await()
 
-        // 🔥 Ordenamos en RAM por fecha (FIFO)
         val lots = lotsSnapshot.documents.mapNotNull { doc ->
             doc.toObject(StockLot::class.java)?.copy(id = doc.id)
         }.sortedBy { it.receivedAt ?: Date(0) }
@@ -226,40 +223,6 @@ class AjusteCompletoViewModel : ViewModel() {
             Log.e(TAG, "Stock insuficiente para ${product.name}. Faltante: $remainingToReduce")
             throw Exception("Stock insuficiente en lotes para ${product.name}. Faltante: $remainingToReduce")
         }
-    }
-
-    private suspend fun processIncrease(
-        product: Product,
-        quantityToAdd: Double,
-        batch: WriteBatch,
-        currentUserName: String
-    ) {
-        Log.d(TAG, "processIncrease: ${product.name}, aumentar: $quantityToAdd kg")
-
-        val newLotRef = firestore.collection("inventoryLots").document()
-        val newLot = StockLot(
-            id = newLotRef.id,
-            productId = product.id,
-            productName = product.name,
-            unit = product.unit,
-            location = Location.CONGELADOR_04,
-            supplierId = null,
-            supplierName = "AJUSTE COMPLETO",
-            lotNumber = "AJUSTE-${System.currentTimeMillis()}",
-            receivedAt = Date(),
-            movementIdIn = "",
-            initialQuantity = quantityToAdd,
-            currentQuantity = quantityToAdd,
-            isDepleted = false,
-            isPackaged = false,
-            expirationDate = null,
-            originalLotId = null,
-            originalReceivedAt = null,
-            originalSupplierName = null,
-            originalLotNumber = null
-        )
-        batch.set(newLotRef, newLot)
-        Log.d(TAG, "Nuevo lote creado: ${newLotRef.id}")
     }
 }
 

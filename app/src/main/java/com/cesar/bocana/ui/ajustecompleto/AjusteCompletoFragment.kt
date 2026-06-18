@@ -16,10 +16,6 @@ import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentAjusteCompletoC04Binding
 import com.cesar.bocana.ui.dialogs.DialogConfirmarAjuste
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 
 class AjusteCompletoFragment : Fragment() {
 
@@ -33,8 +29,6 @@ class AjusteCompletoFragment : Fragment() {
 
     companion object {
         private const val TAG = "AjusteCompletoFragment"
-        private const val PREF_INSTRUCTIONS_SEEN = "instrucciones_vistas_c04"
-
         fun newInstance() = AjusteCompletoFragment()
     }
 
@@ -54,23 +48,7 @@ class AjusteCompletoFragment : Fragment() {
         setupRecyclerView()
         setupListeners()
         observeViewModel()
-        setupInstructionsCard()
         loadProducts()
-    }
-
-    private fun setupInstructionsCard() {
-        val prefs = requireContext().getSharedPreferences("ajuste_completo", Context.MODE_PRIVATE)
-        val instructionsSeen = prefs.getBoolean(PREF_INSTRUCTIONS_SEEN, false)
-
-        if (!instructionsSeen) {
-            binding.cardInstrucciones.visibility = View.VISIBLE
-            binding.imageViewCloseInstructions.setOnClickListener {
-                binding.cardInstrucciones.visibility = View.GONE
-                prefs.edit().putBoolean(PREF_INSTRUCTIONS_SEEN, true).apply()
-            }
-        } else {
-            binding.cardInstrucciones.visibility = View.GONE
-        }
     }
 
     private fun setupRecyclerView() {
@@ -185,7 +163,6 @@ class AjusteCompletoFragment : Fragment() {
             }
         }
 
-        // 🔥 OBSERVER SIMPLIFICADO Y SINCRONIZADO
         viewModel.products.observe(viewLifecycleOwner) { products ->
             Log.d(TAG, "Products recibidos: ${products.size}")
 
@@ -202,12 +179,11 @@ class AjusteCompletoFragment : Fragment() {
                             Log.d(TAG, "Draft válido restaurado: ${product.name} = $stock")
                         } else {
                             Log.w(TAG, "Draft inválido ignorado para $productId")
-                            saveDraft(productId, null) // Limpiar draft inválido
+                            saveDraft(productId, null)
                         }
                     }
                 }
 
-                // 🔥 Sincronizar drafts con el adapter
                 adapter.setDrafts(validDrafts)
             }
 
@@ -219,12 +195,19 @@ class AjusteCompletoFragment : Fragment() {
             Log.d(TAG, "Resultado: $result")
             when (result) {
                 is AjusteResult.Success -> {
-                    Toast.makeText(requireContext(), "✅ Ajuste completado: ${result.movementsCount} producto(s)", Toast.LENGTH_LONG).show()
+                    if (isAdded && context != null) {
+                        Toast.makeText(requireContext(), "✅ Ajuste completado: ${result.movementsCount} producto(s)", Toast.LENGTH_LONG).show()
+                    }
                     clearAllDrafts()
-                    requireActivity().onBackPressedDispatcher.onBackPressed()
+                    if (isAdded && activity != null && !requireActivity().isFinishing) {
+                        requireActivity().onBackPressedDispatcher.onBackPressed()
+                    }
+                    isAdjusting = false
                 }
                 is AjusteResult.Error -> {
-                    Toast.makeText(requireContext(), "❌ Error: ${result.message}", Toast.LENGTH_LONG).show()
+                    if (isAdded && context != null) {
+                        Toast.makeText(requireContext(), "❌ Error: ${result.message}", Toast.LENGTH_LONG).show()
+                    }
                     hideProgressOverlay()
                     isAdjusting = false
                 }
@@ -255,53 +238,15 @@ class AjusteCompletoFragment : Fragment() {
     }
 
     private fun executeAdjustment(adjustments: Map<String, Double>) {
-        Log.e(TAG, "🚀 executeAdjustment: INICIO con ${adjustments.size} productos")
+        Log.d(TAG, "🚀 executeAdjustment: INICIO con ${adjustments.size} productos")
         isAdjusting = true
         showProgressOverlay()
 
-        // 🔥 PRUEBA 1: Verificar que el scope existe
-        if (lifecycleScope == null) {
-            Log.e(TAG, "❌ lifecycleScope es NULL")
-            hideProgressOverlay()
-            isAdjusting = false
-            Toast.makeText(requireContext(), "Error interno: lifecycleScope null", Toast.LENGTH_SHORT).show()
-            return
+        // ✅ Solo llama al ViewModel. El observer maneja el resultado.
+        // ✅ Si hay JobCancellationException, se ignora porque el fragmento ya se cerró.
+        lifecycleScope.launch {
+            viewModel.executeCompleteAdjustment(adjustments)
         }
-
-        Log.e(TAG, "✅ lifecycleScope existe, lanzando corrutina...")
-
-        // 🔥 PRUEBA 2: Usar GlobalScope como respaldo (solo para diagnóstico)
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-            try {
-                Log.e(TAG, "PASO 1: Dentro de GlobalScope.launch")
-                Log.e(TAG, "PASO 1b: ViewModel existe? ${viewModel != null}")
-
-                val result = viewModel.executeCompleteAdjustment(adjustments)
-
-                Log.e(TAG, "PASO 2: Resultado recibido: $result")
-
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    if (result) {
-                        Log.e(TAG, "✅ Éxito, cerrando pantalla")
-                        clearAllDrafts()
-                        requireActivity().onBackPressedDispatcher.onBackPressed()
-                    } else {
-                        Log.e(TAG, "❌ Falló la ejecución")
-                        hideProgressOverlay()
-                        isAdjusting = false
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Excepción en executeAdjustment", e)
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    Toast.makeText(requireContext(), "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                    hideProgressOverlay()
-                    isAdjusting = false
-                }
-            }
-        }
-
-        Log.e(TAG, "🚀 executeAdjustment: Corrutina lanzada, continuando...")
     }
 
     private fun saveDraft(productId: String, physicalStock: Double?) {
@@ -322,9 +267,14 @@ class AjusteCompletoFragment : Fragment() {
     }
 
     private fun clearAllDrafts() {
+        if (!isAdded || context == null) {
+            Log.w(TAG, "clearAllDrafts: Fragmento no attachado, saltando")
+            return
+        }
         val prefs = requireContext().getSharedPreferences("ajuste_draft", Context.MODE_PRIVATE)
         prefs.edit().clear().apply()
         stockChanges.clear()
+        Log.d(TAG, "clearAllDrafts: Drafts limpiados")
     }
 
     override fun onDestroyView() {

@@ -61,7 +61,7 @@ class PlanificarTraspasoFragment : Fragment() {
         observeViewModel()
         updateDateButtonText()
 
-        binding.btnGenerarPdfTop.text = "Previsualizar"
+        binding.btnGenerarPdfTop.text = "Generar PDF"
     }
 
     private fun observeViewModel() {

@@ -4,162 +4,345 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:backgroundTint="#F8F9FA"> <LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-    <TextView
-        android:id="@+id/textViewDialogTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceHeadline6"
-        android:textColor="#020961"
-        android:textStyle="bold"
-        tools:text="Empacar: Atún Aleta Amarilla" />
-
-    <TextView
-        android:id="@+id/textViewTotalGranel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:textAppearance="?attr/textAppearanceBody1"
-        android:textColor="#5F6368"
-        tools:text="Total a Granel Recibido: 150.00 Kg" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
-        android:text="Método de Empaque:"
-        android:textColor="#020961"
-        android:textStyle="bold"
-        android:textAppearance="?attr/textAppearanceBody2" />
-
-    <RadioGroup
-        android:id="@+id/radioGroupCalculationType"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="vertical">
-
-        <RadioButton
-            android:id="@+id/radioButtonVariable"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="Variable (Dividir en peso promedio)" />
-
-        <RadioButton
-            android:id="@+id/radioButtonRedondeo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Semifijo (Redondear a peso exacto)" />
-
-    </RadioGroup>
+    android:background="@android:color/white"
+    android:clipToOutline="true"
+    android:fillViewport="true"
+    android:scrollbars="none">
 
     <LinearLayout
-        android:id="@+id/layout_empaque_general"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginTop="12dp">
+        android:background="#F8F9FA"
+        android:padding="0dp">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutUnidadEmpaque"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+        <!-- HEADER -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:boxCornerRadiusTopStart="12dp"
-            app:boxCornerRadiusTopEnd="12dp"
-            app:boxCornerRadiusBottomStart="12dp"
-            app:boxCornerRadiusBottomEnd="12dp"
-            android:hint="Tipo de Empaque (ej. Costal, Caja)">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextUnidadEmpaque"
+            android:background="@color/Letras"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="18dp"
+            android:paddingBottom="18dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="#33FFFFFF"
+                android:gravity="center"
+                android:text="📦"
+                android:textSize="18sp"
+                android:includeFontPadding="false" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="EMPAQUE DE PRODUCTO"
+                    android:textColor="#80FFFFFF"
+                    android:textSize="10sp"
+                    android:letterSpacing="0.15"
+                    android:textAllCaps="true" />
+
+                <TextView
+                    android:id="@+id/textViewDialogTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    tools:text="Empacar: Atún Aleta Amarilla" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Franja -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:background="@color/brand_purple" />
+
+        <!-- CUERPO -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="8dp">
+
+            <!-- CARD: Información -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textCapWords" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginBottom="20dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutCantidadUnidades"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:boxCornerRadiusTopStart="12dp"
-            app:boxCornerRadiusTopEnd="12dp"
-            app:boxCornerRadiusBottomStart="12dp"
-            app:boxCornerRadiusBottomEnd="12dp"
-            android:hint="Cantidad de Unidades">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editTextCantidadUnidades"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:id="@+id/textViewTotalGranel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="?attr/textAppearanceBody1"
+                        android:textColor="#1A237E"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        tools:text="📊 Total a Granel Recibido: 150.00 Kg" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Título: MÉTODO DE EMPAQUE -->
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="number" />
-        </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
+                android:text="MÉTODO DE EMPAQUE"
+                android:textColor="@color/brand_purple"
+                android:textSize="10sp"
+                android:letterSpacing="0.12"
+                android:textAllCaps="true"
+                android:textStyle="bold"
+                android:layout_marginBottom="10dp"
+                android:paddingStart="20dp" />
 
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/textFieldLayoutPesoFijo"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:visibility="gone"
-        app:boxCornerRadiusTopStart="12dp"
-        app:boxCornerRadiusTopEnd="12dp"
-        app:boxCornerRadiusBottomStart="12dp"
-        app:boxCornerRadiusBottomEnd="12dp"
-        android:hint="Peso Fijo por Unidad (Kg)">
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/editTextPesoFijo"
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#1AE8005E"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Card RadioGroup -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white">
+
+                <RadioGroup
+                    android:id="@+id/radioGroupCalculationType"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="5dp">
+
+                    <RadioButton
+                        android:id="@+id/radioButtonVariable"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:gravity="center_vertical"
+                        android:paddingStart="12dp"
+                        android:text="📊 Variable (Dividir en peso promedio)"
+                        android:textColor="#1A237E"
+                        android:textSize="14sp"
+                        android:checked="true"
+                        android:buttonTint="@color/Letras" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#F0F0F0"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp" />
+
+                    <RadioButton
+                        android:id="@+id/radioButtonRedondeo"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:gravity="center_vertical"
+                        android:paddingStart="12dp"
+                        android:text="🎯 Semifijo (Redondear a peso exacto)"
+                        android:textColor="#1A237E"
+                        android:textSize="14sp"
+                        android:buttonTint="@color/Letras" />
+
+                </RadioGroup>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- CARD: Campos de empaque -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="1dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white">
+
+                <LinearLayout
+                    android:id="@+id/layout_empaque_general"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/textFieldLayoutUnidadEmpaque"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Tipo de Empaque (ej. Costal, Caja)"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeColor="@color/Letras"
+                        app:hintTextColor="@color/Letras"
+                        app:endIconMode="clear_text">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editTextUnidadEmpaque"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textCapWords"
+                            android:textColor="#1A237E" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/textFieldLayoutCantidadUnidades"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="Cantidad de Unidades"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeColor="@color/Letras"
+                        app:hintTextColor="@color/Letras"
+                        app:endIconMode="clear_text">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editTextCantidadUnidades"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:textColor="#1A237E" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/textFieldLayoutPesoFijo"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:visibility="gone"
+                        android:hint="Peso Fijo por Unidad (Kg)"
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeColor="@color/Letras"
+                        app:hintTextColor="@color/Letras"
+                        app:endIconMode="clear_text"
+                        tools:visibility="visible">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editTextPesoFijo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="numberDecimal"
+                            android:textColor="#1A237E" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══════════════════════════════════════════
+                 RESULTADO DEL CÁLCULO (SIN CARDVIEW)
+                 ═══════════════════════════════════════════ -->
+            <TextView
+                android:id="@+id/textViewCalculoResultado"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:layout_marginTop="3dp"
+                android:padding="3dp"
+                android:background="#E8F5E9"
+                android:textAppearance="?attr/textAppearanceBody1"
+                android:textColor="#2E7D32"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible"
+                tools:text="✅ = 19 Cajas de 30.00 Kg y 1 de 27.00 Kg" />
+
+        </LinearLayout>
+
+        <!-- FOOTER -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="numberDecimal" />
-    </com.google.android.material.textfield.TextInputLayout>
+            android:orientation="horizontal"
+            android:background="#F8F9FA"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="16dp"
+            android:gravity="end">
 
-    <TextView
-        android:id="@+id/textViewCalculoResultado"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:layout_marginTop="16dp"
-        android:padding="12dp"
-        android:background="#E8F5E9"
-        android:textAppearance="?attr/textAppearanceBody1"
-        android:textColor="#2E7D32"
-        android:textStyle="bold"
-        android:visibility="gone"
-        tools:visibility="visible"
-        tools:text="= 19 Cajas de 30.00 Kg y 1 de 27.00 Kg" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonDialogCancelar"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:text="Cancelar"
+                android:textColor="#999999"
+                android:textSize="14sp"
+                app:cornerRadius="12dp" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end"
-        android:layout_marginTop="24dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonDialogAceptar"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="Empacar"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="@color/Letras"
+                app:cornerRadius="12dp"
+                app:icon="@android:drawable/ic_menu_save"
+                app:iconTint="@android:color/white"
+                app:iconSize="16dp"
+                app:iconPadding="6dp" />
 
-        <Button
-            android:id="@+id/buttonDialogCancelar"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#5F6368"
-            android:text="Cancelar"/>
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/buttonDialogAceptar"
-            style="@style/Widget.MaterialComponents.Button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            app:cornerRadius="20dp"
-            android:text="Confirmar Empaque"/>
     </LinearLayout>
 
-</LinearLayout>
 </ScrollView>
