@@ -79,8 +79,8 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
         val inflater = requireActivity().layoutInflater
         val view = inflater.inflate(R.layout.dialog_traspaso_matriz_c04, null)
 
-        val titleTextView = view.findViewById<TextView>(R.id.textViewDialogTraspasoTitleInfo)
-        val subtitleTextView = view.findViewById<TextView>(R.id.textViewDialogTraspasoSubtitle)
+        val titleTextView = view.findViewById<TextView>(R.id.textViewDialogTraspasoTitleProduct)
+        val subtitleTextView = view.findViewById<TextView>(R.id.textViewDialogTraspasoDirection)
         val recyclerView = view.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
         val progressBar = view.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
         val noLotesTextView = view.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)

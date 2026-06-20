@@ -55,7 +55,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="10dp"
-        android:text="🚀 ¡Nueva actualización disponible! Ve a configuración"
+        android:text="🚀 ¡Nueva actualización! Ve a configuración"
         android:textColor="#FFFFFF"
         android:background="#0D47A1"
         android:textAlignment="center"

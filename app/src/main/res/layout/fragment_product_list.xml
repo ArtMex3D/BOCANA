@@ -68,17 +68,11 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Iniciar Ajuste Completo (C-04)"
+                    android:text="Realizar Ajuste Completo"
                     android:textColor="#020961"
                     android:textStyle="bold"
                     android:textSize="15sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Conteo rápido de inventario físico"
-                    android:textSize="12sp"
-                    android:textColor="@android:color/darker_gray" />
             </LinearLayout>
 
             <ImageView

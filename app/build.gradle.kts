@@ -14,8 +14,8 @@ android {
         applicationId = "com.cesar.bocana"
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "8.0"
+        versionCode = 10
+        versionName = "8.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         flavorDimensions += "environment"

@@ -107,51 +107,43 @@ class LotSelectionAdapter(
         ) {
             val context = binding.root.context
 
-            // Mostrar información del lote padre si existe (para sublotes en C04)
-            val origenInfo = if (item.originalLotId != null) {
-                val origDateStr = item.originalReceivedAt?.let { dateOnlyFormatter.format(it) } ?: "N/A"
-                val origSupplierStr = item.originalSupplierName ?: (item.originalLotNumber ?: "Origen Desc.")
-                "Origen: ${origSupplierStr} (${origDateStr})"
+            val supplierDisplay = if (item.originalLotId != null) {
+                "Origen: ${item.originalSupplierName ?: "Desconocido"}"
             } else {
-                // Para lotes de Matriz (o lotes en C04 sin info de padre)
-                item.supplierName ?: "S/Prov"
+                item.supplierName ?: "Sin proveedor"
             }
+            binding.textViewLotSupplier.text = supplierDisplay
 
-            val receivedAtDateStr = item.receivedAt?.let { dateTimeFormatter.format(it) } ?: "Fecha N/A"
-            val displayText = "$origenInfo\nLlegada/Traspaso: $receivedAtDateStr"
-
-            binding.textViewLotDate.text = displayText // Usamos textViewLotDate para toda la info
-            binding.textViewLotSupplier.visibility = View.GONE // Ocultamos el supplier individual si ya está en date
+            val receivedAtStr = item.receivedAt?.let { dateTimeFormatter.format(it) } ?: "Fecha N/A"
+            binding.textViewLotDate.text = "📦 Recibido: $receivedAtStr"
 
             val qtyStr = String.format(Locale.getDefault(), "%.2f", item.currentQuantity)
-            val unitStr = item.unit
-            binding.textViewLotQuantity.text = "$qtyStr $unitStr"
+            binding.textViewLotQuantity.text = "$qtyStr ${item.unit}"
 
             binding.checkBoxLotSelection.setOnCheckedChangeListener(null)
             binding.checkBoxLotSelection.isChecked = isSelected
 
             if (isMultiSelectEnabled) {
-                binding.checkBoxLotSelection.setOnClickListener {
-                    onSelectionChanged(item.id, binding.checkBoxLotSelection.isChecked)
+                binding.checkBoxLotSelection.isClickable = true
+                binding.checkBoxLotSelection.setOnCheckedChangeListener { _, isChecked ->
+                    onSelectionChanged(item.id, isChecked)
                 }
                 binding.root.setOnClickListener {
                     binding.checkBoxLotSelection.isChecked = !binding.checkBoxLotSelection.isChecked
-                    onSelectionChanged(item.id, binding.checkBoxLotSelection.isChecked)
                 }
-            } else { // Modo selección única
-                binding.checkBoxLotSelection.isClickable = false // El checkbox no cambia el estado directamente
+            } else {
+                binding.checkBoxLotSelection.isClickable = false
                 binding.root.setOnClickListener {
-                    if (!isSelected) { // Solo actuar si no está ya seleccionado
+                    if (!isSelected) {
                         onSelectionChanged(item.id, true)
                     }
                 }
             }
 
-            // Resaltado visual para el seleccionado en modo single-select
             if (!isMultiSelectEnabled && isSelected) {
-                binding.root.setBackgroundColor(ContextCompat.getColor(context, R.color.pending_item_background)) // Un color de resaltado
+                binding.root.setBackgroundColor(ContextCompat.getColor(context, R.color.pending_item_background))
             } else {
-                binding.root.setBackgroundColor(Color.TRANSPARENT) // Sin resaltado
+                binding.root.setBackgroundColor(android.graphics.Color.TRANSPARENT)
             }
         }
 

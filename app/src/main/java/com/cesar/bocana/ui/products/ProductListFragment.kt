@@ -95,6 +95,7 @@ import com.cesar.bocana.ui.dialogs.SalidaDevolucionLotesDialogFragment
 import com.cesar.bocana.ui.dialogs.TraspasoMatrizC04DialogFragment
 import com.cesar.bocana.ui.dialogs.AddCompraDialogFragment
 import com.cesar.bocana.ui.ajustecompleto.AjusteCompletoFragment
+import com.cesar.bocana.ui.dialogs.TraspasoC04MatrizDialogFragment
 
 
 class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, AjusteSubloteC04DialogFragment.AjusteSubloteC04Listener {
@@ -294,140 +295,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     }
 
 
-    private fun performTraspasoC04ToMatriz(
-        productArgument: Product,
-        quantityToTraspasarTotal: Double,
-        selectedLotIdsFromC04: List<String>
-    ) {
-        val currentUser = auth.currentUser ?: run {
-            view?.let { Snackbar.make(it, "Error de autenticación.", Snackbar.LENGTH_SHORT).show() }
-            isDialogOpen = false
-            return
-        }
-        val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
-        val traspasoTimestamp = Date()
 
-        showListLoading(true)
-
-        val productRef = firestore.collection("products").document(productArgument.id)
-        val newMovementRef = firestore.collection("stockMovements").document()
-
-        firestore.runTransaction { transaction ->
-            val productSnapshot = transaction.get(productRef)
-            val currentProduct = productSnapshot.toObject(Product::class.java)
-                ?: throw FirebaseFirestoreException("Producto no encontrado: ${productArgument.name}", FirebaseFirestoreException.Code.ABORTED)
-
-            val lotesOrigenC04Snapshots = selectedLotIdsFromC04.map { lotId ->
-                transaction.get(firestore.collection("inventoryLots").document(lotId))
-            }
-
-            val lotesOrigenC04 = lotesOrigenC04Snapshots.mapNotNull { snapshot ->
-                if (!snapshot.exists()) throw FirebaseFirestoreException("Lote origen C04 ${snapshot.id} no encontrado.", FirebaseFirestoreException.Code.ABORTED)
-                snapshot.toObject(StockLot::class.java)?.copy(id = snapshot.id)
-                    ?: throw FirebaseFirestoreException("Error convirtiendo lote origen C04 ${snapshot.id}.", FirebaseFirestoreException.Code.ABORTED)
-            }.sortedBy { it.receivedAt ?: Date(0) }
-
-            val totalDisponibleEnLotesC04Seleccionados = lotesOrigenC04.sumOf { it.currentQuantity }
-            if (quantityToTraspasarTotal - totalDisponibleEnLotesC04Seleccionados > stockEpsilon) {
-                throw FirebaseFirestoreException("Stock insuficiente en lotes de C-04 seleccionados (${String.format(Locale.getDefault(), "%.2f", totalDisponibleEnLotesC04Seleccionados)} ${currentProduct.unit})", FirebaseFirestoreException.Code.ABORTED)
-            }
-
-            var cantidadRestantePorTraspasarGlobal = quantityToTraspasarTotal
-            val idsLotesOrigenAfectadosConCantidad = mutableListOf<String>()
-            val idsNuevosLotesDestinoConCantidad = mutableListOf<String>()
-
-            for (loteOrigenC04 in lotesOrigenC04) {
-                if (cantidadRestantePorTraspasarGlobal <= stockEpsilon) break
-
-                val cantidadATraspasarDeEsteLote = kotlin.math.min(loteOrigenC04.currentQuantity, cantidadRestantePorTraspasarGlobal)
-
-                if (cantidadATraspasarDeEsteLote > stockEpsilon) {
-                    val nuevaCantidadEnLoteOrigenC04 = loteOrigenC04.currentQuantity - cantidadATraspasarDeEsteLote
-                    transaction.update(
-                        firestore.collection("inventoryLots").document(loteOrigenC04.id),
-                        mapOf(
-                            "currentQuantity" to nuevaCantidadEnLoteOrigenC04,
-                            "isDepleted" to (nuevaCantidadEnLoteOrigenC04 <= stockEpsilon)
-                        )
-                    )
-                    idsLotesOrigenAfectadosConCantidad.add("${loteOrigenC04.id.takeLast(4)}:${String.format(Locale.getDefault(), "%.2f", cantidadATraspasarDeEsteLote)}")
-
-                    val newStockLotMatrizRef = firestore.collection("inventoryLots").document()
-                    val nuevoLoteEnMatriz = StockLot(
-                        id = newStockLotMatrizRef.id,
-                        productId = loteOrigenC04.productId,
-                        productName = loteOrigenC04.productName,
-                        unit = loteOrigenC04.unit,
-                        location = Location.MATRIZ,
-                        supplierId = loteOrigenC04.supplierId,
-                        supplierName = loteOrigenC04.supplierName,
-                        lotNumber = loteOrigenC04.lotNumber,
-                        receivedAt = traspasoTimestamp,
-                        movementIdIn = newMovementRef.id,
-                        initialQuantity = cantidadATraspasarDeEsteLote,
-                        currentQuantity = cantidadATraspasarDeEsteLote,
-                        isDepleted = false,
-                        isPackaged = loteOrigenC04.isPackaged,
-                        expirationDate = loteOrigenC04.expirationDate,
-                        originalLotId = null,
-                        originalReceivedAt = null,
-                        originalSupplierName = null,
-                        originalLotNumber = null
-                    )
-                    transaction.set(newStockLotMatrizRef, nuevoLoteEnMatriz)
-                    idsNuevosLotesDestinoConCantidad.add("${newStockLotMatrizRef.id.takeLast(4)}:${String.format(Locale.getDefault(), "%.2f", cantidadATraspasarDeEsteLote)}")
-
-                    cantidadRestantePorTraspasarGlobal -= cantidadATraspasarDeEsteLote
-                }
-            }
-
-            if (kotlin.math.abs(cantidadRestantePorTraspasarGlobal) > stockEpsilon && quantityToTraspasarTotal > stockEpsilon) {
-                throw FirebaseFirestoreException("Discrepancia al procesar cantidades de traspaso C04->M. Restante: $cantidadRestantePorTraspasarGlobal", FirebaseFirestoreException.Code.ABORTED)
-            }
-
-            val nuevoStockC04 = currentProduct.stockCongelador04 - quantityToTraspasarTotal
-            val nuevoStockMatriz = currentProduct.stockMatriz + quantityToTraspasarTotal
-
-            transaction.update(productRef, mapOf(
-                "stockCongelador04" to nuevoStockC04,
-                "stockMatriz" to nuevoStockMatriz,
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName
-            ))
-
-            val movement = StockMovement(
-                id = newMovementRef.id,
-                userId = currentUser.uid,
-                userName = currentUserName,
-                productId = currentProduct.id,
-                productName = currentProduct.name,
-                type = MovementType.TRASPASO_C04_M,
-                quantity = quantityToTraspasarTotal,
-                locationFrom = Location.CONGELADOR_04,
-                locationTo = Location.MATRIZ,
-                reason = "Origen(C04): ${idsLotesOrigenAfectadosConCantidad.joinToString()}; Destino(M): ${idsNuevosLotesDestinoConCantidad.joinToString()}",
-                stockAfterCongelador04 = nuevoStockC04,
-                stockAfterMatriz = nuevoStockMatriz,
-                stockAfterTotal = currentProduct.totalStock,
-                timestamp = traspasoTimestamp
-            )
-            transaction.set(newMovementRef, movement)
-            null
-        }.addOnSuccessListener {
-            val msg = "Traspaso C-04 -> Matriz realizado: ${String.format(Locale.getDefault(), "%.2f", quantityToTraspasarTotal)} ${productArgument.unit}"
-            view?.let { Snackbar.make(it, msg, Snackbar.LENGTH_SHORT).show() }
-        }.addOnFailureListener { e ->
-            val msg = if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.ABORTED) {
-                e.message ?: "Error de datos durante el traspaso C04->M."
-            } else {
-                "Error registrando traspaso C04->M: ${e.message}"
-            }
-            view?.let { Snackbar.make(it, msg, Snackbar.LENGTH_LONG).show() }
-        }.addOnCompleteListener {
-            showListLoading(false)
-            isDialogOpen = false
-        }
-    }
 
     private fun showEditC04Dialog(product: Product) {
         if (context == null) {
@@ -688,7 +556,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     override fun onTraspasoC04MClicked(product: Product) {
         if (isDialogOpen) return
         isDialogOpen = true
-        showTraspasoC04MDialog(product)
+        TraspasoC04MatrizDialogFragment.newInstance(product)
+            .show(parentFragmentManager, TraspasoC04MatrizDialogFragment.TAG)
     }
 
     override fun onItemClicked(product: Product) {
@@ -706,6 +575,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         return allowed
     }
 
+
     private fun showDebouncedDialogWithCustomView(dialog: AlertDialog) {
         if (!isAdded || context == null) {
             isDialogOpen = false
@@ -721,132 +591,18 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
             isDialogOpen = false
         }
     }
-
-    private fun showTraspasoC04MDialog(product: Product) {
-        val currentContext = context ?: run {
-            isDialogOpen = false
-            return
-        }
-
-        val dialogViewInflated = LayoutInflater.from(currentContext).inflate(R.layout.dialog_traspaso_lotes, null)
-
-        val titleProductTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoTitleProduct)
-        val directionTextView = dialogViewInflated.findViewById<TextView>(R.id.textViewDialogTraspasoDirection)
-        val recyclerViewLotes = dialogViewInflated.findViewById<RecyclerView>(R.id.recyclerViewLotesTraspasoDialog)
-        val progressBarLotes = dialogViewInflated.findViewById<ProgressBar>(R.id.progressBarLotesTraspasoDialog)
-        val textViewNoLotes = dialogViewInflated.findViewById<TextView>(R.id.textViewNoLotesTraspasoDialog)
-        val inputLayoutQuantity = dialogViewInflated.findViewById<TextInputLayout>(R.id.textFieldLayoutCantidadTraspaso)
-        val inputQuantityNet = dialogViewInflated.findViewById<EditText>(R.id.editTextCantidadTraspaso)
-        val buttonAceptar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoAceptar)
-        val buttonCancelar = dialogViewInflated.findViewById<Button>(R.id.buttonDialogTraspasoCancelar)
-
-        titleProductTextView.text = "Traspaso: ${product.name}"
-        directionTextView.text = "Origen: C-04  --->  Destino: MATRIZ"
-        inputLayoutQuantity.hint = "Cantidad NETA Total a Regresar a Matriz"
-        buttonAceptar.text = "Regresar a Matriz"
-
-        val lotAdapter = LotSelectionAdapter()
-        recyclerViewLotes.layoutManager = LinearLayoutManager(currentContext)
-        recyclerViewLotes.adapter = lotAdapter
-
-        val builder = AlertDialog.Builder(currentContext)
-        builder.setView(dialogViewInflated)
-
-        val alertDialog = builder.create()
-        alertDialog.setOnDismissListener {
-            isDialogOpen = false
-        }
-
-        buttonCancelar.setOnClickListener {
-            alertDialog.dismiss()
-        }
-
-        buttonAceptar.setOnClickListener {
-            val quantityString = inputQuantityNet.text.toString()
-            val quantityToTraspasar = quantityString.toDoubleOrNull()
-            val selectedLotIds = lotAdapter.getSelectedLotIds()
-            val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
-
-            var validationError = false
-            inputQuantityNet.error = null
-
-            if (quantityToTraspasar == null || quantityToTraspasar <= stockEpsilon) {
-                inputQuantityNet.error = "Cantidad debe ser > ${String.format(Locale.getDefault(), "%.2f", stockEpsilon)}"
-                validationError = true
-            }
-            if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
-                Toast.makeText(context, "Debes seleccionar al menos un lote origen de C-04", Toast.LENGTH_SHORT).show()
-                validationError = true
-            }
-            if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && (quantityToTraspasar - selectedLotsTotalNetQuantity > stockEpsilon)) {
-                inputQuantityNet.error = "Excede stock de lotes seleccionados en C-04 (${String.format(Locale.getDefault(), "%.2f", selectedLotsTotalNetQuantity)})"
-                validationError = true
-            }
-
-            if (!validationError && quantityToTraspasar != null) {
-                if (lotAdapter.currentList.isEmpty() && quantityToTraspasar > stockEpsilon) {
-                    Toast.makeText(context, "No hay lotes disponibles en C-04 para traspasar.", Toast.LENGTH_SHORT).show()
-                } else if (selectedLotIds.isNotEmpty()){
-                    performTraspasoC04ToMatriz(product, quantityToTraspasar, selectedLotIds)
-                    alertDialog.dismiss()
-                } else if (lotAdapter.currentList.isEmpty() && quantityToTraspasar <= stockEpsilon){
-                    alertDialog.dismiss()
-                } else {
-                    Toast.makeText(context, "Verifica cantidad y selección de lotes.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        progressBarLotes.visibility = View.VISIBLE
-        textViewNoLotes.visibility = View.GONE
-        recyclerViewLotes.visibility = View.GONE
-
-        val lotsQuery = firestore.collection("inventoryLots")
-            .whereEqualTo("productId", product.id)
-            .whereEqualTo("location", Location.CONGELADOR_04)
-            .whereEqualTo("isDepleted", false)
-            .orderBy("receivedAt", Query.Direction.ASCENDING)
-
-        lotsQuery.get()
-            .addOnSuccessListener { snapshot ->
-                if (!isAdded || _binding == null) {
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    isDialogOpen = false
-                    return@addOnSuccessListener
-                }
-                progressBarLotes.visibility = View.GONE
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val loadedLots = snapshot.documents.mapNotNull { doc ->
-                        try { doc.toObject(StockLot::class.java)?.copy(id = doc.id) }
-                        catch (e: Exception) {
-                            null
-                        }
-                    }
-                    lotAdapter.submitList(loadedLots)
-                    textViewNoLotes.visibility = View.GONE
-                    recyclerViewLotes.visibility = View.VISIBLE
-                } else {
-                    textViewNoLotes.text = "No hay lotes disponibles en C-04 para este producto."
-                    textViewNoLotes.visibility = View.VISIBLE
-                    recyclerViewLotes.visibility = View.GONE
-                }
-            }
-            .addOnFailureListener { e ->
-                if (!isAdded || _binding == null) {
-                    if(alertDialog.isShowing) alertDialog.dismiss()
-                    isDialogOpen = false
-                    return@addOnFailureListener
-                }
-                progressBarLotes.visibility = View.GONE
-                textViewNoLotes.text = "Error al cargar lotes de C-04."
-                textViewNoLotes.visibility = View.VISIBLE
-                recyclerViewLotes.visibility = View.GONE
-                Toast.makeText(context, "Error al cargar lotes: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-
-        showDebouncedDialogWithCustomView(alertDialog)
+    fun onDialogClosed() {
+        isDialogOpen = false
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Forzar reset del flag cuando el fragmento vuelve a ser visible
+        if (isDialogOpen) {
+            Log.w(TAG, "⚠️ FORZANDO RESET en onResume - isDialogOpen estaba: $isDialogOpen")
+            isDialogOpen = false
+        }
+    }
     companion object {
         private const val TAG = "ProductListFragment"
     }
