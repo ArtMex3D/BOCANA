@@ -4,13 +4,15 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#F8F9FA"
     tools:context=".ui.report.ReportConfigFragment">
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
-        android:paddingBottom="88dp">
+        android:paddingBottom="88dp"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -18,150 +20,373 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Sección de Productos -->
+            <!-- ═══════════════════════════════════════════
+                 SECCIÓN 1: SELECCIONAR PRODUCTOS
+                 ═══════════════════════════════════════════ -->
             <TextView
                 style="@style/TextAppearance.MaterialComponents.Headline6"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="1. Seleccionar Productos" />
+                android:text="📋 1. Seleccionar Productos"
+                android:textColor="@color/brand_purple"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="4dp" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:background="@color/brand_purple"
+                android:layout_marginBottom="16dp"
+                android:alpha="0.3" />
+
+            <!-- Buscador con estilo mejorado -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="Buscar producto..."
-                app:endIconMode="clear_text">
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white"
+                android:layout_marginBottom="12dp">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/edit_text_search_product"
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
 
-            <LinearLayout
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="🔍 Buscar producto..."
+                        app:boxCornerRadiusBottomEnd="12dp"
+                        app:boxCornerRadiusBottomStart="12dp"
+                        app:boxCornerRadiusTopEnd="12dp"
+                        app:boxCornerRadiusTopStart="12dp"
+                        app:boxStrokeColor="@color/brand_purple"
+                        app:hintTextColor="@color/brand_purple"
+                        app:endIconMode="clear_text"
+                        app:endIconTint="@color/brand_purple">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edit_text_search_product"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textColor="#1A237E" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- Botones de selección -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_select_all"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="4dp"
+                            android:text="✓ Todos"
+                            android:textColor="@color/brand_purple"
+                            android:textSize="13sp"
+                            app:cornerRadius="8dp"
+                            app:icon="@drawable/menu_select_all"                        app:iconTint="@color/brand_purple"
+                            app:iconSize="16dp"
+                            app:iconPadding="4dp"
+                            app:iconGravity="textStart" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_deselect_all"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:text="✕ Quitar"
+                            android:textColor="#999999"
+                            android:textSize="13sp"
+                            app:cornerRadius="8dp"
+                            app:icon="@android:drawable/ic_menu_close_clear_cancel"
+                            app:iconTint="#999999"
+                            app:iconSize="16dp"
+                            app:iconPadding="4dp"
+                            app:iconGravity="textStart" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- RecyclerView de productos (con estilo) -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp">
-                <Button
-                    android:id="@+id/button_select_all"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Seleccionar Todos" />
-                <Button
-                    android:id="@+id/button_deselect_all"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Quitar Selección" />
-            </LinearLayout>
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white">
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/recycler_view_products"
-                android:layout_width="match_parent"
-                android:layout_height="200dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/label_border"
-                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-                tools:listitem="@layout/item_report_product_selectable"/>
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recycler_view_products"
+                    android:layout_width="match_parent"
+                    android:layout_height="200dp"
+                    android:padding="4dp"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                    tools:listitem="@layout/item_report_product_selectable" />
 
-            <!-- Sección de Columnas -->
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══════════════════════════════════════════
+                 SECCIÓN 2: SELECCIONAR DATOS
+                 ═══════════════════════════════════════════ -->
             <TextView
                 style="@style/TextAppearance.MaterialComponents.Headline6"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:text="2. Seleccionar Datos a Incluir" />
+                android:text="📊 2. Seleccionar Datos a Incluir"
+                android:textColor="@color/brand_purple"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="4dp" />
 
-            <com.google.android.material.chip.ChipGroup
-                android:id="@+id/chip_group_columns"
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:background="@color/brand_purple"
+                android:layout_marginBottom="16dp"
+                android:alpha="0.3" />
+
+            <!-- ChipGroup con estilo mejorado -->
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                app:selectionRequired="true">
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white"
+                android:layout_marginBottom="16dp">
 
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_stock_matriz"
-                    style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Stock Matriz"
-                    android:checked="true"/>
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_stock_c04" style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stock C-04" android:checked="true"/>
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_stock_total" style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stock Total" android:checked="true"/>
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_consumo"
-                    style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Consumo"
-                    android:checked="false"/>
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/checkbox_column_unit"
-                    style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Unidad" />
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chip_last_update"
-                    style="@style/Widget.MaterialComponents.Chip.Filter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Última Actualización"
-                    android:checked="true"/>
-            </com.google.android.material.chip.ChipGroup>
+                    android:orientation="vertical"
+                    android:padding="12dp">
 
-            <!-- Sección de Fechas (condicional) -->
-            <LinearLayout
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chip_group_columns"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:selectionRequired="true"
+                        app:singleSelection="false">
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chip_stock_matriz"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🏢 Stock Matriz"
+                            android:checked="true"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chip_stock_c04"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🏭 Stock C-04"
+                            android:checked="true"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chip_stock_total"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📦 Stock Total"
+                            android:checked="true"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chip_consumo"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📈 Consumo"
+                            android:checked="false"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/checkbox_column_unit"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📏 Unidad"
+                            android:checked="true"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chip_last_update"
+                            style="@style/Widget.MaterialComponents.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🕐 Última Actualización"
+                            android:checked="true"
+                            app:chipBackgroundColor="@color/brand_purple"
+                            android:textColor="@android:color/white"
+                            app:checkedIconTint="@android:color/white" />
+
+                    </com.google.android.material.chip.ChipGroup>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ═══════════════════════════════════════════
+                 SECCIÓN 3: PERÍODO (CONDICIONAL)
+                 ═══════════════════════════════════════════ -->
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/layout_date_range"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
                 android:visibility="gone"
-                tools:visibility="visible"
-                android:layout_marginTop="16dp">
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:strokeColor="#E0E0E0"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@android:color/white"
+                tools:visibility="visible">
 
-                <TextView
-                    style="@style/TextAppearance.MaterialComponents.Subtitle1"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Período para el Consumo:" />
-                <Button
-                    android:id="@+id/button_date_range"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Seleccionar rango de fechas"
-                    app:icon="@android:drawable/ic_menu_today"/>
-            </LinearLayout>
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        style="@style/TextAppearance.MaterialComponents.Subtitle1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📅 Período para el Consumo:"
+                        android:textColor="@color/brand_purple"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/button_date_range"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:text="Seleccionar rango de fechas"
+                        android:textColor="@color/brand_purple"
+                        app:cornerRadius="10dp"
+                        app:strokeColor="@color/brand_purple"
+                        app:icon="@android:drawable/ic_menu_today"
+                        app:iconTint="@color/brand_purple"
+                        app:iconGravity="textStart"
+                        app:iconPadding="8dp" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Espacio extra al final -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="16dp" />
+
         </LinearLayout>
+
     </androidx.core.widget.NestedScrollView>
 
+    <!-- ProgressBar (centrado) -->
     <ProgressBar
         android:id="@+id/progress_bar"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:visibility="gone"
-        tools:visibility="visible"/>
+        tools:visibility="visible" />
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fab_generate_report"
+    <!-- ═══════════════════════════════════════════
+         BOTONES FLOTANTES: WhatsApp + PDF
+         ═══════════════════════════════════════════ -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
-        android:text="Generar Reporte"
-        app:icon="@drawable/pdf" />
+        android:orientation="horizontal">
+
+        <!-- Botón WhatsApp con estilo mejorado -->
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fab_share_whatsapp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:text="WhatsApp"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#25D366"
+            app:cornerRadius="16dp"
+            app:elevation="6dp"
+            app:icon="@android:drawable/ic_menu_share"
+            app:iconTint="#FFFFFF"
+            app:iconSize="20dp"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:translationZ="2dp" />
+
+        <!-- Botón PDF con estilo mejorado -->
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fab_generate_report"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PDF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="@color/Letras"
+            app:cornerRadius="16dp"
+            app:elevation="6dp"
+            app:icon="@drawable/pdf"
+            app:iconTint="#FFFFFF"
+            app:iconSize="20dp"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:translationZ="2dp" />
+
+    </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -91,6 +91,10 @@ class ReportConfigFragment : Fragment() {
         binding.fabGenerateReport.setOnClickListener {
             generateReport()
         }
+        // 🔥 NUEVO: Clic para WhatsApp
+        binding.fabShareWhatsapp.setOnClickListener {
+            shareToWhatsApp()
+        }
     }
 
     private fun loadProducts() {
@@ -211,6 +215,78 @@ class ReportConfigFragment : Fragment() {
     private fun showLoading(isLoading: Boolean){
         binding.progressBar.isVisible = isLoading
         binding.fabGenerateReport.isEnabled = !isLoading
+    }
+    // 🔥 NUEVA FUNCIÓN INDEPENDIENTE PARA WHATSAPP 🔥
+    private fun shareToWhatsApp() {
+        val selectedProductIds = productAdapter.getSelectedIds().toList()
+        if (selectedProductIds.isEmpty()) {
+            Toast.makeText(context, "Debes seleccionar al menos un producto", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Leemos qué seleccionó el usuario en los chips
+        val mostrarMatriz = binding.chipStockMatriz.isChecked
+        val mostrarC04 = binding.chipStockC04.isChecked
+        val mostrarTotal = binding.chipStockTotal.isChecked
+
+        // Filtramos de la lista original solo los productos seleccionados
+        val productosSeleccionados = allProducts.filter { it.id in selectedProductIds }
+
+        if (productosSeleccionados.isEmpty()) return
+
+        val sb = StringBuilder()
+        sb.append("*REPORTE DE STOCK*\n")
+
+        // Si activó la fecha, la ponemos en el encabezado
+        if (binding.chipLastUpdate.isChecked) {
+            val dateTimeFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
+            sb.append("_Generado: ${dateTimeFormat.format(Date())}_\n")
+        }
+        sb.append("\n")
+
+        for (producto in productosSeleccionados) {
+
+            // 🔥 TRUCO MAESTRO: Esta función inyecta el "espacio invisible" (\u200B) en el punto o coma decimal.
+            // Engaña a WhatsApp para que NUNCA lo convierta en un enlace subrayado.
+            fun numeroSeguro(valor: Double): String {
+                return "%.2f".format(valor).replace(".", ".\u200B").replace(",", ",\u200B")
+            }
+
+            // Lógica inteligente con los números ya protegidos
+            if (mostrarTotal && !mostrarMatriz && !mostrarC04) {
+                sb.append("- *${producto.name}* : ${numeroSeguro(producto.totalStock)} ${producto.unit}\n")
+            } else {
+                sb.append("*${producto.name}*\n")
+                if (mostrarMatriz) {
+                    sb.append(" ├ Matriz : ${numeroSeguro(producto.stockMatriz)} ${producto.unit}\n")
+                }
+                if (mostrarC04) {
+                    sb.append(" ├ C-04 : ${numeroSeguro(producto.stockCongelador04)} ${producto.unit}\n")
+                }
+                if (mostrarTotal) {
+                    sb.append(" └ *TOTAL : ${numeroSeguro(producto.totalStock)} ${producto.unit}*\n")
+                }
+                sb.append("\n")
+            }
+        }
+        // Lanzamos el intent a WhatsApp
+        val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, sb.toString())
+            setPackage("com.whatsapp")
+        }
+
+        try {
+            startActivity(sendIntent)
+        } catch (e: Exception) {
+            // Plan B: Si no tiene el WhatsApp normal, intentamos con WhatsApp Business
+            try {
+                sendIntent.setPackage("com.whatsapp.w4b")
+                startActivity(sendIntent)
+            } catch (e2: Exception) {
+                Toast.makeText(context, "No se encontró WhatsApp instalado.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     override fun onDestroyView() {

@@ -72,31 +72,36 @@ class ConfiguracionTraspasoFragment : Fragment() {
     private fun showColorPickerDialog(title: String, preferenceKey: String) {
         // --- INICIO DE LA SOLUCIÓN: Paleta de colores mejorada ---
         val colors = listOf(
-            // Tonos Pastel (ideales para zebra)
-            Color.parseColor("#f5958e"), // Azul claro
-            Color.parseColor("#E0F2F1"), // Verde menta
-            Color.parseColor("#FFF8E1"), // Amarillo pálido
-            Color.parseColor("#FBE9E7"), // Rosa suave
-            Color.parseColor("#F3E5F5"), // Lavanda
-            Color.parseColor("#ECEFF1"), // Gris muy claro
-            // Tonos Medios y Oscuros (ideales para cabeceras)
-            Color.parseColor("#f5ee8e"), // Azul oscuro
-            Color.parseColor("#b7f58e"), // Verde oscuro
-            Color.parseColor("#8ef5c1"), // Naranja oscuro
-            Color.parseColor("#8ee9f5"), // Rojo oscuro
-            Color.parseColor("#4A148C"), // Púrpura oscuro
-            Color.parseColor("#db8ef5"), // Gris oscuro
-            Color.parseColor("#05025c"),
-            Color.parseColor("#f1f516"),
-            Color.parseColor("#16f51d"),
-            Color.parseColor("#f57716"),
-            // Colores Básicos
+            // --- Tonos "Ice" / Pasteles ultra tenues (Ideales para la Zebra) ---
+            Color.parseColor("#FFEBEE"), // Rojo/Rosa muy tenue
+            Color.parseColor("#E3F2FD"), // Azul muy tenue
+            Color.parseColor("#E8F5E9"), // Verde muy tenue
+            Color.parseColor("#FFF3E0"), // Naranja muy tenue
+            Color.parseColor("#F3E5F5"), // Morado/Lavanda muy tenue
+            Color.parseColor("#F5F5F5"), // Gris perla (casi blanco)
+
+            // --- Tonos Pasteles Intermedios ---
+            Color.parseColor("#FFCDD2"), // Rojo pastel
+            Color.parseColor("#BBDEFB"), // Azul pastel
+            Color.parseColor("#C8E6C9"), // Verde pastel
+            Color.parseColor("#FFE0B2"), // Naranja pastel
+            Color.parseColor("#E1BEE7"), // Morado pastel
+            Color.parseColor("#CFD8DC"), // Gris azulado pastel
+
+            // --- Tonos Oscuros Elegantes (Ideales para Cabeceras) ---
+            Color.parseColor("#D32F2F"), // Rojo oscuro
+            Color.parseColor("#1565C0"), // Azul marino
+            Color.parseColor("#2E7D32"), // Verde bosque
+            Color.parseColor("#E65100"), // Naranja quemado
+            Color.parseColor("#4527A0"), // Púrpura oscuro
+            Color.parseColor("#37474F"), // Gris grafito
+
+            // --- Colores Básicos de Seguridad ---
             Color.WHITE,
             Color.LTGRAY,
             Color.DKGRAY,
             Color.BLACK
-        )
-        // --- FIN DE LA SOLUCIÓN ---
+        )        // --- FIN DE LA SOLUCIÓN ---
 
         val gridLayout = GridLayout(requireContext()).apply {
             columnCount = 4

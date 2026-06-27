@@ -14,7 +14,7 @@ android {
         applicationId = "com.cesar.bocana"
         minSdk = 24
         targetSdk = 34
-        versionCode = 10
+        versionCode = 11
         versionName = "8.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

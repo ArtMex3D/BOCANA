@@ -1,4 +1,3 @@
-// Archivo: main/java/com/cesar/bocana/ui/auth/SplashActivity.kt
 package com.cesar.bocana.ui.auth
 
 import android.content.Intent
@@ -31,63 +30,70 @@ class SplashActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySplashBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        window.setBackgroundDrawable(null)
 
         auth = Firebase.auth
 
+        // Lanzamos la carga inteligente
         lifecycleScope.launch {
-            // Un pequeño delay para que el usuario perciba la imagen estática
-            delay(500)
-
+            // 1. Mostrar Robotín
             performTransition()
+            val startTime = System.currentTimeMillis()
+            val minAnimationTime = 2500L
 
-            // Un delay más largo para disfrutar la animación mientras se validan las credenciales
-            val animationWaitTime = 2500L
-            val currentUser = auth.currentUser
+            var destinationActivity: Class<*> = LoginActivity::class.java
 
-            if (currentUser != null) {
-                val isValid = withContext(Dispatchers.IO) { checkUserIsValid() }
-                delay(animationWaitTime)
-                if (isValid) {
-                    navigateTo(MainActivity::class.java)
-                } else {
-                    navigateTo(LoginActivity::class.java)
+            try {
+                // 2. Tarea Pesada: Verificar conexión y precargar datos en Caché
+                // Esto es lo que evita que las otras pantallas se queden "cargando"
+                withContext(Dispatchers.IO) {
+                    // Verificación de red
+                    db.collection("app_config").document("update").get().await()
+
+                    // Precarga de datos esenciales
+                    db.collection("products").whereEqualTo("isActive", true).get().await()
+                    db.collection("inventoryLots").whereEqualTo("isDepleted", false).get().await()
                 }
-            } else {
-                delay(animationWaitTime)
-                navigateTo(LoginActivity::class.java)
+
+                // 3. Verificación de usuario (Protección contra crasheo por usuario nulo)
+                val currentUser = auth.currentUser
+                if (currentUser != null) {
+                    val isValid = withContext(Dispatchers.IO) { checkUserIsValid(currentUser.uid) }
+                    if (isValid) {
+                        destinationActivity = MainActivity::class.java
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("SplashActivity", "Error crítico en inicio: ${e.message}", e)
+                // Si falla, el destino sigue siendo LoginActivity
             }
+
+            // 4. Control de tiempo: Si el internet fue súper rápido, mantenemos a Robotín
+            // el tiempo necesario para una transición fluida.
+            val elapsedTime = System.currentTimeMillis() - startTime
+            val remainingTime = minAnimationTime - elapsedTime
+            if (remainingTime > 0) delay(remainingTime)
+
+            // 5. Navegación Segura
+            startActivity(Intent(this@SplashActivity, destinationActivity))
+            finish()
         }
     }
 
     private fun performTransition() {
-        // 1. Hacemos visible el Lottie (está en pausa en su primer frame)
         binding.lottieAnimationView.visibility = View.VISIBLE
-
-        // 2. Ocultamos la imagen estática. Como están perfectamente superpuestas,
-        //    el cambio es invisible para el ojo humano.
         binding.staticImageView.visibility = View.GONE
-
-        // 3. ¡Iniciamos la animación!
         binding.lottieAnimationView.playAnimation()
     }
 
-    private suspend fun checkUserIsValid(): Boolean {
+    private suspend fun checkUserIsValid(uid: String): Boolean {
         return try {
-            val userDoc = db.collection("users").document(auth.currentUser!!.uid).get().await()
+            val userDoc = db.collection("users").document(uid).get().await()
             val user = userDoc.toObject(User::class.java)
-            user?.role == UserRole.ADMIN && user.isAccountActive
+            // Verificamos que el usuario tenga rol y esté activo
+            user != null && user.role == UserRole.ADMIN && user.isAccountActive
         } catch (e: Exception) {
-            Log.e("SplashActivity", "Error verificando usuario", e)
+            Log.e("SplashActivity", "Error al validar usuario en Firestore", e)
             false
-        }
-    }
-
-    private fun <T> navigateTo(activityClass: Class<T>) {
-        if (!isFinishing) {
-            val intent = Intent(this, activityClass)
-            startActivity(intent)
-            finish()
         }
     }
 }
