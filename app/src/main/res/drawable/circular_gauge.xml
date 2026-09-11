@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Anillo de fondo (Gris claro) -->
+    <item>
+        <shape android:shape="ring" android:thicknessRatio="12" android:useLevel="false">
+            <solid android:color="#F0F0F0" />
+        </shape>
+    </item>
+    <!-- Anillo de progreso (Se pintará por código) -->
+    <item>
+        <rotate android:fromDegrees="270" android:toDegrees="270">
+            <shape android:shape="ring" android:thicknessRatio="12" android:useLevel="true">
+                <solid android:color="#FF9800" />
+            </shape>
+        </rotate>
+    </item>
+</layer-list>

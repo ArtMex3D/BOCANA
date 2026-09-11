@@ -24,27 +24,28 @@ data class Product(
     @DocumentId
     val id: String = "",
     val name: String = "",
-    val unit: String = "Kg", // Unidad de inventario principal SIEMPRE será Kg
+    val unit: String = "Kg",
 
-    // --- CAMPOS ESENCIALES ---
-    val minStock: Double = 0.0,      // Stock mínimo general en Kg
-    val stockIdealC04: Double = 0.0, // Stock objetivo en C-04, siempre en Kg
+    val minStock: Double = 0.0,
+    val stockIdealC04: Double = 0.0,
 
-    // --- CAMPOS DE CONFIGURACIÓN GENERAL ---
     @JvmField
-    val requiresPackaging: Boolean = false, // Define si el producto (ej. "A Granel") necesita pasar por la pantalla de Empaque
+    val requiresPackaging: Boolean = false,
     val ordenTraspaso: Int = 999,
     @JvmField
     val modoManualPDF: Boolean = false,
     val espacioExtraPDF: Double = 0.0,
     val labelConfig: @RawValue Map<String, Any>? = null,
 
-
     val categoria: String = "FIJO",
     val productoRectorId: String? = null,
     val stockMatriz: Double = 0.0,
     val stockCongelador04: Double = 0.0,
     val totalStock: Double = 0.0,
+
+    // NUEVO CAMPO: Fotografía del promedio para evitar lecturas masivas
+    val consumoSemanalPromedio: Double = 0.0,
+
     @JvmField
     val isActive: Boolean = true,
     @ServerTimestamp
@@ -54,12 +55,12 @@ data class Product(
     val lastUpdatedByName: String? = null
 
 ) : Parcelable {
-    // Constructor vacío para Firestore
     constructor() : this(
         id = "", name = "", unit = "Kg", minStock = 0.0,
         stockIdealC04 = 0.0, requiresPackaging = false,
         ordenTraspaso = 999, modoManualPDF = false, espacioExtraPDF = 0.0,
         labelConfig = null, stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
+        consumoSemanalPromedio = 0.0, // Inicializado en 0
         isActive = true, createdAt = null, updatedAt = null, lastUpdatedByName = null
     )
 }

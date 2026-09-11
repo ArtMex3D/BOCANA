@@ -328,6 +328,13 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         val subloteRef = firestore.collection("inventoryLots").document(subloteAActualizar.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
+        // Calcular ID del Checkpoint Semanal
+        val calendar = java.util.Calendar.getInstance()
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+        val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+        val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+        val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+
         var productForNotification: Product? = null
 
         firestore.runTransaction { transaction ->
@@ -376,6 +383,13 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                     stockAfterTotal = nuevoTotalStock, timestamp = Date()
                 )
                 transaction.set(newMovementRef, movement)
+
+                // NUEVO: Actualizar el Checkpoint Semanal automáticamente
+                transaction.set(
+                    checkpointRef,
+                    mapOf("consumedKg" to FieldValue.increment(consumoRealCalculado)),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
             }
             productForNotification = currentProductFS.copy(stockCongelador04 = nuevoStockC04, totalStock = nuevoTotalStock)
             null
@@ -402,5 +416,6 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
             showSnackbar(errorMsg, true)
         }
     }
+
 }
 

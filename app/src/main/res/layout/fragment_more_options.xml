@@ -659,6 +659,51 @@
                         android:background="#F0F0F0" android:layout_marginStart="62dp" />
 
                     <!-- Mantenimiento de Datos -->
+                    <!-- Generar Checkpoints de Consumo -->
+                    <LinearLayout
+                        android:id="@+id/button_generate_checkpoints"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:visibility="gone"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="#1A00D90E"
+                            android:gravity="center"
+                            android:text="📊"
+                            android:textSize="15sp"
+                            android:includeFontPadding="false" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="14dp"
+                            android:text="Generar Historial de Consumo"
+                            android:textColor="#008000"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="›"
+                            android:textColor="#BBBBBB"
+                            android:textSize="20sp" />
+
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="#F0F0F0" android:layout_marginStart="62dp" />
+
                     <LinearLayout
                         android:id="@+id/button_migrate_data"
                         android:layout_width="match_parent"

@@ -87,6 +87,12 @@ class AjusteCompletoViewModel : ViewModel() {
             val movements = mutableListOf<StockMovement>()
 
             var productCounter = 0
+
+            // Variables para el Checkpoint
+            val calendar = java.util.Calendar.getInstance()
+            val currentYear = calendar.get(java.util.Calendar.YEAR)
+            val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+
             for ((productId, newPhysicalStock) in adjustments) {
                 productCounter++
                 Log.d(TAG, "--- Producto $productCounter/${adjustments.size} ---")
@@ -114,6 +120,15 @@ class AjusteCompletoViewModel : ViewModel() {
                 if (difference > 0) {
                     Log.d(TAG, "▶️ REDUCIENDO stock: ${product.name}, cantidad: $difference kg")
                     processFifoReduction(product, difference, batch, currentUserName)
+
+                    // NUEVO: Actualizar el Checkpoint Semanal en el Batch
+                    val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+                    val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+                    batch.set(
+                        checkpointRef,
+                        mapOf("consumedKg" to FieldValue.increment(difference)),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
                 } else {
                     Log.e(TAG, "❌ AUMENTO DE STOCK DETECTADO para ${product.name}: $difference kg - ESTO NO DEBERÍA OCURRIR")
                     throw Exception("No se permiten aumentos de stock en ajuste completo. Producto: ${product.name}")
@@ -137,11 +152,11 @@ class AjusteCompletoViewModel : ViewModel() {
                     quantity = kotlin.math.abs(difference),
                     locationFrom = Location.CONGELADOR_04,
                     locationTo = Location.EXTERNO,
-                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(Locale.getDefault(), "%.2f", newPhysicalStock)}",
+                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(java.util.Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(java.util.Locale.getDefault(), "%.2f", newPhysicalStock)}",
                     stockAfterCongelador04 = newPhysicalStock,
                     stockAfterMatriz = product.stockMatriz,
                     stockAfterTotal = product.stockMatriz + newPhysicalStock,
-                    timestamp = Date()
+                    timestamp = java.util.Date()
                 )
                 movements.add(movement)
             }

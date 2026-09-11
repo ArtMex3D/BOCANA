@@ -68,9 +68,12 @@ class MoreOptionsFragment : Fragment() {
         binding.buttonNavToProveedores.setOnClickListener { navigateTo(SupplierListFragment(), "SupplierListFragment") }
         binding.buttonNavToConfigTraspasos.setOnClickListener { navigateTo(ConfiguracionTraspasoFragment(), "ConfiguracionTraspasoFragment") }
 
+
+
         // BOTONES OCULTOS (MANTENIMIENTO) CONECTADOS PARA EL FUTURO
         binding.buttonForceSync.setOnClickListener { showForceSyncConfirmationDialog() }
         binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
+        binding.buttonGenerateCheckpoints.setOnClickListener { showCheckpointConfirmationDialog() }
 
         // 🚀 INICIA EL BUSCADOR DE ACTUALIZACIONES
         checkForUpdates()
@@ -380,6 +383,91 @@ class MoreOptionsFragment : Fragment() {
                     progressDialog.dismiss()
                     Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
                     binding.buttonMigrateData.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun showCheckpointConfirmationDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Generar Historial de Consumo")
+            .setMessage("Este script leerá todos los movimientos pasados y creará los 'Checkpoints' semanales para la predicción de consumo.\n\n¿Deseas continuar?")
+            .setPositiveButton("Sí, Generar") { _, _ ->
+                runCheckpointScript()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun runCheckpointScript() {
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle("Analizando Consumos...")
+            .setMessage("Creando checkpoints semanales. Por favor, espera.")
+            .setCancelable(false)
+            .create()
+
+        progressDialog.show()
+        binding.buttonGenerateCheckpoints.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Obtener todos los movimientos de consumo
+                val movementsSnapshot = firestore.collection("stockMovements")
+                    .whereIn("type", listOf("SALIDA_CONSUMO", "SALIDA_CONSUMO_C04", "AJUSTE_STOCK_C04"))
+                    .get().await()
+
+                // Mapa para agrupar: "ProductoID_Año_Semana" -> Kilos Consumidos
+                val checkpointsMap = mutableMapOf<String, Double>()
+                val calendar = java.util.Calendar.getInstance()
+
+                for (doc in movementsSnapshot.documents) {
+                    val productId = doc.getString("productId") ?: continue
+                    val quantity = doc.getDouble("quantity") ?: 0.0
+                    val timestamp = doc.getDate("timestamp") ?: continue
+
+                    calendar.time = timestamp
+                    val year = calendar.get(java.util.Calendar.YEAR)
+                    val week = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+
+                    val checkpointId = "${productId}_${year}_${week}"
+                    val currentQty = checkpointsMap.getOrDefault(checkpointId, 0.0)
+                    checkpointsMap[checkpointId] = currentQty + quantity
+                }
+
+                // 2. Guardar en Firestore usando Batches (límite 500 por batch)
+                var batch = firestore.batch()
+                var batchCounter = 0
+                var checkpointsCreated = 0
+
+                for ((checkpointId, totalKg) in checkpointsMap) {
+                    val ref = firestore.collection("consumption_history").document(checkpointId)
+                    batch.set(ref, mapOf("consumedKg" to totalKg), com.google.firebase.firestore.SetOptions.merge())
+
+                    checkpointsCreated++
+                    batchCounter++
+
+                    if (batchCounter >= 400) {
+                        batch.commit().await()
+                        batch = firestore.batch()
+                        batchCounter = 0
+                    }
+                }
+                if (batchCounter > 0) batch.commit().await()
+
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("¡Éxito!")
+                        .setMessage("Se crearon $checkpointsCreated checkpoints semanales correctamente.")
+                        .setPositiveButton("Aceptar", null)
+                        .show()
+                    binding.buttonGenerateCheckpoints.isEnabled = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    Toast.makeText(context, "Error en el script: ${e.message}", Toast.LENGTH_LONG).show()
+                    binding.buttonGenerateCheckpoints.isEnabled = true
                 }
             }
         }

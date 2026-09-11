@@ -160,6 +160,13 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
+        // Calcular ID del Checkpoint Semanal
+        val calendar = java.util.Calendar.getInstance()
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+        val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+        val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+        val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+
         firestore.runTransaction { transaction ->
             val productSnapshot = transaction.get(productRef)
             val currentProduct = productSnapshot.toObject(Product::class.java)
@@ -212,6 +219,13 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
                 stockAfterTotal = newTotalStock, timestamp = Date()
             )
             transaction.set(newMovementRef, movement)
+
+            // NUEVO: Actualizar el Checkpoint Semanal automáticamente
+            transaction.set(
+                checkpointRef,
+                mapOf("consumedKg" to FieldValue.increment(quantityToConsume)),
+                com.google.firebase.firestore.SetOptions.merge()
+            )
 
             currentProduct.copy(stockMatriz = newStockMatriz, totalStock = newTotalStock)
         }.addOnSuccessListener { updatedProduct ->
