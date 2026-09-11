@@ -27,6 +27,7 @@ interface ProductActionListener {
     fun onItemClicked(product: Product)
     fun onEditC04Clicked(product: Product)
     fun onTraspasoC04MClicked(product: Product)
+    fun onConsumoPredictivoClicked(product: Product) // <-- NUEVO
 }
 
 class ProductAdapter(
@@ -35,9 +36,7 @@ class ProductAdapter(
 ) : ListAdapter<Product, ProductAdapter.ProductViewHolder>(ProductDiffCallback()) {
 
     private var currentLocationContext: String = Location.MATRIZ
-    private val updateDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-    private var isOnline: Boolean = true // Estado de la conexión
-
+    private var isOnline: Boolean = true
 
     fun setCurrentUserRole(role: UserRole?) {
         if (role != currentUserRole) {
@@ -45,10 +44,11 @@ class ProductAdapter(
             notifyDataSetChanged()
         }
     }
+
     fun setOnlineStatus(online: Boolean) {
         if (isOnline != online) {
             isOnline = online
-            notifyDataSetChanged() // Redibujar todos los items visibles
+            notifyDataSetChanged()
         }
     }
 
@@ -60,20 +60,19 @@ class ProductAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ProductViewHolder {
-        return ProductViewHolder.from(parent, currentUserRole, updateDateFormat)
+        return ProductViewHolder.from(parent, currentUserRole)
     }
 
     override fun onBindViewHolder(holder: ProductViewHolder, position: Int) {
-        holder.bind(getItem(position), actionListener, currentLocationContext)
+        holder.bind(getItem(position), actionListener, currentLocationContext, isOnline)
     }
 
     class ProductViewHolder private constructor(
         private val binding: ItemProductBinding,
-        private val userRole: UserRole?,
-        private val dateFormat: SimpleDateFormat
+        private val userRole: UserRole?
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: Product, listener: ProductActionListener, contextLocation: String) {
+        fun bind(item: Product, listener: ProductActionListener, contextLocation: String, isOnline: Boolean) {
             val context = binding.root.context
             val format = Locale.getDefault()
             val canModify = userRole == UserRole.ADMIN
@@ -81,10 +80,11 @@ class ProductAdapter(
             // --- HEADER INFO ---
             binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
-            item.updatedAt?.let {
-                binding.textViewLastUpdate.text = "Últ. act: ${dateFormat.format(it)}"
-            } ?: run {
-                binding.textViewLastUpdate.text = ""
+
+            // --- CONSUMO PREDICTIVO ---
+            binding.textViewConsumoPredictivo.text = "Calculando..."
+            binding.layoutConsumoPredictivo.setOnClickListener {
+                listener.onConsumoPredictivoClicked(item)
             }
 
             // --- MIN STOCK & WARNING ---
@@ -93,14 +93,14 @@ class ProductAdapter(
             val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
 
             if (isLowStock) {
-                binding.textViewMinStockValue.setTextColor(Color.parseColor("#EF4444")) // Red color
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#EF4444"))
                 binding.textViewMinStockValue.text = "⚠️ $minStockText"
                 if (binding.textViewMinStockValue.animation == null) {
                     val pulse = AnimationUtils.loadAnimation(context, R.anim.pulse_warning)
                     binding.textViewMinStockValue.startAnimation(pulse)
                 }
             } else {
-                binding.textViewMinStockValue.setTextColor(Color.parseColor("#64748b")) // Normal color
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#64748b"))
                 binding.textViewMinStockValue.text = minStockText
                 binding.textViewMinStockValue.clearAnimation()
             }
@@ -115,12 +115,11 @@ class ProductAdapter(
             if (contextLocation == Location.MATRIZ) {
                 binding.layoutActionButtons.visibility = View.VISIBLE
                 binding.layoutActionButtonsC04.visibility = View.GONE
-            } else { // CONGELADOR_04
+            } else {
                 binding.layoutActionButtons.visibility = View.GONE
                 binding.layoutActionButtonsC04.visibility = View.VISIBLE
             }
 
-            // Habilitar/deshabilitar botones según rol Y estado de conexión
             val canPerformWriteAction = canModify && isOnline
             val alphaValue = if (canPerformWriteAction) 1.0f else 0.5f
 
@@ -135,8 +134,8 @@ class ProductAdapter(
 
             // --- SET LISTENERS ---
             binding.root.setOnLongClickListener {
-                listener.onItemClicked(item) // La navegación a editar ocurre aquí ahora.
-                true // Importante: Devuelve true para indicar que el evento fue consumido.
+                listener.onItemClicked(item)
+                true
             }
 
             binding.buttonAddCompra.setOnClickListener { if (canPerformWriteAction) listener.onAddCompraClicked(item) else offlineClickListener.onClick(it) }
@@ -147,10 +146,10 @@ class ProductAdapter(
         }
 
         companion object {
-            fun from(parent: ViewGroup, userRole: UserRole?, dateFormat: SimpleDateFormat): ProductViewHolder {
+            fun from(parent: ViewGroup, userRole: UserRole?): ProductViewHolder {
                 val layoutInflater = LayoutInflater.from(parent.context)
                 val binding = ItemProductBinding.inflate(layoutInflater, parent, false)
-                return ProductViewHolder(binding, userRole, dateFormat)
+                return ProductViewHolder(binding, userRole)
             }
         }
     }
