@@ -522,27 +522,28 @@ data class Product(
     @DocumentId
     val id: String = "",
     val name: String = "",
-    val unit: String = "Kg", // Unidad de inventario principal SIEMPRE será Kg
+    val unit: String = "Kg",
 
-    // --- CAMPOS ESENCIALES ---
-    val minStock: Double = 0.0,      // Stock mínimo general en Kg
-    val stockIdealC04: Double = 0.0, // Stock objetivo en C-04, siempre en Kg
+    val minStock: Double = 0.0,
+    val stockIdealC04: Double = 0.0,
 
-    // --- CAMPOS DE CONFIGURACIÓN GENERAL ---
     @JvmField
-    val requiresPackaging: Boolean = false, // Define si el producto (ej. "A Granel") necesita pasar por la pantalla de Empaque
+    val requiresPackaging: Boolean = false,
     val ordenTraspaso: Int = 999,
     @JvmField
     val modoManualPDF: Boolean = false,
     val espacioExtraPDF: Double = 0.0,
     val labelConfig: @RawValue Map<String, Any>? = null,
 
-
     val categoria: String = "FIJO",
     val productoRectorId: String? = null,
     val stockMatriz: Double = 0.0,
     val stockCongelador04: Double = 0.0,
     val totalStock: Double = 0.0,
+
+    // NUEVO CAMPO: Fotografía del promedio para evitar lecturas masivas
+    val consumoSemanalPromedio: Double = 0.0,
+
     @JvmField
     val isActive: Boolean = true,
     @ServerTimestamp
@@ -552,12 +553,12 @@ data class Product(
     val lastUpdatedByName: String? = null
 
 ) : Parcelable {
-    // Constructor vacío para Firestore
     constructor() : this(
         id = "", name = "", unit = "Kg", minStock = 0.0,
         stockIdealC04 = 0.0, requiresPackaging = false,
         ordenTraspaso = 999, modoManualPDF = false, espacioExtraPDF = 0.0,
         labelConfig = null, stockMatriz = 0.0, stockCongelador04 = 0.0, totalStock = 0.0,
+        consumoSemanalPromedio = 0.0, // Inicializado en 0
         isActive = true, createdAt = null, updatedAt = null, lastUpdatedByName = null
     )
 }
@@ -1193,7 +1194,69 @@ class InventoryRepository(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false),
             pagingSourceFactory = { stockMovementDao.getFilteredMovementsPaged(query) }
         ).flow
+
     }
+
+    suspend fun calcularYActualizarPromediosSemanales() {
+        withContext(Dispatchers.IO) {
+            try {
+                Log.d("Predictivo", "Iniciando cálculo de promedios...")
+                val activeProducts = productDao.getAllActiveProductsStream().first()
+
+                val calendar = java.util.Calendar.getInstance()
+                val currentYear = calendar.get(java.util.Calendar.YEAR)
+                val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+
+                // Las 3 semanas clave para la fórmula
+                val weekMinus1 = if (currentWeek - 1 < 1) 52 else currentWeek - 1
+                val yearForWeekMinus1 = if (currentWeek - 1 < 1) currentYear - 1 else currentYear
+
+                val weekMinus2 = if (currentWeek - 2 < 1) 52 - (2 - currentWeek) else currentWeek - 2
+                val yearForWeekMinus2 = if (currentWeek - 2 < 1) currentYear - 1 else currentYear
+
+                val batch = firestore.batch()
+                var updatesCount = 0
+
+                for (product in activeProducts) {
+                    // IDs de los 3 checkpoints
+                    val idLastYear = "${product.id}_${currentYear - 1}_${currentWeek}"
+                    val idWeek1 = "${product.id}_${yearForWeekMinus1}_${weekMinus1}"
+                    val idWeek2 = "${product.id}_${yearForWeekMinus2}_${weekMinus2}"
+
+                    // Descargar los 3 documentos
+                    val docs = firestore.collection("consumption_history")
+                        .whereIn(com.google.firebase.firestore.FieldPath.documentId(), listOf(idLastYear, idWeek1, idWeek2))
+                        .get().await()
+
+                    var totalKg = 0.0
+                    for (doc in docs) {
+                        totalKg += doc.getDouble("consumedKg") ?: 0.0
+                    }
+
+                    // Promedio de las 3 semanas
+                    val promedio = totalKg / 3.0
+
+                    // Solo actualizamos si el promedio cambió para no gastar escrituras a lo tonto
+                    if (kotlin.math.abs(product.consumoSemanalPromedio - promedio) > 0.01) {
+                        val productRef = firestore.collection("products").document(product.id)
+                        batch.update(productRef, "consumoSemanalPromedio", promedio)
+                        updatesCount++
+                    }
+                }
+
+                if (updatesCount > 0) {
+                    batch.commit().await()
+                    Log.d("Predictivo", "Se actualizaron los promedios de $updatesCount productos.")
+                } else {
+                    Log.d("Predictivo", "Ningún promedio requirió actualización.")
+                }
+
+            } catch (e: Exception) {
+                Log.e("Predictivo", "Error calculando promedios", e)
+            }
+        }
+    }
+
 }
 
 
@@ -1985,6 +2048,7 @@ interface ProductActionListener {
     fun onItemClicked(product: Product)
     fun onEditC04Clicked(product: Product)
     fun onTraspasoC04MClicked(product: Product)
+    fun onConsumoPredictivoClicked(product: Product) // <-- NUEVO
 }
 
 class ProductAdapter(
@@ -1993,9 +2057,7 @@ class ProductAdapter(
 ) : ListAdapter<Product, ProductAdapter.ProductViewHolder>(ProductDiffCallback()) {
 
     private var currentLocationContext: String = Location.MATRIZ
-    private val updateDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-    private var isOnline: Boolean = true // Estado de la conexión
-
+    private var isOnline: Boolean = true
 
     fun setCurrentUserRole(role: UserRole?) {
         if (role != currentUserRole) {
@@ -2003,10 +2065,11 @@ class ProductAdapter(
             notifyDataSetChanged()
         }
     }
+
     fun setOnlineStatus(online: Boolean) {
         if (isOnline != online) {
             isOnline = online
-            notifyDataSetChanged() // Redibujar todos los items visibles
+            notifyDataSetChanged()
         }
     }
 
@@ -2018,20 +2081,19 @@ class ProductAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ProductViewHolder {
-        return ProductViewHolder.from(parent, currentUserRole, updateDateFormat)
+        return ProductViewHolder.from(parent, currentUserRole)
     }
 
     override fun onBindViewHolder(holder: ProductViewHolder, position: Int) {
-        holder.bind(getItem(position), actionListener, currentLocationContext)
+        holder.bind(getItem(position), actionListener, currentLocationContext, isOnline)
     }
 
     class ProductViewHolder private constructor(
         private val binding: ItemProductBinding,
-        private val userRole: UserRole?,
-        private val dateFormat: SimpleDateFormat
+        private val userRole: UserRole?
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: Product, listener: ProductActionListener, contextLocation: String) {
+        fun bind(item: Product, listener: ProductActionListener, contextLocation: String, isOnline: Boolean) {
             val context = binding.root.context
             val format = Locale.getDefault()
             val canModify = userRole == UserRole.ADMIN
@@ -2039,10 +2101,45 @@ class ProductAdapter(
             // --- HEADER INFO ---
             binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
-            item.updatedAt?.let {
-                binding.textViewLastUpdate.text = "Últ. act: ${dateFormat.format(it)}"
-            } ?: run {
-                binding.textViewLastUpdate.text = ""
+
+            // --- CONSUMO PREDICTIVO ---
+            val consumoPromedio = item.consumoSemanalPromedio
+            val stockTotal = item.totalStock
+
+            if (consumoPromedio > 0.0) {
+                val semanasRestantes = stockTotal / consumoPromedio
+
+                // Formatear a 1 decimal (ej. 3.5 Semanas)
+                val semanasStr = String.format(Locale.getDefault(), "%.1f", semanasRestantes)
+                binding.textViewConsumoPredictivo.text = "$semanasStr Semanas"
+
+                // Lógica de colores
+                when {
+                    semanasRestantes >= 4.0 -> {
+                        // Verde (Tranquilidad)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#2E7D32"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#2E7D32"))
+                    }
+                    semanasRestantes >= 2.0 -> {
+                        // Naranja (Precaución)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#F57C00"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#F57C00"))
+                    }
+                    else -> {
+                        // Rojo (Alerta)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#D32F2F"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#D32F2F"))
+                    }
+                }
+            } else {
+                // Sin historial de consumo
+                binding.textViewConsumoPredictivo.text = "Sin consumo"
+                binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
+                binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))
+            }
+
+            binding.layoutConsumoPredictivo.setOnClickListener {
+                listener.onConsumoPredictivoClicked(item)
             }
 
             // --- MIN STOCK & WARNING ---
@@ -2051,14 +2148,14 @@ class ProductAdapter(
             val isLowStock = item.totalStock <= item.minStock && item.minStock > 0.0
 
             if (isLowStock) {
-                binding.textViewMinStockValue.setTextColor(Color.parseColor("#EF4444")) // Red color
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#EF4444"))
                 binding.textViewMinStockValue.text = "⚠️ $minStockText"
                 if (binding.textViewMinStockValue.animation == null) {
                     val pulse = AnimationUtils.loadAnimation(context, R.anim.pulse_warning)
                     binding.textViewMinStockValue.startAnimation(pulse)
                 }
             } else {
-                binding.textViewMinStockValue.setTextColor(Color.parseColor("#64748b")) // Normal color
+                binding.textViewMinStockValue.setTextColor(Color.parseColor("#64748b"))
                 binding.textViewMinStockValue.text = minStockText
                 binding.textViewMinStockValue.clearAnimation()
             }
@@ -2073,12 +2170,11 @@ class ProductAdapter(
             if (contextLocation == Location.MATRIZ) {
                 binding.layoutActionButtons.visibility = View.VISIBLE
                 binding.layoutActionButtonsC04.visibility = View.GONE
-            } else { // CONGELADOR_04
+            } else {
                 binding.layoutActionButtons.visibility = View.GONE
                 binding.layoutActionButtonsC04.visibility = View.VISIBLE
             }
 
-            // Habilitar/deshabilitar botones según rol Y estado de conexión
             val canPerformWriteAction = canModify && isOnline
             val alphaValue = if (canPerformWriteAction) 1.0f else 0.5f
 
@@ -2093,8 +2189,8 @@ class ProductAdapter(
 
             // --- SET LISTENERS ---
             binding.root.setOnLongClickListener {
-                listener.onItemClicked(item) // La navegación a editar ocurre aquí ahora.
-                true // Importante: Devuelve true para indicar que el evento fue consumido.
+                listener.onItemClicked(item)
+                true
             }
 
             binding.buttonAddCompra.setOnClickListener { if (canPerformWriteAction) listener.onAddCompraClicked(item) else offlineClickListener.onClick(it) }
@@ -2105,10 +2201,10 @@ class ProductAdapter(
         }
 
         companion object {
-            fun from(parent: ViewGroup, userRole: UserRole?, dateFormat: SimpleDateFormat): ProductViewHolder {
+            fun from(parent: ViewGroup, userRole: UserRole?): ProductViewHolder {
                 val layoutInflater = LayoutInflater.from(parent.context)
                 val binding = ItemProductBinding.inflate(layoutInflater, parent, false)
-                return ProductViewHolder(binding, userRole, dateFormat)
+                return ProductViewHolder(binding, userRole)
             }
         }
     }
@@ -2935,6 +3031,12 @@ class AjusteCompletoViewModel : ViewModel() {
             val movements = mutableListOf<StockMovement>()
 
             var productCounter = 0
+
+            // Variables para el Checkpoint
+            val calendar = java.util.Calendar.getInstance()
+            val currentYear = calendar.get(java.util.Calendar.YEAR)
+            val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+
             for ((productId, newPhysicalStock) in adjustments) {
                 productCounter++
                 Log.d(TAG, "--- Producto $productCounter/${adjustments.size} ---")
@@ -2962,6 +3064,15 @@ class AjusteCompletoViewModel : ViewModel() {
                 if (difference > 0) {
                     Log.d(TAG, "▶️ REDUCIENDO stock: ${product.name}, cantidad: $difference kg")
                     processFifoReduction(product, difference, batch, currentUserName)
+
+                    // NUEVO: Actualizar el Checkpoint Semanal en el Batch
+                    val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+                    val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+                    batch.set(
+                        checkpointRef,
+                        mapOf("consumedKg" to FieldValue.increment(difference)),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
                 } else {
                     Log.e(TAG, "❌ AUMENTO DE STOCK DETECTADO para ${product.name}: $difference kg - ESTO NO DEBERÍA OCURRIR")
                     throw Exception("No se permiten aumentos de stock en ajuste completo. Producto: ${product.name}")
@@ -2985,11 +3096,11 @@ class AjusteCompletoViewModel : ViewModel() {
                     quantity = kotlin.math.abs(difference),
                     locationFrom = Location.CONGELADOR_04,
                     locationTo = Location.EXTERNO,
-                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(Locale.getDefault(), "%.2f", newPhysicalStock)}",
+                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(java.util.Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(java.util.Locale.getDefault(), "%.2f", newPhysicalStock)}",
                     stockAfterCongelador04 = newPhysicalStock,
                     stockAfterMatriz = product.stockMatriz,
                     stockAfterTotal = product.stockMatriz + newPhysicalStock,
-                    timestamp = Date()
+                    timestamp = java.util.Date()
                 )
                 movements.add(movement)
             }
@@ -4911,6 +5022,13 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         val subloteRef = firestore.collection("inventoryLots").document(subloteAActualizar.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
+        // Calcular ID del Checkpoint Semanal
+        val calendar = java.util.Calendar.getInstance()
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+        val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+        val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+        val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+
         var productForNotification: Product? = null
 
         firestore.runTransaction { transaction ->
@@ -4959,6 +5077,13 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                     stockAfterTotal = nuevoTotalStock, timestamp = Date()
                 )
                 transaction.set(newMovementRef, movement)
+
+                // NUEVO: Actualizar el Checkpoint Semanal automáticamente
+                transaction.set(
+                    checkpointRef,
+                    mapOf("consumedKg" to FieldValue.increment(consumoRealCalculado)),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
             }
             productForNotification = currentProductFS.copy(stockCongelador04 = nuevoStockC04, totalStock = nuevoTotalStock)
             null
@@ -4985,8 +5110,116 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
             showSnackbar(errorMsg, true)
         }
     }
+
 }
 
+
+--- FIN DE ARCHIVO ---
+
+
+--- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\ui\dialogs\ConsumoPredictivoBottomSheet.kt ---
+
+package com.cesar.bocana.ui.dialogs
+
+import android.graphics.Color
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.ProgressBar
+import android.widget.TextView
+import com.cesar.bocana.R
+import com.cesar.bocana.data.model.Product
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.card.MaterialCardView
+import java.util.Locale
+
+class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDialogFragment() {
+
+    companion object {
+        const val TAG = "ConsumoPredictivoBottomSheet"
+    }
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
+        return inflater.inflate(R.layout.dialog_consumo_predictivo, container, false)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        val tvProductName = view.findViewById<TextView>(R.id.tvPopupProductName)
+        val tvProductId = view.findViewById<TextView>(R.id.tvPopupProductId)
+        val btnClose = view.findViewById<ImageButton>(R.id.btnClosePopup)
+
+        val progressGauge = view.findViewById<ProgressBar>(R.id.progressGauge)
+        val tvGaugeNumber = view.findViewById<TextView>(R.id.tvGaugeNumber)
+
+        val cardStatusBadge = view.findViewById<MaterialCardView>(R.id.cardStatusBadge)
+        val tvStatusBadge = view.findViewById<TextView>(R.id.tvStatusBadge)
+        val tvMainPrediction = view.findViewById<TextView>(R.id.tvMainPrediction)
+
+        val tvWeeklyConsumption = view.findViewById<TextView>(R.id.tvWeeklyConsumption)
+        val tvMonthlyConsumption = view.findViewById<TextView>(R.id.tvMonthlyConsumption)
+
+        // Asignar textos básicos
+        tvProductName.text = product.name
+        tvProductId.text = "ID: ${product.id.takeLast(6).uppercase()}"
+        btnClose.setOnClickListener { dismiss() }
+
+        val consumoSemanal = product.consumoSemanalPromedio
+        val consumoMensual = consumoSemanal * 4
+
+        tvWeeklyConsumption.text = String.format(Locale.getDefault(), "%.2f %s", consumoSemanal, product.unit)
+        tvMonthlyConsumption.text = String.format(Locale.getDefault(), "%.2f %s", consumoMensual, product.unit)
+
+        if (consumoSemanal > 0.0) {
+            val semanasRestantes = product.totalStock / consumoSemanal
+            val semanasStr = String.format(Locale.getDefault(), "%.1f", semanasRestantes)
+
+            tvGaugeNumber.text = semanasStr
+            tvMainPrediction.text = "Se agotará en $semanasStr semanas"
+
+            // Lógica de colores para el Popup
+            when {
+                semanasRestantes >= 4.0 -> {
+                    tvGaugeNumber.setTextColor(Color.parseColor("#2E7D32"))
+                    progressGauge.progressDrawable.setTint(Color.parseColor("#2E7D32"))
+                    progressGauge.progress = 100
+
+                    cardStatusBadge.setCardBackgroundColor(Color.parseColor("#E8F5E9"))
+                    tvStatusBadge.setTextColor(Color.parseColor("#2E7D32"))
+                    tvStatusBadge.text = "✓ Stock Saludable"
+                }
+                semanasRestantes >= 2.0 -> {
+                    tvGaugeNumber.setTextColor(Color.parseColor("#F57C00"))
+                    progressGauge.progressDrawable.setTint(Color.parseColor("#F57C00"))
+                    progressGauge.progress = 50
+
+                    cardStatusBadge.setCardBackgroundColor(Color.parseColor("#FFF3E0"))
+                    tvStatusBadge.setTextColor(Color.parseColor("#F57C00"))
+                    tvStatusBadge.text = "! Precaución"
+                }
+                else -> {
+                    tvGaugeNumber.setTextColor(Color.parseColor("#D32F2F"))
+                    progressGauge.progressDrawable.setTint(Color.parseColor("#D32F2F"))
+                    progressGauge.progress = 25
+
+                    cardStatusBadge.setCardBackgroundColor(Color.parseColor("#FFEBEE"))
+                    tvStatusBadge.setTextColor(Color.parseColor("#D32F2F"))
+                    tvStatusBadge.text = "⚠️ Alerta Crítica"
+                }
+            }
+        } else {
+            tvGaugeNumber.text = "-"
+            tvMainPrediction.text = "Sin datos suficientes"
+            progressGauge.progress = 0
+            cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F5F5F5"))
+            tvStatusBadge.setTextColor(Color.parseColor("#9E9E9E"))
+            tvStatusBadge.text = "Sin consumo"
+        }
+    }
+}
 
 --- FIN DE ARCHIVO ---
 
@@ -5726,6 +5959,13 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
+        // Calcular ID del Checkpoint Semanal
+        val calendar = java.util.Calendar.getInstance()
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+        val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+        val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
+        val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
+
         firestore.runTransaction { transaction ->
             val productSnapshot = transaction.get(productRef)
             val currentProduct = productSnapshot.toObject(Product::class.java)
@@ -5778,6 +6018,13 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
                 stockAfterTotal = newTotalStock, timestamp = Date()
             )
             transaction.set(newMovementRef, movement)
+
+            // NUEVO: Actualizar el Checkpoint Semanal automáticamente
+            transaction.set(
+                checkpointRef,
+                mapOf("consumedKg" to FieldValue.increment(quantityToConsume)),
+                com.google.firebase.firestore.SetOptions.merge()
+            )
 
             currentProduct.copy(stockMatriz = newStockMatriz, totalStock = newTotalStock)
         }.addOnSuccessListener { updatedProduct ->
@@ -7332,6 +7579,8 @@ class MainActivity : AppCompatActivity() {
         // Iniciar listeners y sincronización automática
         lifecycleScope.launch {
             repository.syncNewMovements() // Sincronización inteligente al inicio
+            repository.calcularYActualizarPromediosSemanales() // <-- NUEVO: Calcula la predicción en silencio
+
         }
         repository.startFirestoreListeners()
 
@@ -7786,9 +8035,12 @@ class MoreOptionsFragment : Fragment() {
         binding.buttonNavToProveedores.setOnClickListener { navigateTo(SupplierListFragment(), "SupplierListFragment") }
         binding.buttonNavToConfigTraspasos.setOnClickListener { navigateTo(ConfiguracionTraspasoFragment(), "ConfiguracionTraspasoFragment") }
 
+
+
         // BOTONES OCULTOS (MANTENIMIENTO) CONECTADOS PARA EL FUTURO
         binding.buttonForceSync.setOnClickListener { showForceSyncConfirmationDialog() }
         binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
+        binding.buttonGenerateCheckpoints.setOnClickListener { showCheckpointConfirmationDialog() }
 
         // 🚀 INICIA EL BUSCADOR DE ACTUALIZACIONES
         checkForUpdates()
@@ -8098,6 +8350,91 @@ class MoreOptionsFragment : Fragment() {
                     progressDialog.dismiss()
                     Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
                     binding.buttonMigrateData.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun showCheckpointConfirmationDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Generar Historial de Consumo")
+            .setMessage("Este script leerá todos los movimientos pasados y creará los 'Checkpoints' semanales para la predicción de consumo.\n\n¿Deseas continuar?")
+            .setPositiveButton("Sí, Generar") { _, _ ->
+                runCheckpointScript()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun runCheckpointScript() {
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle("Analizando Consumos...")
+            .setMessage("Creando checkpoints semanales. Por favor, espera.")
+            .setCancelable(false)
+            .create()
+
+        progressDialog.show()
+        binding.buttonGenerateCheckpoints.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Obtener todos los movimientos de consumo
+                val movementsSnapshot = firestore.collection("stockMovements")
+                    .whereIn("type", listOf("SALIDA_CONSUMO", "SALIDA_CONSUMO_C04", "AJUSTE_STOCK_C04"))
+                    .get().await()
+
+                // Mapa para agrupar: "ProductoID_Año_Semana" -> Kilos Consumidos
+                val checkpointsMap = mutableMapOf<String, Double>()
+                val calendar = java.util.Calendar.getInstance()
+
+                for (doc in movementsSnapshot.documents) {
+                    val productId = doc.getString("productId") ?: continue
+                    val quantity = doc.getDouble("quantity") ?: 0.0
+                    val timestamp = doc.getDate("timestamp") ?: continue
+
+                    calendar.time = timestamp
+                    val year = calendar.get(java.util.Calendar.YEAR)
+                    val week = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
+
+                    val checkpointId = "${productId}_${year}_${week}"
+                    val currentQty = checkpointsMap.getOrDefault(checkpointId, 0.0)
+                    checkpointsMap[checkpointId] = currentQty + quantity
+                }
+
+                // 2. Guardar en Firestore usando Batches (límite 500 por batch)
+                var batch = firestore.batch()
+                var batchCounter = 0
+                var checkpointsCreated = 0
+
+                for ((checkpointId, totalKg) in checkpointsMap) {
+                    val ref = firestore.collection("consumption_history").document(checkpointId)
+                    batch.set(ref, mapOf("consumedKg" to totalKg), com.google.firebase.firestore.SetOptions.merge())
+
+                    checkpointsCreated++
+                    batchCounter++
+
+                    if (batchCounter >= 400) {
+                        batch.commit().await()
+                        batch = firestore.batch()
+                        batchCounter = 0
+                    }
+                }
+                if (batchCounter > 0) batch.commit().await()
+
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("¡Éxito!")
+                        .setMessage("Se crearon $checkpointsCreated checkpoints semanales correctamente.")
+                        .setPositiveButton("Aceptar", null)
+                        .show()
+                    binding.buttonGenerateCheckpoints.isEnabled = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    progressDialog.dismiss()
+                    Toast.makeText(context, "Error en el script: ${e.message}", Toast.LENGTH_LONG).show()
+                    binding.buttonGenerateCheckpoints.isEnabled = true
                 }
             }
         }
@@ -10485,6 +10822,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         Log.d(TAG, "Ajuste de sublote C04 completado para producto ID: $productId.")
     }
 
+
+
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
         Log.d(TAG, "onCreateMenu (ProductListFragment)")
     }
@@ -10964,6 +11303,14 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
             isDialogOpen = false
         }
     }
+
+    override fun onConsumoPredictivoClicked(product: Product) {
+        if (isDialogOpen) return
+
+        val bottomSheet = com.cesar.bocana.ui.dialogs.ConsumoPredictivoBottomSheet(product)
+        bottomSheet.show(parentFragmentManager, com.cesar.bocana.ui.dialogs.ConsumoPredictivoBottomSheet.TAG)
+    }
+
     companion object {
         private const val TAG = "ProductListFragment"
     }
@@ -15386,6 +15733,29 @@ object UserFields {
 --- FIN DE ARCHIVO ---
 
 
+--- INICIO DE ARCHIVO: app\src\main\res\drawable\circular_gauge.xml ---
+
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Anillo de fondo (Gris claro) -->
+    <item>
+        <shape android:shape="ring" android:thicknessRatio="12" android:useLevel="false">
+            <solid android:color="#F0F0F0" />
+        </shape>
+    </item>
+    <!-- Anillo de progreso (Se pintará por código) -->
+    <item>
+        <rotate android:fromDegrees="270" android:toDegrees="270">
+            <shape android:shape="ring" android:thicknessRatio="12" android:useLevel="true">
+                <solid android:color="#FF9800" />
+            </shape>
+        </rotate>
+    </item>
+</layer-list>
+
+--- FIN DE ARCHIVO ---
+
+
 --- INICIO DE ARCHIVO: app\src\main\res\drawable\consumo.xml ---
 
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -17658,6 +18028,322 @@ object UserFields {
             android:layout_marginStart="8dp" />
 
     </LinearLayout>
+
+</LinearLayout>
+
+--- FIN DE ARCHIVO ---
+
+
+--- INICIO DE ARCHIVO: app\src\main\res\layout\dialog_consumo_predictivo.xml ---
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_action_button"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <!-- HEADER: Título y Botón Cerrar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            app:cardBackgroundColor="@color/brand_purple"
+            app:cardCornerRadius="12dp"
+            app:strokeWidth="0dp">
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/consumo"
+                app:tint="@android:color/white" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvPopupProductName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/Letras"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                tools:text="Atún en agua" />
+
+            <TextView
+                android:id="@+id/tvPopupProductId"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                tools:text="ID: PROD-001" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnClosePopup"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            app:tint="@color/Letras" />
+    </LinearLayout>
+
+    <!-- GRÁFICO DE DONA (GAUGE) -->
+    <FrameLayout
+        android:layout_width="160dp"
+        android:layout_height="160dp"
+        android:layout_gravity="center"
+        android:layout_marginTop="32dp">
+
+        <ProgressBar
+            android:id="@+id/progressGauge"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:indeterminate="false"
+            android:max="100"
+            android:progress="75"
+            android:progressDrawable="@drawable/circular_gauge" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvGaugeNumber"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FF9800"
+                android:textSize="48sp"
+                android:textStyle="bold"
+                tools:text="3" />
+
+            <TextView
+                android:id="@+id/tvGaugeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FF9800"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="Semanas" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- ETIQUETA DE ESTADO -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardStatusBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="16dp"
+        app:cardBackgroundColor="#FFF3E0"
+        app:cardCornerRadius="16dp"
+        app:strokeWidth="0dp">
+
+        <TextView
+            android:id="@+id/tvStatusBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:textColor="#FF9800"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            tools:text="! Precaución" />
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- TEXTO PRINCIPAL -->
+    <TextView
+        android:id="@+id/tvMainPrediction"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:textColor="@color/Letras"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        tools:text="Se agotará en 3 semanas" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:text="Con el consumo actual, este producto alcanzará el stock disponible en el tiempo estimado."
+        android:textColor="#666666"
+        android:textSize="14sp" />
+
+    <!-- TARJETAS DE CONSUMO -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:orientation="horizontal">
+
+        <!-- Tarjeta Semanal -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            app:cardBackgroundColor="#F8FAFC"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeColor="#E2E8F0"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@drawable/cart"
+                        app:tint="@color/Letras" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Consumo Semanal"
+                        android:textColor="@color/Letras"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvWeeklyConsumption"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/Letras"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    tools:text="150 Kg" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Tarjeta Mensual -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            app:cardBackgroundColor="#F8FAFC"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp"
+            app:strokeColor="#E2E8F0"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@android:drawable/ic_menu_today"
+                        app:tint="@color/Letras" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Consumo Mensual"
+                        android:textColor="@color/Letras"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvMonthlyConsumption"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/Letras"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    tools:text="600 Kg" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+
+    <!-- CAJA DE INFORMACIÓN -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        app:cardBackgroundColor="#F0F4F8"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="16dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@android:drawable/ic_dialog_info"
+                app:tint="@color/Letras" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Datos de referencia"
+                    android:textColor="@color/Letras"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="El consumo se calcula con el promedio de las últimas 2 semanas y la misma semana del año anterior."
+                    android:textColor="#555555"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </LinearLayout>
 
@@ -21131,14 +21817,14 @@ object UserFields {
                 android:textAllCaps="true"
                 android:textStyle="bold"
                 android:layout_marginBottom="8dp"
-                android:visibility="gone"
+                android:visibility="visible"
                 tools:visibility="visible" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
-                android:visibility="gone"
+                android:visibility="visible"
                 tools:visibility="visible"
                 app:cardCornerRadius="14dp"
                 app:cardElevation="2dp"
@@ -21199,6 +21885,51 @@ object UserFields {
                         android:background="#F0F0F0" android:layout_marginStart="62dp" />
 
                     <!-- Mantenimiento de Datos -->
+                    <!-- Generar Checkpoints de Consumo -->
+                    <LinearLayout
+                        android:id="@+id/button_generate_checkpoints"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:visibility="visible"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="#1A00D90E"
+                            android:gravity="center"
+                            android:text="📊"
+                            android:textSize="15sp"
+                            android:includeFontPadding="false" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="14dp"
+                            android:text="Generar Historial de Consumo"
+                            android:textColor="#008000"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="›"
+                            android:textColor="#BBBBBB"
+                            android:textSize="20sp" />
+
+                    </LinearLayout>
+
+                    <View android:layout_width="match_parent" android:layout_height="1dp"
+                        android:background="#F0F0F0" android:layout_marginStart="62dp" />
+
                     <LinearLayout
                         android:id="@+id/button_migrate_data"
                         android:layout_width="match_parent"
@@ -23774,13 +24505,37 @@ object UserFields {
                 android:orientation="vertical"
                 android:gravity="end">
 
-                <TextView
-                    android:id="@+id/textViewLastUpdate"
+                <!-- NUEVO INDICADOR DE CONSUMO -->
+                <LinearLayout
+                    android:id="@+id/layoutConsumoPredictivo"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="#64748b"
-                    android:textSize="11sp"
-                    tools:text="Últ. act: 03/08/25" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="4dp"
+                    android:paddingStart="4dp">
+
+                    <ImageView
+                        android:id="@+id/iconConsumoPredictivo"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:src="@drawable/consumo"
+                        app:tint="#64748b" />
+
+                    <TextView
+                        android:id="@+id/textViewConsumoPredictivo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="Calculando..."
+                        android:textColor="#64748b"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/textViewMinStockValue"
@@ -23791,6 +24546,7 @@ object UserFields {
                     android:textStyle="bold"
                     tools:text="100.00 Bolsas" />
             </LinearLayout>
+
         </LinearLayout>
         <View
             android:layout_width="match_parent"
@@ -25244,5 +26000,3 @@ object UserFields {
 </manifest>
 
 --- FIN DE ARCHIVO ---
-
-

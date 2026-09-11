@@ -1,0 +1,8 @@
+$files = Get-ChildItem -Path "app\src\main" -Include *.kt, *.xml -Recurse -File -ErrorAction SilentlyContinue
+$output = "codigo_actualizado.txt"
+Clear-Content $output -ErrorAction SilentlyContinue
+foreach ($file in $files) {
+    Add-Content $output "`n`n--- INICIO DE ARCHIVO: $($file.FullName -replace [regex]::Escape((Get-Location).Path + '\'), '') ---`n"
+    Get-Content $file.FullName | Add-Content $output
+    Add-Content $output "`n--- FIN DE ARCHIVO ---"
+}

@@ -105,6 +105,8 @@ class MainActivity : AppCompatActivity() {
         // Iniciar listeners y sincronización automática
         lifecycleScope.launch {
             repository.syncNewMovements() // Sincronización inteligente al inicio
+            repository.calcularYActualizarPromediosSemanales() // <-- NUEVO: Calcula la predicción en silencio
+
         }
         repository.startFirestoreListeners()
 

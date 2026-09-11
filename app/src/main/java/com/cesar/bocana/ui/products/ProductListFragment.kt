@@ -124,6 +124,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         Log.d(TAG, "Ajuste de sublote C04 completado para producto ID: $productId.")
     }
 
+
+
     override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
         Log.d(TAG, "onCreateMenu (ProductListFragment)")
     }
@@ -607,10 +609,10 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     override fun onConsumoPredictivoClicked(product: Product) {
         if (isDialogOpen) return
 
-        // Por ahora solo mostramos un Toast para confirmar que el clic funciona.
-        // En la Fase 3, aquí abriremos el BottomSheet (Popup) con la gráfica.
-        Toast.makeText(requireContext(), "Abriendo predicción para: ${product.name}", Toast.LENGTH_SHORT).show()
+        val bottomSheet = com.cesar.bocana.ui.dialogs.ConsumoPredictivoBottomSheet(product)
+        bottomSheet.show(parentFragmentManager, com.cesar.bocana.ui.dialogs.ConsumoPredictivoBottomSheet.TAG)
     }
+
     companion object {
         private const val TAG = "ProductListFragment"
     }

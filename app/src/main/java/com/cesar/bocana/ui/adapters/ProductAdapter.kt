@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.adapters
 
 import android.content.Context
@@ -16,6 +17,7 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
+import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.cesar.bocana.utils.NetworkStatus.isOnline
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -81,8 +83,30 @@ class ProductAdapter(
             binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
 
-            // --- CONSUMO PREDICTIVO ---
-            binding.textViewConsumoPredictivo.text = "Calculando..."
+            // --- CONSUMO PREDICTIVO V2 ---
+            // La lista NO consulta Firebase. Usa la fotografía semanal guardada en Product
+            // y recalcula los días con el stock actual.
+            val demandaSemanal = item.demandaSemanalPrevista
+            val diasCobertura = PredictiveConsumptionEngine.coverageDays(
+                stock = item.totalStock,
+                weeklyDemand = demandaSemanal
+            )
+
+            if (diasCobertura != null) {
+                val status = PredictiveConsumptionEngine.coverageStatus(diasCobertura)
+                val statusColor = Color.parseColor(status.colorHex)
+
+                binding.textViewConsumoPredictivo.text =
+                    PredictiveConsumptionEngine.formatDurationCompact(diasCobertura)
+                binding.textViewConsumoPredictivo.setTextColor(statusColor)
+                binding.iconConsumoPredictivo.setColorFilter(statusColor)
+            } else {
+                // Sin historial suficiente para predecir demanda
+                binding.textViewConsumoPredictivo.text = "Sin consumo"
+                binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
+                binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))
+            }
+
             binding.layoutConsumoPredictivo.setOnClickListener {
                 listener.onConsumoPredictivoClicked(item)
             }

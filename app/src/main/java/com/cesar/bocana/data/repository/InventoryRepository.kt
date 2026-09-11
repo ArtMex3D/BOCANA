@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.data.repository
 
 import android.util.Log
@@ -14,6 +15,7 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.data.model.Supplier
+import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.ktx.toObjects
@@ -283,6 +285,139 @@ class InventoryRepository(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false),
             pagingSourceFactory = { stockMovementDao.getFilteredMovementsPaged(query) }
         ).flow
+
+    }
+
+    suspend fun calcularYActualizarPromediosSemanales() {
+        withContext(Dispatchers.IO) {
+            try {
+                Log.d("Predictivo", "Iniciando Consumo Predictivo V2...")
+
+                val activeProducts = productDao.getAllActiveProductsStream().first()
+                if (activeProducts.isEmpty()) {
+                    Log.d("Predictivo", "No hay productos activos para calcular.")
+                    return@withContext
+                }
+
+                val references = PredictiveConsumptionEngine.buildReferences()
+
+                // Solo recalculamos productos que todavía no tienen la fotografía de esta semana
+                // o que fueron calculados con una versión anterior del modelo.
+                val productsToUpdate = activeProducts.filter { product ->
+                    product.forecastPeriodKey != references.periodKey ||
+                            product.forecastModelVersion != PredictiveConsumptionEngine.MODEL_VERSION
+                }
+
+                if (productsToUpdate.isEmpty()) {
+                    Log.d(
+                        "Predictivo",
+                        "Predicción ${references.periodKey} ya disponible. 0 lecturas de checkpoints."
+                    )
+                    return@withContext
+                }
+
+                // Construir TODOS los IDs necesarios una sola vez y consultarlos por bloques.
+                // Firestore admite hasta 30 valores en una consulta 'in'.
+                val checkpointIds = LinkedHashSet<String>()
+                productsToUpdate.forEach { product ->
+                    references.recentWeeks.forEach { week ->
+                        checkpointIds.add(week.checkpointId(product.id))
+                    }
+                    references.seasonalWeeks.forEach { week ->
+                        checkpointIds.add(week.checkpointId(product.id))
+                    }
+                }
+
+                val checkpointValues = mutableMapOf<String, Double>()
+
+                checkpointIds
+                    .toList()
+                    .chunked(PredictiveConsumptionEngine.FIRESTORE_IN_QUERY_CHUNK_SIZE)
+                    .forEach { idChunk ->
+                        if (idChunk.isEmpty()) return@forEach
+
+                        val snapshot = firestore.collection("consumption_history")
+                            .whereIn(
+                                com.google.firebase.firestore.FieldPath.documentId(),
+                                idChunk
+                            )
+                            .get()
+                            .await()
+
+                        snapshot.documents.forEach { doc ->
+                            val consumedKg = doc.getDouble("consumedKg")
+                            if (consumedKg != null && consumedKg >= 0.0) {
+                                checkpointValues[doc.id] = consumedKg
+                            }
+                        }
+                    }
+
+                val updatedProducts = productsToUpdate.map { product ->
+                    val recentValues = references.recentWeeks.map { week ->
+                        checkpointValues[week.checkpointId(product.id)]
+                    }
+
+                    val seasonalValues = references.seasonalWeeks.map { week ->
+                        checkpointValues[week.checkpointId(product.id)]
+                    }
+
+                    val forecast = PredictiveConsumptionEngine.calculate(
+                        recentValues = recentValues,
+                        seasonalValues = seasonalValues,
+                        isLentSeason = references.isLentSeason
+                    )
+
+                    product.copy(
+                        consumoSemanalPromedio = forecast.averageWeeklyConsumption,
+                        demandaSemanalPrevista = forecast.predictedWeeklyDemand,
+                        demandaSemanalAlta = forecast.highDemandWeekly,
+                        demandaSemanalBaja = forecast.lowDemandWeekly,
+                        forecastPeriodKey = references.periodKey,
+                        forecastModelVersion = PredictiveConsumptionEngine.MODEL_VERSION,
+                        forecastUsaEstacionalidad = forecast.usesSeasonality
+                    )
+                }
+
+                // Escribir solo la pequeña fotografía predictiva.
+                // Se usan lotes de 400 para mantener margen de seguridad en el batch.
+                updatedProducts.chunked(400).forEach { chunk ->
+                    val batch = firestore.batch()
+
+                    chunk.forEach { product ->
+                        val productRef = firestore.collection("products").document(product.id)
+                        batch.update(
+                            productRef,
+                            mapOf(
+                                "consumoSemanalPromedio" to product.consumoSemanalPromedio,
+                                "demandaSemanalPrevista" to product.demandaSemanalPrevista,
+                                "demandaSemanalAlta" to product.demandaSemanalAlta,
+                                "demandaSemanalBaja" to product.demandaSemanalBaja,
+                                "forecastPeriodKey" to product.forecastPeriodKey,
+                                "forecastModelVersion" to product.forecastModelVersion,
+                                "forecastUsaEstacionalidad" to product.forecastUsaEstacionalidad
+                            )
+                        )
+                    }
+
+                    batch.commit().await()
+                }
+
+                // Actualizar Room inmediatamente para que lista y popup tengan la fotografía
+                // sin esperar a que el listener de Firestore vuelva a entregarla.
+                if (updatedProducts.isNotEmpty()) {
+                    productDao.insertAll(updatedProducts)
+                }
+
+                Log.d(
+                    "Predictivo",
+                    "Consumo Predictivo V2 actualizado para ${updatedProducts.size} productos. " +
+                            "Checkpoints encontrados: ${checkpointValues.size}."
+                )
+
+            } catch (e: Exception) {
+                // El predictor jamás debe impedir que la app abra.
+                Log.e("Predictivo", "Error calculando Consumo Predictivo V2", e)
+            }
+        }
     }
 }
-
