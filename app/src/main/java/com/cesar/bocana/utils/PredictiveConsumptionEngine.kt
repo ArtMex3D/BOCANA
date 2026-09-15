@@ -19,7 +19,7 @@ import kotlin.math.sqrt
  */
 object PredictiveConsumptionEngine {
 
-    const val MODEL_VERSION = 2
+    const val MODEL_VERSION = 3
     const val FIRESTORE_IN_QUERY_CHUNK_SIZE = 30
 
     data class WeekKey(

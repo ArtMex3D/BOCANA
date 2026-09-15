@@ -352,6 +352,25 @@ class InventoryRepository(
                         }
                     }
 
+                Log.d(
+                    "Predictivo",
+                    "Referencias: recientes=${references.recentWeeks.joinToString { "${it.year}-W${it.week}" }}, " +
+                            "estacionales=${references.seasonalWeeks.joinToString { "${it.year}-W${it.week}" }}. " +
+                            "IDs solicitados=${checkpointIds.size}, encontrados=${checkpointValues.size}."
+                )
+
+                // MUY IMPORTANTE: si no existe NI UN checkpoint, no grabamos una fotografía
+                // vacía como si la semana ya hubiera sido calculada. Esto permite que un
+                // backfill/migración de checkpoints ejecutado después sea detectado en el
+                // siguiente arranque.
+                if (checkpointValues.isEmpty()) {
+                    Log.w(
+                        "Predictivo",
+                        "No se encontró ningún checkpoint. Se conserva la predicción anterior y NO se sella ${references.periodKey}."
+                    )
+                    return@withContext
+                }
+
                 val updatedProducts = productsToUpdate.map { product ->
                     val recentValues = references.recentWeeks.map { week ->
                         checkpointValues[week.checkpointId(product.id)]
