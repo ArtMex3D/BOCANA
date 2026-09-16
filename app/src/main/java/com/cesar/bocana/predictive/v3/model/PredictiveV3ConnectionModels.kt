@@ -19,7 +19,13 @@ data class PredictiveV3Analysis(
     val smartReasons: List<String> = emptyList(),
     val targetWindowDays: Double,
     val regime: SeasonRegime,
-    val projectId: String? = null
+    val projectId: String? = null,
+    val inventoryDeep: InventoryDeepSignal? = null,
+    val groupInventory: GroupInventorySignal? = null,
+    val packagingSignal: PackagingSignal? = null,
+    val returnSignal: ReturnSignal? = null,
+    val consumptionPattern: ConsumptionPatternSignal? = null,
+    val backtest: BacktestSignal? = null
 )
 
 data class OperationalRecommendation(
@@ -75,7 +81,9 @@ data class HistoricalReferenceSignal(
 data class FifoSignal(
     val oldestLotAgeDays: Double?,
     val oldestLotKg: Double?,
-    val totalActiveMatrizKg: Double
+    val totalActiveMatrizKg: Double,
+    val oldestLotDate: Date? = null,
+    val activeLotCount: Int = 0
 )
 
 enum class PurchaseAttentionLevel {
@@ -89,4 +97,83 @@ data class PurchaseAttentionSignal(
     val message: String,
     val daysSinceLastPurchase: Double?,
     val estimatedDaysUntilTypicalPurchase: Double?
+)
+
+/** Lote leído para análisis profundo. Nunca modifica inventario. */
+data class LotInsight(
+    val lotId: String,
+    val productId: String,
+    val productName: String,
+    val location: String,
+    val currentKg: Double,
+    val receivedAt: Date?,
+    val originalReceivedAt: Date?,
+    val supplierName: String?,
+    val unitName: String?,
+    val kgPerUnit: Double?,
+    val isDepleted: Boolean
+) {
+    fun effectiveReceivedAt(): Date? = originalReceivedAt ?: receivedAt
+}
+
+data class MonthStockSummary(
+    val year: Int,
+    val month: Int,
+    val totalKg: Double,
+    val byProductKg: Map<String, Double>
+)
+
+data class InventoryDeepSignal(
+    val matrizLots: List<LotInsight>,
+    val c04Lots: List<LotInsight>,
+    val matrizByMonth: List<MonthStockSummary>,
+    val c04ByMonth: List<MonthStockSummary>,
+    val residualLotCount: Int,
+    val residualKg: Double,
+    val negativeLotCount: Int
+)
+
+data class GroupInventorySignal(
+    val groupId: String,
+    val groupName: String,
+    val matrizByMonth: List<MonthStockSummary>,
+    val c04ByMonth: List<MonthStockSummary>,
+    val activeMatrizLots: Int,
+    val activeC04Lots: Int
+)
+
+data class PackagingSignal(
+    val pendingCount: Int,
+    val pendingKg: Double,
+    val oldestPendingAt: Date?,
+    val suppliers: List<String>
+)
+
+data class ReturnSignal(
+    val pendingCount: Int,
+    val pendingKg: Double,
+    val historicalCount: Int,
+    val historicalKg: Double,
+    val mainProviders: List<String>
+)
+
+enum class ConsumptionPatternType {
+    ACTIVE,
+    SPORADIC,
+    NO_RECENT,
+    NO_HISTORY
+}
+
+data class ConsumptionPatternSignal(
+    val type: ConsumptionPatternType,
+    val title: String,
+    val explanation: String
+)
+
+data class BacktestSignal(
+    val sampleCount: Int,
+    val meanAbsolutePercentError: Double?,
+    val meanAbsoluteKgError: Double?,
+    val qualityLabel: String,
+    val explanation: String
 )

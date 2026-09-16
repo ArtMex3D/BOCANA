@@ -24,7 +24,8 @@ object PredictiveV3SelfTest {
         testGroupAllocationConservesRequestedNeed()
         testRecentDeviationSignal()
         testPurchaseAttentionSignal()
-        println("OK - Predictive V3 core self tests")
+        testBacktestUsesOnlyPastData()
+        println("OK - Predictive V3 Fase 5.1 self tests")
     }
 
     private fun testGroupAggregationDoesNotDoubleAverages() {
@@ -109,6 +110,16 @@ object PredictiveV3SelfTest {
             now = now
         )
         check(signal?.level == PurchaseAttentionLevel.REVIEW_SOON)
+    }
+
+    private fun testBacktestUsesOnlyPastData() {
+        val series = (1..12).map { week ->
+            DemandPoint("W$week", if (week % 3 == 0) 120.0 else 100.0)
+        }
+        val result = PredictiveV3Backtest.evaluate(series)
+        check(result.sampleCount > 0)
+        check(result.meanAbsoluteKgError != null)
+        check(result.meanAbsolutePercentError != null)
     }
 
 }

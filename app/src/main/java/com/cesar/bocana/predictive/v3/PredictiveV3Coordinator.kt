@@ -12,6 +12,14 @@ import com.cesar.bocana.predictive.v3.model.GroupAllocationInput
 import com.cesar.bocana.predictive.v3.model.GroupAnalysisV3
 import com.cesar.bocana.predictive.v3.model.GroupMemberState
 import com.cesar.bocana.predictive.v3.model.HistoricalReferenceSignal
+import com.cesar.bocana.predictive.v3.model.InventoryDeepSignal
+import com.cesar.bocana.predictive.v3.model.GroupInventorySignal
+import com.cesar.bocana.predictive.v3.model.LotInsight
+import com.cesar.bocana.predictive.v3.model.MonthStockSummary
+import com.cesar.bocana.predictive.v3.model.PackagingSignal
+import com.cesar.bocana.predictive.v3.model.ReturnSignal
+import com.cesar.bocana.predictive.v3.model.ConsumptionPatternSignal
+import com.cesar.bocana.predictive.v3.model.ConsumptionPatternType
 import com.cesar.bocana.predictive.v3.model.OperationalRecommendation
 import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
 import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
@@ -20,6 +28,7 @@ import com.cesar.bocana.predictive.v3.model.PurchaseHistorySignal
 import com.cesar.bocana.predictive.v3.model.TransferPatternSignal
 import com.cesar.bocana.predictive.v3.model.ServiceAllocationInput
 import com.cesar.bocana.predictive.v3.model.ServiceAnalysisV3
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import java.util.Calendar
@@ -47,9 +56,23 @@ class PredictiveV3Coordinator(
         val selected = products.firstOrNull { it.id == productId }
             ?: error("Producto no encontrado para V3: $productId")
 
-        // Sólo crea configuración automática en el laboratorio DEV y sólo si la colección está vacía.
-        configRepository.ensureInitialDevConfigIfMissing(projectId, products)
-        val config = configRepository.load()
+        // Blindaje: una fuente auxiliar que falle no debe tumbar todo el popup.
+        // El producto base sí es obligatorio; lo demás cae a un valor seguro y se informa
+        // únicamente en la sección avanzada. Ninguna de estas rutas escribe datos.
+        val dataWarnings = mutableListOf<String>()
+        suspend fun <T> safeRead(label: String, fallback: T, block: suspend () -> T): T {
+            return try {
+                block()
+            } catch (_: Exception) {
+                dataWarnings += "$label no disponible temporalmente"
+                fallback
+            }
+        }
+
+        val config = safeRead(
+            label = "Configuración de grupos",
+            fallback = PredictiveV3ConfigRepository.ConfigBundle(emptyList(), emptyList())
+        ) { configRepository.load() }
 
         val completeWeeks = PredictiveV3Time.completeWeeks(now, HISTORY_WEEKS)
         val currentWeek = PredictiveV3Time.currentWeek(now)
@@ -72,14 +95,23 @@ class PredictiveV3Coordinator(
                 ?.let { relevantProductIds.addAll(it) }
         }
 
-        val checkpoints = dataSource.loadCheckpointValues(relevantProductIds, allWeeks)
-        val lotsByProduct = dataSource.loadActiveMatrizLots(relevantProductIds)
-        val movements = dataSource.loadRelevantMovements(relevantProductIds)
-        val previousYearMonthConsumption = dataSource.loadConsumptionForRange(
-            productIds = relevantProductIds,
-            startInclusive = previousYearMonth.startInclusive,
-            endExclusive = previousYearMonth.endExclusive
-        )
+        val checkpoints = safeRead("Historial semanal", emptyMap<String, Double>()) {
+            dataSource.loadCheckpointValues(relevantProductIds, allWeeks)
+        }
+        val openLots = safeRead("Detalle de lotes", emptyList<LotInsight>()) {
+            dataSource.loadOpenLotInsights(relevantProductIds)
+        }
+        val lotsByProduct = dataSource.activeMatrizFifoByProduct(openLots)
+        val productMovements = safeRead("Movimientos históricos", emptyList<StockMovement>()) {
+            dataSource.loadMovementsForProduct(selected.id)
+        }
+        val previousYearMonthConsumption = safeRead("Comparativo mensual histórico", emptyMap<String, Double>()) {
+            dataSource.loadConsumptionForRange(
+                productIds = relevantProductIds,
+                startInclusive = previousYearMonth.startInclusive,
+                endExclusive = previousYearMonth.endExclusive
+            )
+        }
         val productsById = products.associateBy { it.id }
 
         val targetWindowDays = PredictiveV3Time.targetWindowDays(now)
@@ -174,8 +206,14 @@ class PredictiveV3Coordinator(
             }
         }
 
-        val purchaseSignal = buildPurchaseSignal(selected.id, movements)
-        val transferSignal = buildTransferSignal(selected.id, movements)
+        val purchaseSignal = buildPurchaseSignal(selected.id, productMovements)
+        val transferSignal = buildTransferSignal(selected.id, productMovements)
+        val packagingSignal = safeRead<PackagingSignal?>("Pendientes de empaque", null) {
+            dataSource.loadPackagingSignal(selected.id)
+        }
+        val returnSignal = safeRead<ReturnSignal?>("Devoluciones", null) {
+            dataSource.loadReturnSignal(selected.id, productMovements)
+        }
         val effectiveCoverageDays = if (individualOperational.effectiveWeeklyKg > 0.01) {
             selected.totalStock.coerceAtLeast(0.0) / (individualOperational.effectiveWeeklyKg / 7.0)
         } else null
@@ -189,13 +227,42 @@ class PredictiveV3Coordinator(
             coverageDays = effectiveCoverageDays,
             now = now
         )
-        val smartReasons = PredictiveV3Signals.plainReasons(
-            deviationPct = deviationPct,
-            fifo = fifoSignal,
-            purchaseAttention = purchaseAttention,
-            transferSuggestedKg = individualOperational.suggestedTransferKg,
-            limitedByReserve = individualOperational.limitedByMatrizReserve
+        val inventoryDeep = buildInventoryDeepSignal(selected.id, openLots)
+        val groupInventory = groupAnalysis?.let { ga ->
+            buildGroupInventorySignal(ga.config, openLots)
+        }
+        val weekOneYearAgo = checkpoints[previousYearWeek.checkpointId(selected.id)]
+        val monthOneYearAgo = previousYearMonthConsumption[selected.id]
+        val recentSeries = dataSource.seriesForProduct(selected.id, completeWeeks, checkpoints)
+        val consumptionPattern = buildConsumptionPattern(
+            recentSeries = recentSeries,
+            currentWeekConsumedKg = dataSource.currentWeekConsumed(selected.id, currentWeek, checkpoints),
+            weekOneYearAgoKg = weekOneYearAgo,
+            monthOneYearAgoKg = monthOneYearAgo
         )
+        val backtest = PredictiveV3Backtest.evaluate(recentSeries)
+
+        val smartReasons = buildList {
+            addAll(PredictiveV3Signals.plainReasons(
+                deviationPct = deviationPct,
+                fifo = fifoSignal,
+                purchaseAttention = purchaseAttention,
+                transferSuggestedKg = individualOperational.suggestedTransferKg,
+                limitedByReserve = individualOperational.limitedByMatrizReserve
+            ))
+            if (inventoryDeep.residualLotCount > 0) {
+                add("Se detectaron ${inventoryDeep.residualLotCount} lote(s) con residuo operativo menor a 0.10 kg; el motor no los cuenta como stock disponible")
+            }
+            if (packagingSignal != null && packagingSignal.pendingCount > 0) {
+                add("Hay ${packagingSignal.pendingCount} recepción(es) pendientes de empacar por ${String.format(java.util.Locale.US, "%.1f", packagingSignal.pendingKg)} kg")
+            }
+            if (returnSignal != null && returnSignal.pendingCount > 0) {
+                add("Hay ${returnSignal.pendingCount} devolución(es) pendientes por ${String.format(java.util.Locale.US, "%.1f", returnSignal.pendingKg)} kg")
+            }
+            dataWarnings.forEach { warning ->
+                add("Información parcial: $warning")
+            }
+        }
 
         return PredictiveV3Analysis(
             selectedProduct = selected,
@@ -206,8 +273,8 @@ class PredictiveV3Coordinator(
             purchaseSignal = purchaseSignal,
             transferSignal = transferSignal,
             historicalReference = HistoricalReferenceSignal(
-                weekOneYearAgoKg = checkpoints[previousYearWeek.checkpointId(selected.id)],
-                monthOneYearAgoKg = previousYearMonthConsumption[selected.id]
+                weekOneYearAgoKg = weekOneYearAgo,
+                monthOneYearAgoKg = monthOneYearAgo
             ),
             fifoSignal = fifoSignal,
             purchaseAttention = purchaseAttention,
@@ -216,7 +283,13 @@ class PredictiveV3Coordinator(
             smartReasons = smartReasons,
             targetWindowDays = targetWindowDays,
             regime = regime,
-            projectId = projectId
+            projectId = projectId,
+            inventoryDeep = inventoryDeep,
+            groupInventory = groupInventory,
+            packagingSignal = packagingSignal,
+            returnSignal = returnSignal,
+            consumptionPattern = consumptionPattern,
+            backtest = backtest
         )
     }
 
@@ -556,6 +629,114 @@ class PredictiveV3Coordinator(
             averageKgWindowA = windowA.takeIf { it.isNotEmpty() }?.average(),
             averageKgWindowB = windowB.takeIf { it.isNotEmpty() }?.average(),
             lastTransferAt = transfers.lastOrNull()?.timestamp
+        )
+    }
+
+
+    private fun buildInventoryDeepSignal(
+        selectedProductId: String,
+        allOpenLots: List<LotInsight>
+    ): InventoryDeepSignal {
+        val selected = allOpenLots.filter { it.productId == selectedProductId }
+        val residual = selected.filter { StockQuantityPolicy.isResidual(it.currentKg) }
+        val negative = selected.count { it.currentKg < -StockQuantityPolicy.FLOAT_EPSILON }
+        val active = selected.filter { StockQuantityPolicy.isUsable(it.currentKg) }
+        val matriz = active.filter { it.location == com.cesar.bocana.data.model.Location.MATRIZ }
+            .sortedBy { it.effectiveReceivedAt()?.time ?: Long.MAX_VALUE }
+        val c04 = active.filter { it.location == com.cesar.bocana.data.model.Location.CONGELADOR_04 }
+            .sortedBy { it.effectiveReceivedAt()?.time ?: Long.MAX_VALUE }
+        return InventoryDeepSignal(
+            matrizLots = matriz,
+            c04Lots = c04,
+            matrizByMonth = monthSummaries(matriz),
+            c04ByMonth = monthSummaries(c04),
+            residualLotCount = residual.size,
+            residualKg = residual.sumOf { kotlin.math.abs(it.currentKg) },
+            negativeLotCount = negative
+        )
+    }
+
+    private fun buildGroupInventorySignal(
+        group: PredictiveGroupConfig,
+        allOpenLots: List<LotInsight>
+    ): GroupInventorySignal {
+        val members = group.memberProductIds.toSet()
+        val active = allOpenLots.filter { members.contains(it.productId) && StockQuantityPolicy.isUsable(it.currentKg) }
+        val matriz = active.filter { it.location == com.cesar.bocana.data.model.Location.MATRIZ }
+        val c04 = active.filter { it.location == com.cesar.bocana.data.model.Location.CONGELADOR_04 }
+        return GroupInventorySignal(
+            groupId = group.id,
+            groupName = group.name,
+            matrizByMonth = monthSummaries(matriz),
+            c04ByMonth = monthSummaries(c04),
+            activeMatrizLots = matriz.size,
+            activeC04Lots = c04.size
+        )
+    }
+
+    private fun monthSummaries(lots: List<LotInsight>): List<MonthStockSummary> {
+        data class Key(val year: Int, val month: Int)
+        val grouped = linkedMapOf<Key, MutableList<LotInsight>>()
+        lots.forEach { lot ->
+            val date = lot.effectiveReceivedAt() ?: return@forEach
+            val cal = Calendar.getInstance().apply { time = date }
+            val key = Key(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
+            grouped.getOrPut(key) { mutableListOf() }.add(lot)
+        }
+        return grouped.entries
+            .sortedWith(compareBy<Map.Entry<Key, MutableList<LotInsight>>> { it.key.year }.thenBy { it.key.month })
+            .map { (key, monthLots) ->
+                MonthStockSummary(
+                    year = key.year,
+                    month = key.month,
+                    totalKg = monthLots.sumOf { it.currentKg.coerceAtLeast(0.0) },
+                    byProductKg = monthLots.groupBy { it.productName.ifBlank { it.productId } }
+                        .mapValues { (_, productLots) -> productLots.sumOf { it.currentKg.coerceAtLeast(0.0) } }
+                )
+            }
+    }
+
+    private fun buildConsumptionPattern(
+        recentSeries: List<DemandPoint>,
+        currentWeekConsumedKg: Double,
+        weekOneYearAgoKg: Double?,
+        monthOneYearAgoKg: Double?
+    ): ConsumptionPatternSignal {
+        val hasHistorical = recentSeries.any { it.consumedKg > 0.1 } ||
+            currentWeekConsumedKg > 0.1 ||
+            (weekOneYearAgoKg ?: 0.0) > 0.1 ||
+            (monthOneYearAgoKg ?: 0.0) > 0.1
+
+        if (!hasHistorical) {
+            return ConsumptionPatternSignal(
+                type = ConsumptionPatternType.NO_HISTORY,
+                title = "Sin historial suficiente",
+                explanation = "No se encontraron consumos útiles para construir una referencia confiable."
+            )
+        }
+
+        val positiveWeeks = recentSeries.count { it.consumedKg > 0.1 }
+        val recentPositive = recentSeries.takeLast(4).any { it.consumedKg > 0.1 } || currentWeekConsumedKg > 0.1
+        if (!recentPositive) {
+            return ConsumptionPatternSignal(
+                type = ConsumptionPatternType.NO_RECENT,
+                title = "Sin consumo reciente",
+                explanation = "Sí existe historial, pero en las semanas recientes no hay consumo registrado."
+            )
+        }
+
+        if (recentSeries.size >= 6 && positiveWeeks <= recentSeries.size / 2) {
+            return ConsumptionPatternSignal(
+                type = ConsumptionPatternType.SPORADIC,
+                title = "Consumo esporádico",
+                explanation = "El producto sí tiene historial, pero no se consume de forma continua semana con semana."
+            )
+        }
+
+        return ConsumptionPatternSignal(
+            type = ConsumptionPatternType.ACTIVE,
+            title = "Consumo activo",
+            explanation = "Hay consumo reciente suficiente para comparar tendencia, cobertura e historial."
         )
     }
 

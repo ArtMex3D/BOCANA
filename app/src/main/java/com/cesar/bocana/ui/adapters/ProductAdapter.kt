@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.ui.adapters
 
 import android.content.Context
@@ -17,7 +16,6 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
-import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.cesar.bocana.utils.NetworkStatus.isOnline
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -83,26 +81,38 @@ class ProductAdapter(
             binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
 
-            // --- CONSUMO PREDICTIVO V2 ---
-            // La lista NO consulta Firebase. Usa la fotografía semanal guardada en Product
-            // y recalcula los días con el stock actual.
-            val demandaSemanal = item.demandaSemanalPrevista
-            val diasCobertura = PredictiveConsumptionEngine.coverageDays(
-                stock = item.totalStock,
-                weeklyDemand = demandaSemanal
-            )
+            // --- CONSUMO PREDICTIVO ---
+            val consumoPromedio = item.consumoSemanalPromedio
+            val stockTotal = item.totalStock
 
-            if (diasCobertura != null) {
-                val status = PredictiveConsumptionEngine.coverageStatus(diasCobertura)
-                val statusColor = Color.parseColor(status.colorHex)
+            if (consumoPromedio > 0.0) {
+                val semanasRestantes = stockTotal / consumoPromedio
 
-                binding.textViewConsumoPredictivo.text =
-                    PredictiveConsumptionEngine.formatDurationCompact(diasCobertura)
-                binding.textViewConsumoPredictivo.setTextColor(statusColor)
-                binding.iconConsumoPredictivo.setColorFilter(statusColor)
+                // Formatear a 1 decimal (ej. 3.5 Semanas)
+                val semanasStr = String.format(Locale.getDefault(), "%.1f", semanasRestantes)
+                binding.textViewConsumoPredictivo.text = "$semanasStr Semanas"
+
+                // Lógica de colores
+                when {
+                    semanasRestantes >= 4.0 -> {
+                        // Verde (Tranquilidad)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#2E7D32"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#2E7D32"))
+                    }
+                    semanasRestantes >= 2.0 -> {
+                        // Naranja (Precaución)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#F57C00"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#F57C00"))
+                    }
+                    else -> {
+                        // Rojo (Alerta)
+                        binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#D32F2F"))
+                        binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#D32F2F"))
+                    }
+                }
             } else {
-                // Sin historial suficiente para predecir demanda
-                binding.textViewConsumoPredictivo.text = "Sin consumo"
+                // Sin historial de consumo
+                binding.textViewConsumoPredictivo.text = "Sin consumo reciente"
                 binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
                 binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))
             }
