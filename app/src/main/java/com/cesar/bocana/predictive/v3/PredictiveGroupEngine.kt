@@ -9,6 +9,7 @@ import com.cesar.bocana.predictive.v3.model.LotPick
 import com.cesar.bocana.predictive.v3.model.MemberAllocation
 import com.cesar.bocana.predictive.v3.model.ServiceAllocationInput
 import com.cesar.bocana.predictive.v3.model.ServiceAllocationResult
+import com.cesar.bocana.util.StockQuantityPolicy
 import java.util.Date
 import kotlin.math.max
 import kotlin.math.min
@@ -188,60 +189,64 @@ object PredictiveGroupEngine {
     }
 
     /**
-     * Relación Róbalo ↔ grupo Pargos.
-     * El total del servicio se conserva; solo cambia el reparto.
+     * Relación directa de APOYO entre un producto/lado directo y un grupo.
+     *
+     * NO conserva una bolsa fija de kg y NO convierte un faltante en compensación 1:1.
+     * El producto directo conserva su propia predicción. Si su cobertura cae, el grupo
+     * relacionado puede recibir una presión adicional únicamente en la proporción que
+     * el histórico haya demostrado, con un límite de seguridad.
      */
     fun allocateService(input: ServiceAllocationInput): ServiceAllocationResult {
-        val total = input.totalWeeklyDemandKg.coerceAtLeast(0.0)
-        if (total <= 0.0) {
-            return ServiceAllocationResult(
-                serviceId = input.serviceId,
-                totalWeeklyDemandKg = 0.0,
-                anchorWeeklyKg = 0.0,
-                linkedGroupWeeklyKg = 0.0,
-                anchorWasRestrictedByStock = false,
-                reasons = listOf("No existe demanda válida del servicio")
-            )
+        val anchor = input.anchorForecastWeeklyKg.coerceAtLeast(0.0)
+        val groupBase = input.linkedGroupForecastWeeklyKg.coerceAtLeast(0.0)
+
+        val horizonDays = input.planningHorizonWeeks.coerceAtLeast(0.25) * 7.0
+        val scarcity = when (val coverage = input.anchorCoverageDays) {
+            null -> 0.0
+            else -> when {
+                coverage <= 0.0 -> 1.0
+                coverage >= horizonDays -> 0.0
+                else -> (1.0 - coverage / horizonDays).coerceIn(0.0, 1.0)
+            }
         }
 
-        val normalShare = input.anchorNormalShare.coerceIn(0.0, 1.0)
-        val minShare = min(normalShare, input.anchorMinimumShare.coerceIn(0.0, 1.0))
-        val desiredAnchor = total * normalShare
-        val minimumAnchor = total * minShare
+        val learnedUplift = input.learnedSupportUpliftPct
+            .coerceIn(0.0, input.maxSupportUpliftPct.coerceAtLeast(0.0))
 
-        val usableAnchorStock = max(0.0, input.anchorStockAvailableKg - input.anchorReserveKg)
-        val horizon = input.planningHorizonWeeks.coerceAtLeast(0.25)
-        val sustainableAnchorWeekly = usableAnchorStock / horizon
+        val pressurePct = (learnedUplift * scarcity)
+            .coerceIn(0.0, input.maxSupportUpliftPct.coerceAtLeast(0.0))
 
-        val anchor = when {
-            usableAnchorStock <= 0.01 -> 0.0
-            sustainableAnchorWeekly >= desiredAnchor -> desiredAnchor
-            sustainableAnchorWeekly >= minimumAnchor -> sustainableAnchorWeekly
-            else -> min(minimumAnchor, sustainableAnchorWeekly)
-        }.coerceIn(0.0, total)
-
-        val group = max(0.0, total - anchor)
-        val restricted = anchor + 0.01 < desiredAnchor
+        val adjustedGroup = groupBase * (1.0 + pressurePct)
+        val restricted = scarcity > 0.05
 
         return ServiceAllocationResult(
             serviceId = input.serviceId,
-            totalWeeklyDemandKg = total,
+            totalWeeklyDemandKg = anchor + adjustedGroup,
             anchorWeeklyKg = anchor,
-            linkedGroupWeeklyKg = group,
+            linkedGroupWeeklyKg = adjustedGroup,
             anchorWasRestrictedByStock = restricted,
+            supportPressurePct = pressurePct,
             reasons = buildList {
-                add("Demanda total del servicio conservada: ${String.format(java.util.Locale.US, "%.1f", total)} kg/sem")
-                if (restricted) add("Róbalo restringido por cobertura; la diferencia pasa a Pargos")
-                else add("Róbalo puede operar cerca de su participación normal")
+                add("Cada lado conserva su propia demanda; no existe reemplazo kilo por kilo")
+                if (pressurePct > 0.005) {
+                    add(
+                        "La cobertura del producto directo está baja y el histórico sugiere " +
+                            "aproximadamente ${String.format(java.util.Locale.US, "%.0f", pressurePct * 100.0)}% " +
+                            "de presión adicional sobre el grupo"
+                    )
+                } else {
+                    add("No se detecta presión adicional relevante sobre el grupo en este momento")
+                }
             }
         )
     }
+
 
     fun pickFifoLots(lots: List<FifoLotSnapshot>, requestedKg: Double): List<LotPick> {
         var remaining = requestedKg.coerceAtLeast(0.0)
         val result = mutableListOf<LotPick>()
         lots.asSequence()
-            .filter { it.currentKg > 0.01 }
+            .filter { StockQuantityPolicy.isUsable(it.currentKg) }
             .sortedBy { it.effectiveReceivedAt()?.time ?: Long.MAX_VALUE }
             .forEach { lot ->
                 if (remaining <= 0.01) return@forEach
@@ -272,7 +277,7 @@ object PredictiveGroupEngine {
 
     private fun oldestAgeDays(lots: List<FifoLotSnapshot>, now: Date): Double {
         val oldest = lots.asSequence()
-            .filter { it.currentKg > 0.01 }
+            .filter { StockQuantityPolicy.isUsable(it.currentKg) }
             .mapNotNull { it.effectiveReceivedAt() }
             .minByOrNull { it.time }
             ?: return 0.0

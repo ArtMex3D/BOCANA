@@ -83,16 +83,21 @@ class PredictiveV3Coordinator(
 
         val relevantProductIds = linkedSetOf(selected.id)
         val selectedGroups = config.groups.filter { it.memberProductIds.contains(selected.id) }
-        selectedGroups.flatMapTo(relevantProductIds) { it.memberProductIds }
+        selectedGroups.forEach { group ->
+            relevantProductIds.addAll(group.memberProductIds)
+            relevantProductIds.addAll(group.historicalProductIds)
+        }
 
         val serviceRelations = config.services.filter { relation ->
-            relation.anchorProductId == selected.id || selectedGroups.any { it.id == relation.linkedGroupId }
+            relation.effectiveAnchorProductIds().contains(selected.id) ||
+                selectedGroups.any { it.id == relation.linkedGroupId }
         }
         serviceRelations.forEach { relation ->
-            relevantProductIds += relation.anchorProductId
-            config.groups.firstOrNull { it.id == relation.linkedGroupId }
-                ?.memberProductIds
-                ?.let { relevantProductIds.addAll(it) }
+            relevantProductIds.addAll(relation.allHistoricalAnchorIds())
+            config.groups.firstOrNull { it.id == relation.linkedGroupId }?.let { linked ->
+                relevantProductIds.addAll(linked.memberProductIds)
+                relevantProductIds.addAll(linked.historicalProductIds)
+            }
         }
 
         val checkpoints = safeRead("Historial semanal", emptyMap<String, Double>()) {
@@ -171,23 +176,12 @@ class PredictiveV3Coordinator(
             )
         }
 
-        // Aplicar el reparto servicio Róbalo↔Pargos a la recomendación operativa,
-        // sin alterar ni borrar la predicción cruda que usamos para comparar/backtesting.
+        // Relación complementaria:
+        // - el producto directo (ej. Róbalo) conserva su pronóstico y operación individual;
+        // - sólo el grupo relacionado puede recibir presión adicional APRENDIDA del histórico;
+        // - nunca existe compensación automática kilo por kilo.
         if (serviceAnalysis != null) {
             val relation = serviceAnalysis.relation
-            if (selected.id == relation.anchorProductId) {
-                individualOperational = operationalFromForecast(
-                    forecast = individual,
-                    weeklyKg = serviceAnalysis.allocation.anchorWeeklyKg,
-                    stockC04Kg = selected.stockCongelador04,
-                    stockMatrizKg = selected.stockMatriz,
-                    matrixReserveKg = matrixReserveForCommitment(selected),
-                    targetWindowDays = targetWindowDays,
-                    source = "SERVICE_ALLOCATION",
-                    extraReason = "Demanda ajustada por relación Róbalo/Pargos"
-                )
-            }
-
             val selectedGroup = groupAnalysis?.config
             if (selectedGroup != null && selectedGroup.id == relation.linkedGroupId) {
                 groupAnalysis = buildGroupAnalysis(
@@ -242,6 +236,30 @@ class PredictiveV3Coordinator(
         )
         val backtest = PredictiveV3Backtest.evaluate(recentSeries)
 
+        val groupBacktest = groupAnalysis?.config?.let { groupConfig ->
+            val ids = (groupConfig.memberProductIds + groupConfig.historicalProductIds)
+                .filter { it.isNotBlank() }
+                .distinct()
+            PredictiveV3Backtest.evaluate(
+                aggregateGroupByRequestedWeeks(ids, completeWeeks, checkpoints)
+            )
+        }
+
+        val serviceBacktest = serviceAnalysis?.relation?.let { relation ->
+            val linked = config.groups.firstOrNull { it.id == relation.linkedGroupId }
+            val ids = buildList {
+                addAll(relation.allHistoricalAnchorIds())
+                if (linked != null) {
+                    addAll(linked.memberProductIds)
+                    addAll(linked.historicalProductIds)
+                }
+            }.filter { it.isNotBlank() }.distinct()
+
+            PredictiveV3Backtest.evaluate(
+                aggregateGroupByRequestedWeeks(ids, completeWeeks, checkpoints)
+            )
+        }
+
         val smartReasons = buildList {
             addAll(PredictiveV3Signals.plainReasons(
                 deviationPct = deviationPct,
@@ -289,7 +307,9 @@ class PredictiveV3Coordinator(
             packagingSignal = packagingSignal,
             returnSignal = returnSignal,
             consumptionPattern = consumptionPattern,
-            backtest = backtest
+            backtest = backtest,
+            groupBacktest = groupBacktest,
+            serviceBacktest = serviceBacktest
         )
     }
 
@@ -337,7 +357,10 @@ class PredictiveV3Coordinator(
         val memberSeries = members.associate { product ->
             product.id to dataSource.seriesForProduct(product.id, completeWeeks, checkpoints)
         }
-        val groupSeries = aggregateGroupByRequestedWeeks(members.map { it.id }, completeWeeks, checkpoints)
+        val historicalGroupIds = (group.memberProductIds + group.historicalProductIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+        val groupSeries = aggregateGroupByRequestedWeeks(historicalGroupIds, completeWeeks, checkpoints)
         val currentConsumed = members.sumOf {
             dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
         }
@@ -360,7 +383,7 @@ class PredictiveV3Coordinator(
                 stockTotalKg = stockTotal,
                 generalReserveKg = matrixReserve,
                 legacyC04ReferenceKg = legacyC04,
-                seasonalReferenceWeeklyKg = averageGroupExisting(members.map { it.id }, seasonalWeeks, checkpoints),
+                seasonalReferenceWeeklyKg = averageGroupExisting(historicalGroupIds, seasonalWeeks, checkpoints),
                 regime = regime
             )
         )
@@ -373,8 +396,8 @@ class PredictiveV3Coordinator(
             stockMatrizKg = stockMatriz,
             matrixReserveKg = matrixReserve,
             targetWindowDays = targetWindowDays,
-            source = if (effectiveWeeklyOverride != null) "SERVICE_ALLOCATION" else "GROUP_FORECAST",
-            extraReason = if (effectiveWeeklyOverride != null) "Demanda del grupo corregida por el servicio compartido" else null
+            source = if (effectiveWeeklyOverride != null) "COMPLEMENTARY_SUPPORT" else "GROUP_FORECAST",
+            extraReason = if (effectiveWeeklyOverride != null) "Demanda del grupo ajustada por presión complementaria aprendida" else null
         )
 
         val periodsUsed = groupSeries.map { it.periodKey }.toSet()
@@ -382,10 +405,16 @@ class PredictiveV3Coordinator(
         val rulesByProduct = group.memberRules.associateBy { it.productId }
 
         val memberStates = members.map { product ->
+            val configuredWeight = rulesByProduct[product.id]?.priorityWeight
+            val roleWeight = when {
+                product.id == group.primaryProductId -> 1.35
+                group.secondaryProductIds.contains(product.id) -> 1.15
+                else -> 1.0
+            }
             GroupMemberState(
                 productId = product.id,
                 typicalShare = shares[product.id] ?: 0.0,
-                priorityWeight = rulesByProduct[product.id]?.priorityWeight ?: 1.0,
+                priorityWeight = configuredWeight ?: roleWeight,
                 stockC04Kg = product.stockCongelador04,
                 stockMatrizKg = product.stockMatriz,
                 generalReserveKg = matrixReserveForCommitment(product),
@@ -423,74 +452,145 @@ class PredictiveV3Coordinator(
         elapsedDays: Double,
         regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
     ): ServiceAnalysisV3? {
-        val anchor = productsById[relation.anchorProductId] ?: return null
+        val anchors = relation.effectiveAnchorProductIds().mapNotNull { productsById[it] }
         val groupMembers = linkedGroup.memberProductIds.mapNotNull { productsById[it] }
-        if (groupMembers.isEmpty()) return null
 
-        val serviceSeries = aggregateGroupByRequestedWeeks(
-            listOf(anchor.id) + groupMembers.map { it.id },
-            completeWeeks,
-            checkpoints
-        )
+        if (anchors.isEmpty() || groupMembers.isEmpty()) return null
+
+        val anchorIds = anchors.map { it.id }
+        val anchorHistoryIds = relation.allHistoricalAnchorIds()
+        val groupIds = groupMembers.map { it.id }
+        val groupHistoryIds = (linkedGroup.memberProductIds + linkedGroup.historicalProductIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val anchorSeries = aggregateGroupByRequestedWeeks(anchorHistoryIds, completeWeeks, checkpoints)
+        val groupSeries = aggregateGroupByRequestedWeeks(groupHistoryIds, completeWeeks, checkpoints)
+        val serviceSeries = aggregateGroupByRequestedWeeks(anchorHistoryIds + groupHistoryIds, completeWeeks, checkpoints)
+
         if (serviceSeries.size < 3) return null
 
-        val anchorShares = mutableListOf<Double>()
-        completeWeeks.forEach { week ->
-            val anchorKg = checkpoints[week.checkpointId(anchor.id)] ?: 0.0
-            val groupKg = groupMembers.sumOf { checkpoints[week.checkpointId(it.id)] ?: 0.0 }
-            val total = anchorKg + groupKg
-            if (total > 0.01) anchorShares += (anchorKg / total).coerceIn(0.0, 1.0)
+        val anchorCurrent = anchors.sumOf {
+            dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
         }
-        if (anchorShares.size < 3) return null
+        val groupCurrent = groupMembers.sumOf {
+            dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
+        }
 
-        val normalShare = median(anchorShares)
-        val minimumShare = percentile(anchorShares, 0.25).coerceAtMost(normalShare)
+        val anchorForecast = PredictiveV3Engine.forecast(
+            ForecastContext(
+                entityId = "${relation.id}_DIRECT",
+                entityType = DemandEntityType.SERVICE,
+                completeWeeks = anchorSeries,
+                currentWeekConsumedKg = anchorCurrent,
+                currentWeekElapsedDays = elapsedDays,
+                targetWindowDays = targetWindowDays,
+                stockC04Kg = anchors.sumOf { it.stockCongelador04 },
+                stockMatrizKg = anchors.sumOf { it.stockMatriz },
+                stockTotalKg = anchors.sumOf { it.totalStock },
+                generalReserveKg = anchors.sumOf(::matrixReserveForCommitment),
+                seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds, seasonalWeeks, checkpoints),
+                regime = regime
+            )
+        )
 
-        val currentConsumed = dataSource.currentWeekConsumed(anchor.id, currentWeek, checkpoints) +
-            groupMembers.sumOf { dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints) }
-        val serviceStockC04 = anchor.stockCongelador04 + groupMembers.sumOf { it.stockCongelador04 }
-        val serviceStockMatriz = anchor.stockMatriz + groupMembers.sumOf { it.stockMatriz }
-        val serviceTotal = anchor.totalStock + groupMembers.sumOf { it.totalStock }
-        val serviceReserve = matrixReserveForCommitment(anchor) + groupMembers.sumOf(::matrixReserveForCommitment)
+        val linkedGroupForecast = PredictiveV3Engine.forecast(
+            ForecastContext(
+                entityId = linkedGroup.id,
+                entityType = DemandEntityType.GROUP,
+                completeWeeks = groupSeries,
+                currentWeekConsumedKg = groupCurrent,
+                currentWeekElapsedDays = elapsedDays,
+                targetWindowDays = targetWindowDays,
+                stockC04Kg = groupMembers.sumOf { it.stockCongelador04 },
+                stockMatrizKg = groupMembers.sumOf { it.stockMatriz },
+                stockTotalKg = groupMembers.sumOf { it.totalStock },
+                generalReserveKg = groupMembers.sumOf(::matrixReserveForCommitment),
+                legacyC04ReferenceKg = groupMembers.sumOf { it.stockIdealC04 },
+                seasonalReferenceWeeklyKg = averageGroupExisting(groupHistoryIds, seasonalWeeks, checkpoints),
+                regime = regime
+            )
+        )
 
+        // Pronóstico agregado sólo para diagnóstico / referencia histórica.
+        // NO se usa como una bolsa de kg que deba repartirse.
         val serviceForecast = PredictiveV3Engine.forecast(
             ForecastContext(
                 entityId = relation.id,
                 entityType = DemandEntityType.SERVICE,
                 completeWeeks = serviceSeries,
-                currentWeekConsumedKg = currentConsumed,
+                currentWeekConsumedKg = anchorCurrent + groupCurrent,
                 currentWeekElapsedDays = elapsedDays,
                 targetWindowDays = targetWindowDays,
-                stockC04Kg = serviceStockC04,
-                stockMatrizKg = serviceStockMatriz,
-                stockTotalKg = serviceTotal,
-                generalReserveKg = serviceReserve,
-                seasonalReferenceWeeklyKg = averageGroupExisting(
-                    listOf(anchor.id) + groupMembers.map { it.id }, seasonalWeeks, checkpoints
-                ),
+                stockC04Kg = anchors.sumOf { it.stockCongelador04 } + groupMembers.sumOf { it.stockCongelador04 },
+                stockMatrizKg = anchors.sumOf { it.stockMatriz } + groupMembers.sumOf { it.stockMatriz },
+                stockTotalKg = anchors.sumOf { it.totalStock } + groupMembers.sumOf { it.totalStock },
+                generalReserveKg = anchors.sumOf(::matrixReserveForCommitment) +
+                    groupMembers.sumOf(::matrixReserveForCommitment),
+                seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds + groupHistoryIds, seasonalWeeks, checkpoints),
                 regime = regime
             )
         )
 
+        // Aprender si, históricamente, el grupo sube cuando el lado directo baja.
+        // No inventamos equivalencia 1:1.
+        val weeklyPairs = completeWeeks.map { week ->
+            val anchorKg = anchorHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val groupKg = groupHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            anchorKg.coerceAtLeast(0.0) to groupKg.coerceAtLeast(0.0)
+        }.filter { (anchorKg, groupKg) -> anchorKg + groupKg > 0.01 }
+
+        val anchorValues = weeklyPairs.map { it.first }
+        val lowAnchorThreshold = percentile(anchorValues, 0.35)
+        val normalAnchorThreshold = percentile(anchorValues, 0.65)
+
+        val groupWhenAnchorLow = weeklyPairs
+            .filter { it.first <= lowAnchorThreshold }
+            .map { it.second }
+
+        val groupWhenAnchorNormal = weeklyPairs
+            .filter { it.first >= normalAnchorThreshold }
+            .map { it.second }
+
+        val learnedSupportUpliftPct = if (
+            groupWhenAnchorLow.size >= 2 &&
+            groupWhenAnchorNormal.size >= 2
+        ) {
+            val lowMedian = median(groupWhenAnchorLow)
+            val normalMedian = median(groupWhenAnchorNormal)
+            if (normalMedian > 0.01) {
+                (lowMedian / normalMedian - 1.0).coerceIn(0.0, 0.60)
+            } else 0.0
+        } else 0.0
+
         val allocation = PredictiveGroupEngine.allocateService(
             ServiceAllocationInput(
                 serviceId = relation.id,
-                totalWeeklyDemandKg = serviceForecast.forecastWeeklyKg,
-                anchorNormalShare = normalShare,
-                anchorMinimumShare = minimumShare,
-                anchorStockAvailableKg = anchor.totalStock,
-                anchorReserveKg = anchor.minStock,
-                planningHorizonWeeks = SERVICE_STOCK_HORIZON_WEEKS
+                anchorForecastWeeklyKg = anchorForecast.forecastWeeklyKg,
+                linkedGroupForecastWeeklyKg = linkedGroupForecast.forecastWeeklyKg,
+                anchorCoverageDays = anchorForecast.coverageDays,
+                learnedSupportUpliftPct = learnedSupportUpliftPct,
+                planningHorizonWeeks = SERVICE_STOCK_HORIZON_WEEKS,
+                maxSupportUpliftPct = 0.50
             )
         )
+
+        val anchorShares = completeWeeks.mapNotNull { week ->
+            val anchorKg = anchorHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val groupKg = groupHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val total = anchorKg + groupKg
+            if (total > 0.01) (anchorKg / total).coerceIn(0.0, 1.0) else null
+        }
 
         return ServiceAnalysisV3(
             relation = relation,
             serviceForecast = serviceForecast,
             allocation = allocation,
-            learnedAnchorNormalShare = normalShare,
-            learnedAnchorMinimumShare = minimumShare,
-            anchorProductName = anchor.name,
+            learnedAnchorNormalShare = if (anchorShares.isNotEmpty()) median(anchorShares) else 0.0,
+            learnedAnchorMinimumShare = if (anchorShares.isNotEmpty()) percentile(anchorShares, 0.25) else 0.0,
+            learnedSupportUpliftPct = learnedSupportUpliftPct,
+            relationSampleCount = weeklyPairs.size,
+            anchorProductName = anchors.joinToString(" + ") { it.name },
             linkedGroupName = linkedGroup.name
         )
     }

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.traspasos.plan
 
 import android.app.Dialog
@@ -22,6 +23,7 @@ import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.databinding.DialogSeleccionarLotesBinding
 import com.cesar.bocana.utils.FirestoreCollections
 import com.google.android.material.textfield.TextInputEditText
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
@@ -248,7 +250,9 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                 val nuevaCantidadKg = cantidadEditText.text.toString().toDoubleOrNull()
                 if (nuevaCantidadKg == null || nuevaCantidadKg < 0) {
                     inputLayout.error = "Cantidad inválida (>= 0)"
-                } else if (nuevaCantidadKg > lote.currentQuantity + 0.01) {
+                } else if (nuevaCantidadKg > 0.0 && !StockQuantityPolicy.isUsable(nuevaCantidadKg)) {
+                    inputLayout.error = "Mínimo operativo: 0.10 kg"
+                } else if (nuevaCantidadKg > lote.currentQuantity + StockQuantityPolicy.FLOAT_EPSILON) {
                     inputLayout.error = "Excede disponible (${String.format("%.2f", lote.currentQuantity)} Kg)"
                 } else {
                     inputLayout.error = null
@@ -300,7 +304,12 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                     .get().await()
 
                 allLotes = snapshot.toObjects(StockLot::class.java)
-                    .filter { it.isPackaged != false && it.estadoTraspaso == null }
+                    .filter {
+                        it.isPackaged != false &&
+                            it.estadoTraspaso == null &&
+                            !it.isDepleted &&
+                            StockQuantityPolicy.isUsable(it.currentQuantity)
+                    }
 
                 updateAdapterList()
             } catch (e: Exception) {
@@ -322,3 +331,4 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         _binding = null
     }
 }
+

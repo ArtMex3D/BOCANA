@@ -176,25 +176,58 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     }
 
     private fun renderV3(analysis: PredictiveV3Analysis) {
-        val forecast = analysis.individualForecast
-        val operational = analysis.individualOperational
-        val coverage = analysis.effectiveCoverageDays
+        val individualForecast = analysis.individualForecast
+        val group = analysis.groupAnalysis
+
+        val primaryForecast = group?.forecast ?: individualForecast
+        val primaryOperational = group?.operational ?: analysis.individualOperational
+        val groupStocks = groupStockTotals(analysis)
+        val primaryTotalStock = if (group != null) {
+            groupStocks?.let { it.first + it.second }
+                ?: group.forecast.coverageDays?.let { days ->
+                    if (primaryOperational.effectiveWeeklyKg > 0.01) {
+                        days * (primaryOperational.effectiveWeeklyKg / 7.0)
+                    } else 0.0
+                }
+                ?: 0.0
+        } else {
+            product.totalStock
+        }
+
+        val coverage = if (group != null) {
+            coverageDaysDouble(primaryTotalStock, primaryOperational.effectiveWeeklyKg)
+                ?: group.forecast.coverageDays
+        } else {
+            analysis.effectiveCoverageDays
+        }
         val coverageInt = coverage?.coerceAtLeast(0.0)?.roundToInt()
 
-        tvForecastWeekly.text = formatQuantity(operational.effectiveWeeklyKg, product.unit)
-        tvForecast30Days.text = formatQuantity(operational.effectiveWeeklyKg * 30.0 / 7.0, product.unit)
-        tvAverageWeekly.text = formatQuantity(forecast.baselineWeeklyKg, product.unit)
-        tvAverageMonthly.text = formatQuantity(forecast.baselineWeeklyKg * 4.0, product.unit)
+        // Si pertenece a un grupo de cobertura conjunta, el GRUPO manda en la parte principal.
+        tvForecastWeekly.text = formatQuantity(primaryOperational.effectiveWeeklyKg, product.unit)
+        tvForecast30Days.text = formatQuantity(primaryOperational.effectiveWeeklyKg * 30.0 / 7.0, product.unit)
+        tvAverageWeekly.text = formatQuantity(primaryForecast.baselineWeeklyKg, product.unit)
+        tvAverageMonthly.text = formatQuantity(primaryForecast.baselineWeeklyKg * 30.0 / 7.0, product.unit)
 
-        val highDays = coverageDays(product.totalStock, forecast.highScenarioWeeklyKg)
-        val lowDays = coverageDays(product.totalStock, forecast.lowScenarioWeeklyKg)
+        val highDays = coverageDays(primaryTotalStock, primaryForecast.highScenarioWeeklyKg)
+        val lowDays = coverageDays(primaryTotalStock, primaryForecast.lowScenarioWeeklyKg)
         val probableMin = listOfNotNull(highDays, coverageInt, lowDays).minOrNull()
         val probableMax = listOfNotNull(highDays, coverageInt, lowDays).maxOrNull()
 
+        val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
+        val coverageTitle = if (groupName != null) {
+            "Cobertura conjunta de $groupName"
+        } else {
+            coverageInt?.let { "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(it)}" }
+                ?: "Cobertura no calculable"
+        }
+
         renderCoverage(
             days = coverageInt,
-            mainText = coverageInt?.let { "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(it)}" }
-                ?: "Cobertura no calculable",
+            mainText = if (groupName != null && coverageInt != null) {
+                "$coverageTitle\nStock estimado para ${PredictiveConsumptionEngine.formatDuration(coverageInt)}"
+            } else {
+                coverageTitle
+            },
             rangeText = if (probableMin != null && probableMax != null) {
                 "Rango probable: ${PredictiveConsumptionEngine.formatDuration(probableMin)} a ${PredictiveConsumptionEngine.formatDuration(probableMax)}"
             } else "Rango probable no disponible"
@@ -203,31 +236,42 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         tvHighDemandScenario.text = highDays?.let {
             "Si aumenta el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
         } ?: "No hay suficiente información para el escenario de mayor consumo."
+
         tvLowDemandScenario.text = lowDays?.let {
             "Si baja el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
         } ?: "No hay suficiente información para el escenario de menor consumo."
+
         tvSeasonInsight.text = seasonExplanation(analysis.regime)
 
         v3DeepContainer.removeAllViews()
         addOperationalCard(analysis)
-        analysis.groupAnalysis?.let { addGroupCard(it, analysis) }
+        group?.let { addGroupCard(it, analysis) }
+
         analysis.serviceAnalysis?.let { service ->
+            val pressure = service.allocation.supportPressurePct
             addSectionCard(
-                title = "Relación de servicio",
+                title = "Apoyo con ${service.linkedGroupName}",
                 rows = listOf(
-                    "Demanda total" to "${format1(service.allocation.totalWeeklyDemandKg)} kg/semana",
-                    service.anchorProductName to "${format1(service.allocation.anchorWeeklyKg)} kg/semana",
-                    service.linkedGroupName to "${format1(service.allocation.linkedGroupWeeklyKg)} kg/semana"
+                    "Producto directo" to service.anchorProductName,
+                    "Grupo relacionado" to service.linkedGroupName,
+                    "Presión adicional" to if (pressure > 0.005) {
+                        "~${format0(pressure * 100.0)}%"
+                    } else {
+                        "Sin aumento"
+                    }
                 ),
-                note = if (service.allocation.anchorWasRestrictedByStock) {
-                    "El stock de ${service.anchorProductName} es limitado; el motor desplaza parte de la necesidad al grupo sin aumentar la demanda total."
+                note = if (pressure > 0.005) {
+                    "La cobertura del producto directo está baja y el historial muestra mayor uso del grupo. No es reemplazo kilo por kilo."
                 } else {
-                    "El reparto se mantiene cerca de su comportamiento histórico normal."
+                    "La relación existe, pero hoy no requiere aumentar la demanda del grupo."
                 },
                 accent = "#0F766E",
-                background = "#F0FDFA"
+                background = "#F0FDFA",
+                collapsible = true,
+                collapsedByDefault = true
             )
         }
+
         addInventoryCard(analysis.inventoryDeep)
         addPendingCard(analysis)
         addHistoryCard(analysis)
@@ -235,56 +279,97 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     }
 
     private fun addOperationalCard(analysis: PredictiveV3Analysis) {
-        val operational = analysis.individualOperational
-        val groupName = analysis.groupAnalysis?.let { groupDisplayName(it.config.id, it.config.name) } ?: "No"
-        val pattern = analysis.consumptionPattern?.title ?: "Sin clasificar"
+        val group = analysis.groupAnalysis
+        val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
+        val groupStocks = groupStockTotals(analysis)
+
+        val operational = group?.operational ?: analysis.individualOperational
+        val c04Current = if (group != null) {
+            groupStocks?.second ?: 0.0
+        } else {
+            analysis.selectedProduct.stockCongelador04
+        }
+        val totalStock = if (group != null) {
+            groupStocks?.let { it.first + it.second } ?: 0.0
+        } else {
+            analysis.selectedProduct.totalStock
+        }
+        val coverage = if (group != null) {
+            coverageDaysDouble(totalStock, operational.effectiveWeeklyKg)
+                ?: group.forecast.coverageDays
+        } else {
+            analysis.effectiveCoverageDays
+        }
+
+        val rows = buildList {
+            add("Temporada" to seasonLabel(analysis.regime))
+            add("Próximo traspaso a C04" to formatNextTransfer(analysis.targetWindowDays))
+            add("Demanda estimada" to "${format1(operational.effectiveWeeklyKg)} kg/semana")
+            add(
+                (if (group != null) "Cobertura conjunta" else "Cobertura total") to
+                    (coverage?.let { "${format0(it)} días" } ?: "Sin dato")
+            )
+            if (group == null) {
+                add("Comportamiento" to (analysis.consumptionPattern?.title ?: "Sin clasificar"))
+            }
+            add("C04 actual" to "${format1(c04Current)} kg")
+            add("Objetivo C04" to "${format1(operational.dynamicC04TargetKg)} kg")
+            add(
+                "Traspaso sugerido" to
+                    "${format1(group?.allocation?.allocatedKg ?: operational.suggestedTransferKg)} kg"
+            )
+            if (groupName != null) add("Grupo" to groupName)
+        }
 
         addSectionCard(
             title = "Resumen operativo",
             badge = "DEV · SOLO SUGIERE",
-            rows = listOf(
-                "Temporada" to seasonLabel(analysis.regime),
-                "Cubierto por" to formatWindowDays(analysis.targetWindowDays),
-                "Demanda estimada" to "${format1(operational.effectiveWeeklyKg)} kg/semana",
-                "Cobertura total" to (analysis.effectiveCoverageDays?.let { "${format0(it)} días" } ?: "Sin dato"),
-                "Comportamiento" to pattern,
-                "C04 actual" to "${format1(analysis.selectedProduct.stockCongelador04)} kg",
-                "Objetivo C04" to "${format1(operational.dynamicC04TargetKg)} kg",
-                "Traspaso sugerido" to "${format1(operational.suggestedTransferKg)} kg",
-                "Pertenece a grupo" to groupName
-            ),
-            note = analysis.consumptionPattern?.explanation,
+            rows = rows,
+            note = if (group != null) {
+                "El grupo manda para cobertura y traspaso. El producto abierto se muestra abajo como detalle."
+            } else {
+                analysis.consumptionPattern?.explanation
+            },
             accent = "#6D28D9",
             background = "#FAF5FF"
         )
     }
 
+    /**
+     * En productos agrupados, la cobertura principal ya aparece arriba como GRUPO.
+     * Esta tarjeta deja muy claro cuánto dura únicamente el producto abierto.
+     */
     private fun addGroupCard(group: GroupAnalysisV3, analysis: PredictiveV3Analysis) {
+        val selectedAllocation = group.allocation.members
+            .firstOrNull { it.productId == analysis.selectedProduct.id }
+            ?.suggestedKg
+            ?: 0.0
+
+        val individualCoverage = analysis.effectiveCoverageDays
         val allocationLines = group.allocation.members.map { member ->
             val name = group.memberNames[member.productId] ?: member.productId.takeLast(6)
             "$name: ${format1(member.suggestedKg)} kg"
         }
-        val monthLines = formatMonthSummaries(analysis.groupInventory?.matrizByMonth.orEmpty(), maxItems = 4)
 
         addSectionCard(
-            title = "Grupo ${groupDisplayName(group.config.id, group.config.name)}",
+            title = "Detalle de ${analysis.selectedProduct.name}",
+            subtitle = "Dato individual dentro de ${groupDisplayName(group.config.id, group.config.name)}",
             rows = listOf(
-                "Demanda conjunta" to "${format1(group.operational.effectiveWeeklyKg)} kg/semana",
-                "Objetivo C04 conjunto" to "${format1(group.operational.dynamicC04TargetKg)} kg",
-                "Traspaso conjunto" to "${format1(group.allocation.allocatedKg)} kg"
+                "Cobertura individual" to (individualCoverage?.let { "${format0(it)} días" } ?: "Sin dato"),
+                "Demanda individual" to "${format1(analysis.individualOperational.effectiveWeeklyKg)} kg/semana",
+                "Stock individual" to "${format1(analysis.selectedProduct.totalStock)} kg",
+                "C04 individual" to "${format1(analysis.selectedProduct.stockCongelador04)} kg",
+                "Aporte sugerido" to "${format1(selectedAllocation)} kg"
             ),
             bullets = buildList {
                 if (allocationLines.isNotEmpty()) {
-                    add("Reparto sugerido: ${allocationLines.joinToString(" · ")}")
+                    add("Reparto del grupo: ${allocationLines.joinToString(" · ")}")
                 }
-                if (monthLines.isNotEmpty()) {
-                    add("Mercancía del grupo por mes en Matriz: ${monthLines.joinToString(" | ")}")
-                }
-                if (group.allocation.unallocatedKg > 0.01) {
-                    add("Faltan ${format1(group.allocation.unallocatedKg)} kg por disponibilidad o reserva de Matriz.")
-                }
+                val primary = group.config.primaryProductId
+                    ?.let { group.memberNames[it] }
+                if (!primary.isNullOrBlank()) add("Producto principal del grupo: $primary")
             },
-            note = "La demanda se calcula primero para todo el grupo y después se reparte por antigüedad, stock disponible y prioridad operativa.",
+            note = "La cobertura conjunta es la referencia principal. Esta tarjeta sólo explica el producto abierto.",
             accent = "#1D4ED8",
             background = "#EFF6FF"
         )
@@ -319,13 +404,15 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         addSectionCard(
             title = "Lotes y antigüedad",
             rows = listOf(
-                "Matriz" to "${inventory.matrizLots.size} lotes · ${format1(matrizTotal)} kg",
-                "C04" to "${inventory.c04Lots.size} lotes · ${format1(c04Total)} kg"
+                "Matriz" to "${formatLotCount(inventory.matrizLots.size)} · ${format1(matrizTotal)} kg",
+                "C04" to "${formatLotCount(inventory.c04Lots.size)} · ${format1(c04Total)} kg"
             ),
             bullets = bullets,
             note = "Para la antigüedad se usa la fecha original de recepción, aunque el lote después haya sido traspasado a C04.",
             accent = "#B45309",
-            background = "#FFFBEB"
+            background = "#FFFBEB",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -362,7 +449,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             rows = rows,
             bullets = bullets,
             accent = "#047857",
-            background = "#ECFDF5"
+            background = "#ECFDF5",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -377,7 +466,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             rows = rows,
             note = "Estas referencias ayudan a distinguir una temporada normal de un cambio temporal de consumo.",
             accent = "#475569",
-            background = "#F8FAFC"
+            background = "#F8FAFC",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -392,6 +483,26 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
                 add("Cambio reciente: ${if (it >= 0) "+" else ""}${format0(it)}% frente a la base")
             }
             addBacktestLines(this, backtest)
+
+            analysis.groupBacktest?.takeIf { it.sampleCount > 0 }?.let { groupTest ->
+                add(
+                    "Validación del grupo: ${groupTest.qualityLabel} · " +
+                        "${groupTest.sampleCount} pruebas" +
+                        (groupTest.meanAbsolutePercentError?.let { " · error ~${format0(it)}%" } ?: "")
+                )
+            }
+
+            analysis.serviceAnalysis?.let { service ->
+                add(
+                    "Relación ${service.anchorProductName} ↔ ${service.linkedGroupName}: " +
+                        "${service.relationSampleCount} semanas analizadas"
+                )
+                add(
+                    "Apoyo histórico aprendido: hasta ~" +
+                        "${format0(service.learnedSupportUpliftPct * 100.0)}% cuando el producto directo baja"
+                )
+            }
+
             analysis.purchaseAttention?.let { add("Compra: ${it.message}") }
             analysis.smartReasons.forEach { add(it) }
         }.distinct()
@@ -463,7 +574,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         note: String? = null,
         badge: String? = null,
         accent: String = "#334155",
-        background: String = "#FFFFFF"
+        background: String = "#FFFFFF",
+        collapsible: Boolean = false,
+        collapsedByDefault: Boolean = false
     ) {
         val card = MaterialCardView(requireContext()).apply {
             radius = dp(16).toFloat()
@@ -473,6 +586,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             setCardBackgroundColor(Color.parseColor(background))
             layoutParams = sectionLayoutParams(top = 12)
         }
+
         val content = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -481,7 +595,13 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         val titleRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
+            isClickable = collapsible
+            isFocusable = collapsible
+            if (collapsible) {
+                setBackgroundResource(android.R.drawable.list_selector_background)
+            }
         }
+
         val titleView = TextView(requireContext()).apply {
             text = title
             setTextColor(Color.parseColor(accent))
@@ -490,6 +610,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleRow.addView(titleView)
+
         badge?.let {
             titleRow.addView(TextView(requireContext()).apply {
                 text = it
@@ -499,10 +620,23 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
                 setPadding(dp(8), dp(4), dp(8), dp(4))
             })
         }
+
+        val arrow = if (collapsible) {
+            TextView(requireContext()).apply {
+                setTextColor(Color.parseColor("#64748B"))
+                textSize = 13f
+                setPadding(dp(8), 0, 0, 0)
+            }.also(titleRow::addView)
+        } else null
+
         content.addView(titleRow)
 
+        val body = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
         subtitle?.let {
-            content.addView(TextView(requireContext()).apply {
+            body.addView(TextView(requireContext()).apply {
                 text = it
                 setTextColor(Color.parseColor("#64748B"))
                 textSize = 12f
@@ -511,13 +645,13 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
 
         rows.forEachIndexed { index, pair ->
-            if (index == 0) content.addView(spacer(dp(8)))
-            content.addView(valueRow(pair.first, pair.second))
+            if (index == 0) body.addView(spacer(dp(8)))
+            body.addView(valueRow(pair.first, pair.second))
         }
 
         if (bullets.isNotEmpty()) {
-            content.addView(spacer(dp(8)))
-            content.addView(TextView(requireContext()).apply {
+            body.addView(spacer(dp(8)))
+            body.addView(TextView(requireContext()).apply {
                 text = bullets.joinToString("\n") { "• $it" }
                 setTextColor(Color.parseColor("#475569"))
                 textSize = 11.5f
@@ -526,7 +660,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
 
         note?.takeIf { it.isNotBlank() }?.let {
-            content.addView(TextView(requireContext()).apply {
+            body.addView(TextView(requireContext()).apply {
                 text = it
                 setTextColor(Color.parseColor("#64748B"))
                 textSize = 10.5f
@@ -534,6 +668,18 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             })
         }
 
+        if (collapsible) {
+            body.visibility = if (collapsedByDefault) View.GONE else View.VISIBLE
+            arrow?.text = if (body.visibility == View.VISIBLE) "▴" else "▾"
+
+            titleRow.setOnClickListener {
+                val open = body.visibility == View.VISIBLE
+                body.visibility = if (open) View.GONE else View.VISIBLE
+                arrow?.text = if (open) "▾" else "▴"
+            }
+        }
+
+        content.addView(body)
         card.addView(content)
         v3DeepContainer.addView(card)
     }
@@ -649,15 +795,38 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     private fun formatDate(date: Date?): String =
         date?.let { SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(it) } ?: "Sin fecha"
 
-    private fun groupDisplayName(id: String, configuredName: String): String = when (id.uppercase(Locale.ROOT)) {
-        "FILETE" -> "Filetes"
-        "PARGOS" -> "Pargos / Huachinangos"
-        else -> configuredName
+    private fun groupDisplayName(id: String, configuredName: String): String =
+        configuredName.takeIf { it.isNotBlank() } ?: id
+
+    private fun groupStockTotals(analysis: PredictiveV3Analysis): Pair<Double, Double>? {
+        val inventory = analysis.groupInventory ?: return null
+        val matriz = inventory.matrizByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) }
+        val c04 = inventory.c04ByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) }
+        return matriz to c04
     }
+
+    private fun coverageDaysDouble(stock: Double, weeklyKg: Double): Double? {
+        if (weeklyKg <= 0.01) return null
+        return stock.coerceAtLeast(0.0) / (weeklyKg / 7.0)
+    }
+
+    private fun formatNextTransfer(days: Double): String {
+        val rounded = days.roundToLong().coerceAtLeast(0)
+        return when (rounded) {
+            0L -> "Hoy"
+            1L -> "En 1 día"
+            else -> "En $rounded días"
+        }
+    }
+
+    private fun formatLotCount(count: Int): String =
+        if (count == 1) "1 lote" else "$count lotes"
 
     private fun formatWindowDays(days: Double): String {
         val rounded = days.roundToLong()
-        return if (abs(days - rounded) < 0.05) "$rounded días" else "${format1(days)} días"
+        return if (rounded == 1L) "1 día"
+        else if (abs(days - rounded) < 0.05) "$rounded días"
+        else "${format1(days)} días"
     }
 
     private fun formatQuantity(value: Double, unit: String): String {

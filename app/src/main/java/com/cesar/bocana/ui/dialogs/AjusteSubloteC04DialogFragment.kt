@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -24,6 +25,7 @@ import com.cesar.bocana.helpers.NotificationTriggerHelper
 import com.cesar.bocana.ui.adapters.GroupableListItem
 import com.cesar.bocana.ui.adapters.SubloteC04SelectionAdapter
 import com.cesar.bocana.ui.adapters.SubloteC04SelectionListener
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.auth.ktx.auth
@@ -38,7 +40,6 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
 
     private lateinit var firestore: FirebaseFirestore
     private val auth = Firebase.auth
-    private val stockEpsilon = 0.01
 
     private var productArgument: Product? = null
     private var productIdArg: String? = null
@@ -225,7 +226,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 if (snapshot != null && !snapshot.isEmpty) {
                     val allSublotes = snapshot.documents.mapNotNull { doc ->
                         doc.toObject(StockLot::class.java)?.copy(id = doc.id)
-                    }
+                    }.filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
                     val groupedListItems = mutableListOf<GroupableListItem>()
                     val groups = TreeMap<String, MutableList<StockLot>>()
 
@@ -293,20 +294,21 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         } else {
             inputLayoutNuevaCantidad.error = null
         }
-        if (nuevaCantidadNeta - subloteActual.currentQuantity > stockEpsilon) {
+        val nuevaCantidadNormalizada = StockQuantityPolicy.normalizeLotQuantity(nuevaCantidadNeta)
+        if (nuevaCantidadNormalizada - subloteActual.currentQuantity > StockQuantityPolicy.FLOAT_EPSILON) {
             inputLayoutNuevaCantidad.error = "Aumento no permitido aquí."
             return
         } else {
             inputLayoutNuevaCantidad.error = null
         }
 
-        val consumoNeto = subloteActual.currentQuantity - nuevaCantidadNeta
-        if (kotlin.math.abs(consumoNeto) <= stockEpsilon && kotlin.math.abs(subloteActual.currentQuantity - nuevaCantidadNeta) <= stockEpsilon) {
+        val consumoNeto = subloteActual.currentQuantity - nuevaCantidadNormalizada
+        if (kotlin.math.abs(consumoNeto) <= StockQuantityPolicy.FLOAT_EPSILON) {
             showSnackbar("No se requiere ajuste.")
             dismiss()
             return
         }
-        performAjusteSubLoteC04Transaction(currentProduct, subloteActual, nuevaCantidadNeta)
+        performAjusteSubLoteC04Transaction(currentProduct, subloteActual, nuevaCantidadNormalizada)
     }
 
     private fun performAjusteSubLoteC04Transaction(
@@ -347,22 +349,22 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 ?: throw FirebaseFirestoreException("Lote no encontrado: ${subloteAActualizar.id}", FirebaseFirestoreException.Code.ABORTED)
 
             val cantidadActualSubloteFS = currentSubloteFS.currentQuantity
-            val consumoRealCalculado = cantidadActualSubloteFS - nuevaCantidadNetaSublote
-            val nuevaCantidadRealSubloteFinal = if (nuevaCantidadNetaSublote < stockEpsilon) 0.0 else nuevaCantidadNetaSublote
+            val nuevaCantidadRealSubloteFinal = StockQuantityPolicy.normalizeLotQuantity(nuevaCantidadNetaSublote)
+            val consumoRealCalculado = cantidadActualSubloteFS - nuevaCantidadRealSubloteFinal
 
-            if (consumoRealCalculado < 0 && kotlin.math.abs(consumoRealCalculado) > stockEpsilon) {
+            if (consumoRealCalculado < 0 && kotlin.math.abs(consumoRealCalculado) > StockQuantityPolicy.FLOAT_EPSILON) {
                 throw FirebaseFirestoreException("Error de lógica: consumo no puede ser negativo (actual FS: ${String.format("%.2f", cantidadActualSubloteFS)}, nueva: ${String.format("%.2f", nuevaCantidadNetaSublote)})", FirebaseFirestoreException.Code.ABORTED)
             }
 
             transaction.update(subloteRef, mapOf(
                 "currentQuantity" to nuevaCantidadRealSubloteFinal,
-                "isDepleted" to (nuevaCantidadRealSubloteFinal <= stockEpsilon)
+                "isDepleted" to !StockQuantityPolicy.isUsable(nuevaCantidadRealSubloteFinal)
             ))
 
-            val nuevoStockC04 = currentProductFS.stockCongelador04 - consumoRealCalculado
-            val nuevoTotalStock = currentProductFS.totalStock - consumoRealCalculado
+            val nuevoStockC04 = StockQuantityPolicy.normalizeLotQuantity(currentProductFS.stockCongelador04 - consumoRealCalculado)
+            val nuevoTotalStock = StockQuantityPolicy.normalizeLotQuantity(currentProductFS.totalStock - consumoRealCalculado)
 
-            if (nuevoStockC04 < -stockEpsilon || nuevoTotalStock < -stockEpsilon) {
+            if (nuevoStockC04 < -StockQuantityPolicy.FLOAT_EPSILON || nuevoTotalStock < -StockQuantityPolicy.FLOAT_EPSILON) {
                 throw FirebaseFirestoreException("Error: Stock del producto quedaría negativo.", FirebaseFirestoreException.Code.ABORTED)
             }
 
@@ -373,7 +375,7 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
                 "lastUpdatedByName" to currentUserName
             ))
 
-            if (consumoRealCalculado > stockEpsilon) {
+            if (consumoRealCalculado > StockQuantityPolicy.FLOAT_EPSILON) {
                 val movement = StockMovement(
                     id = newMovementRef.id, userId = currentUser.uid, userName = currentUserName,
                     productId = product.id, productName = product.name, type = MovementType.AJUSTE_STOCK_C04,
@@ -396,8 +398,8 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
         }.addOnSuccessListener {
             if (!isAdded || context == null) return@addOnSuccessListener
             progressBarSubLotes.visibility = View.GONE
-            val consumoNetoReal = subloteAActualizar.currentQuantity - nuevaCantidadNetaSublote
-            val msg = if (consumoNetoReal > stockEpsilon) "Lote ajustado. Consumo: ${String.format(Locale.getDefault(), "%.2f", consumoNetoReal)} ${product.unit}" else "Lote ajustado."
+            val consumoNetoReal = subloteAActualizar.currentQuantity - StockQuantityPolicy.normalizeLotQuantity(nuevaCantidadNetaSublote)
+            val msg = if (consumoNetoReal > StockQuantityPolicy.FLOAT_EPSILON) "Lote ajustado. Consumo: ${String.format(Locale.getDefault(), "%.2f", consumoNetoReal)} ${product.unit}" else "Lote ajustado."
             showSnackbar(msg)
             productForNotification?.let { prod ->
                 lifecycleScope.launch { NotificationTriggerHelper.triggerLowStockNotification(prod) }
@@ -418,4 +420,5 @@ class AjusteSubloteC04DialogFragment : DialogFragment() {
     }
 
 }
+
 

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.traspasos.plan
 
 import android.util.Log
@@ -5,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.utils.FirestoreCollections
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.ktx.firestore
@@ -188,7 +190,7 @@ class PlanificarTraspasoViewModel : ViewModel() {
             .get().await()
 
         val lotesDisponibles = lotesSnapshot.toObjects(StockLot::class.java)
-            .filter { it.estadoTraspaso == null }
+            .filter { it.estadoTraspaso == null && !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }
 
         allLotesEnMatriz = lotesDisponibles.groupBy { it.productId }
     }
@@ -338,14 +340,18 @@ class PlanificarTraspasoViewModel : ViewModel() {
                 if (esFijo) {
                     val pesoUnidad = loteOriginal.pesoPorUnidad ?: 1.0
                     val unidades = itemUsuario.cantidad.toInt()
-                    kgATomar = unidades * pesoUnidad
+                    val kgSolicitados = unidades * pesoUnidad
+                    kgATomar = StockQuantityPolicy.withdrawFromLot(loteOriginal.currentQuantity, kgSolicitados).actualTakenKg
                     unidadesATomar = unidades.toDouble()
                     totalUnidadesDesglosadas += unidades
                 } else {
-                    kgATomar = itemUsuario.cantidad
+                    kgATomar = StockQuantityPolicy.withdrawFromLot(
+                        loteOriginal.currentQuantity,
+                        itemUsuario.cantidad
+                    ).actualTakenKg
                 }
 
-                if (kgATomar > 0) {
+                if (kgATomar > StockQuantityPolicy.FLOAT_EPSILON) {
                     totalKgDesglosado += kgATomar
                     LoteDesglosado(
                         loteId = loteOriginal.id, cantidadATomarKg = kgATomar, cantidadATomarUnidades = unidadesATomar,
@@ -387,19 +393,19 @@ class PlanificarTraspasoViewModel : ViewModel() {
         var kgAcumulados = 0.0
         var kgRestantes = cantidadNecesariaKg
 
-        for (lote in lotesDisponibles) {
-            if (kgRestantes <= 0.01) break
-            val aTomarDeEsteLote = min(lote.currentQuantity, kgRestantes)
-            if (aTomarDeEsteLote > 0.01) {
+        for (lote in lotesDisponibles.filter { !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }) {
+            if (kgRestantes <= StockQuantityPolicy.FLOAT_EPSILON) break
+            val retiro = StockQuantityPolicy.withdrawFromLot(lote.currentQuantity, kgRestantes)
+            if (retiro.actualTakenKg > StockQuantityPolicy.FLOAT_EPSILON) {
                 lotesDesglosados.add(
                     LoteDesglosado(
-                        loteId = lote.id, cantidadATomarKg = aTomarDeEsteLote, cantidadATomarUnidades = null,
+                        loteId = lote.id, cantidadATomarKg = retiro.actualTakenKg, cantidadATomarUnidades = null,
                         lote = lote, loteFecha = lote.receivedAt, loteProveedor = lote.supplierName,
                         loteUnidad = "Kg", lotePesoPorUnidad = null
                     )
                 )
-                kgRestantes -= aTomarDeEsteLote
-                kgAcumulados += aTomarDeEsteLote
+                kgRestantes = (kgRestantes - retiro.actualTakenKg).coerceAtLeast(0.0)
+                kgAcumulados += retiro.actualTakenKg
             }
         }
         return Pair(lotesDesglosados, kgAcumulados)
@@ -409,14 +415,16 @@ class PlanificarTraspasoViewModel : ViewModel() {
         val lotesDesglosados = mutableListOf<LoteDesglosado>()
         var kgAcumulados = 0.0
         var unidadesRestantes = unidadesNecesarias
-        for (lote in lotesDisponibles) {
+        for (lote in lotesDisponibles.filter { !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }) {
             if (unidadesRestantes <= 0) break
             val pesoPorUnidad = lote.pesoPorUnidad ?: 1.0
             if (pesoPorUnidad > 0 && !lote.unidadDeEmpaque.isNullOrBlank()) {
                 val unidadesDisponiblesEnLote = Math.floor(lote.currentQuantity / pesoPorUnidad).toInt()
                 val unidadesA_TomarDeEsteLote = min(unidadesDisponiblesEnLote, unidadesRestantes)
                 if (unidadesA_TomarDeEsteLote > 0) {
-                    val kgA_TomarDeEsteLote = unidadesA_TomarDeEsteLote * pesoPorUnidad
+                    val kgSolicitados = unidadesA_TomarDeEsteLote * pesoPorUnidad
+                    val retiro = StockQuantityPolicy.withdrawFromLot(lote.currentQuantity, kgSolicitados)
+                    val kgA_TomarDeEsteLote = retiro.actualTakenKg
                     lotesDesglosados.add(
                         LoteDesglosado(
                             loteId = lote.id, cantidadATomarKg = kgA_TomarDeEsteLote, cantidadATomarUnidades = unidadesA_TomarDeEsteLote.toDouble(),
@@ -481,3 +489,4 @@ class PlanificarTraspasoViewModel : ViewModel() {
         }
     }
 }
+

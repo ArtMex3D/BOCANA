@@ -25,7 +25,9 @@ data class PredictiveV3Analysis(
     val packagingSignal: PackagingSignal? = null,
     val returnSignal: ReturnSignal? = null,
     val consumptionPattern: ConsumptionPatternSignal? = null,
-    val backtest: BacktestSignal? = null
+    val backtest: BacktestSignal? = null,
+    val groupBacktest: BacktestSignal? = null,
+    val serviceBacktest: BacktestSignal? = null
 )
 
 data class OperationalRecommendation(
@@ -51,6 +53,8 @@ data class ServiceAnalysisV3(
     val allocation: ServiceAllocationResult,
     val learnedAnchorNormalShare: Double,
     val learnedAnchorMinimumShare: Double,
+    val learnedSupportUpliftPct: Double = 0.0,
+    val relationSampleCount: Int = 0,
     val anchorProductName: String,
     val linkedGroupName: String
 )

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.ajustecompleto
 
 import android.util.Log
@@ -9,6 +10,7 @@ import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.data.model.MovementType
 import com.cesar.bocana.data.model.Location
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
@@ -53,7 +55,7 @@ class AjusteCompletoViewModel : ViewModel() {
                 doc.toObject(Product::class.java)?.copy(id = doc.id)
             }
 
-            val productsWithStock = allProducts.filter { it.stockCongelador04 > 0.01 }
+            val productsWithStock = allProducts.filter { StockQuantityPolicy.isUsable(it.stockCongelador04) }
                 .sortedBy { it.name }
 
             Log.d(TAG, "loadActiveProductsWithStockInC04: ${productsWithStock.size} productos con stock en C-04")
@@ -109,35 +111,38 @@ class AjusteCompletoViewModel : ViewModel() {
                 }
 
                 val currentStock = product.stockCongelador04
-                val difference = currentStock - newPhysicalStock
-                Log.d(TAG, "${product.name}: actual=$currentStock, nuevo=$newPhysicalStock, diferencia=$difference")
+                val requestedDifference = currentStock - newPhysicalStock
+                Log.d(TAG, "${product.name}: actual=$currentStock, nuevo=$newPhysicalStock, diferencia=$requestedDifference")
 
-                if (kotlin.math.abs(difference) <= 0.01) {
-                    Log.d(TAG, "Diferencia insignificante, saltando")
+                if (kotlin.math.abs(requestedDifference) <= StockQuantityPolicy.FLOAT_EPSILON) {
+                    Log.d(TAG, "Sin diferencia real, saltando")
                     continue
                 }
 
-                if (difference > 0) {
-                    Log.d(TAG, "▶️ REDUCIENDO stock: ${product.name}, cantidad: $difference kg")
-                    processFifoReduction(product, difference, batch, currentUserName)
+                val actualDifference: Double
+                val effectiveNewPhysicalStock: Double
 
-                    // NUEVO: Actualizar el Checkpoint Semanal en el Batch
+                if (requestedDifference > 0) {
+                    Log.d(TAG, "▶️ REDUCIENDO stock: ${product.name}, cantidad solicitada: $requestedDifference kg")
+                    actualDifference = processFifoReduction(product, requestedDifference, batch)
+                    effectiveNewPhysicalStock = StockQuantityPolicy.normalizeLotQuantity(currentStock - actualDifference)
+
                     val checkpointId = "${product.id}_${currentYear}_${currentWeek}"
                     val checkpointRef = firestore.collection("consumption_history").document(checkpointId)
                     batch.set(
                         checkpointRef,
-                        mapOf("consumedKg" to FieldValue.increment(difference)),
+                        mapOf("consumedKg" to FieldValue.increment(actualDifference)),
                         com.google.firebase.firestore.SetOptions.merge()
                     )
                 } else {
-                    Log.e(TAG, "❌ AUMENTO DE STOCK DETECTADO para ${product.name}: $difference kg - ESTO NO DEBERÍA OCURRIR")
+                    Log.e(TAG, "❌ AUMENTO DE STOCK DETECTADO para ${product.name}: $requestedDifference kg - ESTO NO DEBERÍA OCURRIR")
                     throw Exception("No se permiten aumentos de stock en ajuste completo. Producto: ${product.name}")
                 }
 
                 val productRef = firestore.collection("products").document(productId)
                 batch.update(productRef, mapOf(
-                    "stockCongelador04" to newPhysicalStock,
-                    "totalStock" to (product.stockMatriz + newPhysicalStock),
+                    "stockCongelador04" to effectiveNewPhysicalStock,
+                    "totalStock" to StockQuantityPolicy.normalizeLotQuantity(product.stockMatriz + effectiveNewPhysicalStock),
                     "updatedAt" to FieldValue.serverTimestamp(),
                     "lastUpdatedByName" to currentUserName
                 ))
@@ -149,13 +154,13 @@ class AjusteCompletoViewModel : ViewModel() {
                     productId = product.id,
                     productName = product.name,
                     type = MovementType.AJUSTE_STOCK_C04,
-                    quantity = kotlin.math.abs(difference),
+                    quantity = kotlin.math.abs(actualDifference),
                     locationFrom = Location.CONGELADOR_04,
                     locationTo = Location.EXTERNO,
-                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(java.util.Locale.getDefault(), "%.2f", currentStock)} → Físico: ${String.format(java.util.Locale.getDefault(), "%.2f", newPhysicalStock)}",
-                    stockAfterCongelador04 = newPhysicalStock,
+                    reason = "AJUSTE COMPLETO C-04: Teórico: ${String.format(java.util.Locale.getDefault(), "%.2f", currentStock)} → Físico solicitado: ${String.format(java.util.Locale.getDefault(), "%.2f", newPhysicalStock)} → Aplicado: ${String.format(java.util.Locale.getDefault(), "%.2f", effectiveNewPhysicalStock)}",
+                    stockAfterCongelador04 = effectiveNewPhysicalStock,
                     stockAfterMatriz = product.stockMatriz,
-                    stockAfterTotal = product.stockMatriz + newPhysicalStock,
+                    stockAfterTotal = StockQuantityPolicy.normalizeLotQuantity(product.stockMatriz + effectiveNewPhysicalStock),
                     timestamp = java.util.Date()
                 )
                 movements.add(movement)
@@ -198,11 +203,11 @@ class AjusteCompletoViewModel : ViewModel() {
     private suspend fun processFifoReduction(
         product: Product,
         quantityToReduce: Double,
-        batch: WriteBatch,
-        currentUserName: String
-    ) {
+        batch: WriteBatch
+    ): Double {
         Log.d(TAG, "processFifoReduction: ${product.name}, reducir: $quantityToReduce kg")
         var remainingToReduce = quantityToReduce
+        var actualReducedKg = 0.0
 
         val lotsSnapshot = firestore.collection("inventoryLots")
             .whereEqualTo("productId", product.id)
@@ -213,31 +218,35 @@ class AjusteCompletoViewModel : ViewModel() {
 
         val lots = lotsSnapshot.documents.mapNotNull { doc ->
             doc.toObject(StockLot::class.java)?.copy(id = doc.id)
-        }.sortedBy { it.receivedAt ?: Date(0) }
+        }.filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
+            .sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
 
         Log.d(TAG, "Lotes FIFO encontrados: ${lots.size}")
 
         for (lot in lots) {
-            if (remainingToReduce <= 0.01) break
+            if (remainingToReduce <= StockQuantityPolicy.FLOAT_EPSILON) break
 
-            val quantityFromThisLot = kotlin.math.min(lot.currentQuantity, remainingToReduce)
-            val newLotQuantity = lot.currentQuantity - quantityFromThisLot
+            val withdrawal = StockQuantityPolicy.withdrawFromLot(lot.currentQuantity, remainingToReduce)
+            if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) continue
+
             val lotRef = firestore.collection("inventoryLots").document(lot.id)
-
-            Log.d(TAG, "  Lote ${lot.id.takeLast(6)}: tomando $quantityFromThisLot de ${lot.currentQuantity}")
+            Log.d(TAG, "  Lote ${lot.id.takeLast(6)}: tomando ${withdrawal.actualTakenKg} de ${lot.currentQuantity}")
 
             batch.update(lotRef, mapOf(
-                "currentQuantity" to newLotQuantity,
-                "isDepleted" to (newLotQuantity <= 0.01)
+                "currentQuantity" to withdrawal.remainingKg,
+                "isDepleted" to withdrawal.depleted
             ))
 
-            remainingToReduce -= quantityFromThisLot
+            actualReducedKg += withdrawal.actualTakenKg
+            remainingToReduce = (remainingToReduce - withdrawal.actualTakenKg).coerceAtLeast(0.0)
         }
 
-        if (remainingToReduce > 0.01) {
+        if (remainingToReduce > StockQuantityPolicy.FLOAT_EPSILON) {
             Log.e(TAG, "Stock insuficiente para ${product.name}. Faltante: $remainingToReduce")
             throw Exception("Stock insuficiente en lotes para ${product.name}. Faltante: $remainingToReduce")
         }
+
+        return actualReducedKg
     }
 }
 
@@ -245,3 +254,4 @@ sealed class AjusteResult {
     data class Success(val movementsCount: Int) : AjusteResult()
     data class Error(val message: String) : AjusteResult()
 }
+

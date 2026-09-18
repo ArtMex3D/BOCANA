@@ -10,22 +10,24 @@ import com.cesar.bocana.predictive.v3.model.ServiceAllocationInput
 import com.cesar.bocana.predictive.v3.model.PurchaseAttentionLevel
 import com.cesar.bocana.predictive.v3.model.PurchaseHistorySignal
 import java.util.Date
+import kotlin.math.abs
 
 /**
  * Pruebas simples sin JUnit para validar invariantes matemáticas del motor.
- * Se pueden ejecutar con Kotlin/JVM aislado.
+ * Actualizadas para Fase 5.2: la relación Róbalo ↔ Pargos es de apoyo
+ * complementario aprendido, NO una compensación 1:1 ni una bolsa fija de kg.
  */
 object PredictiveV3SelfTest {
     @JvmStatic
     fun main(args: Array<String>) {
         testGroupAggregationDoesNotDoubleAverages()
         testDynamicC04CanBeBelowLegacyReference()
-        testServiceDemandIsConserved()
+        testServiceSupportDoesNotReplaceAnchorOneToOne()
         testGroupAllocationConservesRequestedNeed()
         testRecentDeviationSignal()
         testPurchaseAttentionSignal()
         testBacktestUsesOnlyPastData()
-        println("OK - Predictive V3 Fase 5.1 self tests")
+        println("OK - Predictive V3 Fase 5.2 self tests")
     }
 
     private fun testGroupAggregationDoesNotDoubleAverages() {
@@ -59,19 +61,37 @@ object PredictiveV3SelfTest {
         check(result.dynamicC04TargetKg < 200.0)
     }
 
-    private fun testServiceDemandIsConserved() {
+    /**
+     * Fase 5.2:
+     * - Róbalo conserva su propia demanda.
+     * - Pargos conserva su propia demanda base.
+     * - Si Róbalo tiene cobertura baja, el histórico puede aplicar una presión
+     *   adicional limitada sobre Pargos.
+     * - No se resta demanda a Róbalo ni se pasa kilo por kilo a Pargos.
+     */
+    private fun testServiceSupportDoesNotReplaceAnchorOneToOne() {
         val result = PredictiveGroupEngine.allocateService(
             ServiceAllocationInput(
                 serviceId = "ROBALO_PARGOS",
-                totalWeeklyDemandKg = 500.0,
-                anchorNormalShare = 0.40,
-                anchorMinimumShare = 0.20,
-                anchorStockAvailableKg = 100.0,
-                anchorReserveKg = 0.0,
-                planningHorizonWeeks = 2.0
+                anchorForecastWeeklyKg = 200.0,
+                linkedGroupForecastWeeklyKg = 300.0,
+                anchorCoverageDays = 7.0,
+                learnedSupportUpliftPct = 0.40,
+                planningHorizonWeeks = 2.0,
+                maxSupportUpliftPct = 0.50
             )
         )
-        check(kotlin.math.abs(result.anchorWeeklyKg + result.linkedGroupWeeklyKg - 500.0) < 0.001)
+
+        // Róbalo conserva sus 200 kg/semana: no se sacrifica para "compensar" Pargos.
+        check(abs(result.anchorWeeklyKg - 200.0) < 0.001)
+
+        // Con horizonte de 14 días y cobertura de 7 días hay 50% de escasez relativa.
+        // 40% de uplift aprendido * 50% de presión = 20% adicional sobre Pargos.
+        check(abs(result.supportPressurePct - 0.20) < 0.001)
+        check(abs(result.linkedGroupWeeklyKg - 360.0) < 0.001)
+
+        // La suma es solo informativa; ya no se conserva una bolsa fija de 500 kg.
+        check(abs(result.totalWeeklyDemandKg - 560.0) < 0.001)
         check(result.anchorWasRestrictedByStock)
     }
 
@@ -90,9 +110,10 @@ object PredictiveV3SelfTest {
         check(result.allocatedKg <= 250.001)
         check(result.unallocatedKg >= -0.001)
     }
+
     private fun testRecentDeviationSignal() {
         val pct = PredictiveV3Signals.recentDeviationPct(100.0, 130.0)
-        check(pct != null && kotlin.math.abs(pct - 30.0) < 0.001)
+        check(pct != null && abs(pct - 30.0) < 0.001)
     }
 
     private fun testPurchaseAttentionSignal() {
@@ -121,5 +142,4 @@ object PredictiveV3SelfTest {
         check(result.meanAbsoluteKgError != null)
         check(result.meanAbsolutePercentError != null)
     }
-
 }

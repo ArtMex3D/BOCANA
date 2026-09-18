@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -16,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.databinding.DialogAddCompraBinding
 import com.cesar.bocana.helpers.NotificationTriggerHelper
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.auth.ktx.auth
@@ -240,6 +242,16 @@ class AddCompraDialogFragment : DialogFragment() {
             }
         }
 
+        if (isValid && cantidadNetaKg + StockQuantityPolicy.FLOAT_EPSILON < StockQuantityPolicy.MIN_USABLE_KG) {
+            val msg = "La recepción mínima operativa es 0.10 kg. Cantidades menores se consideran agotadas."
+            if (binding.radioButtonRecepcionGranel.isChecked) {
+                binding.textFieldLayoutCantidadGranel.error = msg
+            } else {
+                binding.textFieldLayoutPesoPorUnidad.error = msg
+            }
+            isValid = false
+        }
+
         if (isValid) {
             lifecycleScope.launch {
                 val supplier = findOrCreateSupplier(supplierNameInput)
@@ -277,6 +289,17 @@ class AddCompraDialogFragment : DialogFragment() {
         pesoPorUnidad: Double?,
         cantidadInicialUnidades: Double?
     ) {
+        if (!StockQuantityPolicy.isUsable(quantityValue)) {
+            if (isAdded) {
+                Snackbar.make(
+                    requireActivity().findViewById(android.R.id.content),
+                    "No se puede registrar un lote menor a 0.10 kg.",
+                    Snackbar.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
+
         val currentUser = auth.currentUser ?: return
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
 
@@ -412,3 +435,4 @@ class AddCompraDialogFragment : DialogFragment() {
         _binding = null
     }
 }
+

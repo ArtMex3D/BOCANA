@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -22,6 +23,7 @@ import com.cesar.bocana.R
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.helpers.NotificationTriggerHelper
 import com.cesar.bocana.ui.adapters.LotSelectionAdapter
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.auth.ktx.auth
@@ -42,7 +44,7 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
     private var product: Product? = null
     private lateinit var firestore: FirebaseFirestore
     private val auth = Firebase.auth
-    private val stockEpsilon = 0.1
+    private val stockEpsilon = StockQuantityPolicy.MIN_USABLE_KG
 
     companion object {
         const val TAG = "SalidaDevolucionLotesDialog"
@@ -133,15 +135,15 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
         motivoLayout: TextInputLayout
     ): Boolean {
         var isValid = true
-        if (quantity == null || quantity <= 0.0) {
-            cantidadEditText.error = "Cantidad debe ser mayor a 0"
+        if (quantity == null || quantity + StockQuantityPolicy.FLOAT_EPSILON < stockEpsilon) {
+            cantidadEditText.error = "Cantidad mínima: 0.10 kg"
             isValid = false
         }
         if (selectedLotIds.isEmpty() && (view?.findViewById<RecyclerView>(R.id.recyclerViewLotesDevolucionDialog)?.adapter?.itemCount ?: 0) > 0) {
             Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
             isValid = false
         }
-        if (quantity != null && quantity > selectedLotsTotal + stockEpsilon) {
+        if (quantity != null && quantity > selectedLotsTotal + StockQuantityPolicy.FLOAT_EPSILON) {
             cantidadEditText.error = "Excede stock de lotes seleccionados (${String.format("%.2f", selectedLotsTotal)})"
             isValid = false
         }
@@ -196,6 +198,7 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
                     recyclerView.isVisible = false
                 } else {
                     val lotes = lotsSnapshot.toObjects(StockLot::class.java)
+                        .filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
                     lotAdapter.submitList(lotes)
                     recyclerView.isVisible = true
                     noLotesTextView.isVisible = false
@@ -228,30 +231,50 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
 
             val lotObjects = selectedLotIds.map { lotId ->
                 val lotSnapshot = transaction.get(firestore.collection("inventoryLots").document(lotId))
-                lotSnapshot.toObject(StockLot::class.java)
+                lotSnapshot.toObject(StockLot::class.java)?.copy(id = lotSnapshot.id)
                     ?: throw FirebaseFirestoreException("Lote no encontrado", FirebaseFirestoreException.Code.ABORTED)
-            }.sortedBy { it.receivedAt }
+            }.filter { !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }
+                .sortedBy { it.receivedAt }
+
+            val totalSelectedStock = lotObjects.sumOf { it.currentQuantity }
+            if (quantityToDevolver > totalSelectedStock + StockQuantityPolicy.FLOAT_EPSILON) {
+                throw FirebaseFirestoreException("Stock insuficiente en lotes seleccionados", FirebaseFirestoreException.Code.ABORTED)
+            }
 
             var remainingToDevolver = quantityToDevolver
+            var actualReturnedKg = 0.0
+            var closedResidualKg = 0.0
             val affectedLotDetails = mutableListOf<String>()
 
             for (lot in lotObjects) {
-                if (remainingToDevolver <= stockEpsilon) break
-                val qtyFromThisLot = kotlin.math.min(remainingToDevolver, lot.currentQuantity)
-                if (qtyFromThisLot > stockEpsilon) {
-                    val newLotQty = lot.currentQuantity - qtyFromThisLot
-                    transaction.update(
-                        firestore.collection("inventoryLots").document(lot.id),
-                        "currentQuantity", newLotQty,
-                        "isDepleted", newLotQty <= stockEpsilon
-                    )
-                    remainingToDevolver -= qtyFromThisLot
-                    affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", qtyFromThisLot)}")
-                }
+                if (remainingToDevolver <= StockQuantityPolicy.FLOAT_EPSILON) break
+
+                val withdrawal = StockQuantityPolicy.withdrawFromLot(lot.currentQuantity, remainingToDevolver)
+                if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) continue
+
+                val requestedFromLot = kotlin.math.min(remainingToDevolver, lot.currentQuantity)
+                closedResidualKg += (withdrawal.actualTakenKg - requestedFromLot).coerceAtLeast(0.0)
+
+                transaction.update(
+                    firestore.collection("inventoryLots").document(lot.id),
+                    "currentQuantity", withdrawal.remainingKg,
+                    "isDepleted", withdrawal.depleted
+                )
+
+                actualReturnedKg += withdrawal.actualTakenKg
+                remainingToDevolver = (remainingToDevolver - withdrawal.actualTakenKg).coerceAtLeast(0.0)
+                affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", withdrawal.actualTakenKg)}")
             }
 
-            val newStockMatriz = currentProduct.stockMatriz - quantityToDevolver
-            val newTotalStock = currentProduct.totalStock - quantityToDevolver
+            if (remainingToDevolver > StockQuantityPolicy.FLOAT_EPSILON) {
+                throw FirebaseFirestoreException(
+                    "No fue posible completar la devolución. Faltan ${String.format("%.3f", remainingToDevolver)} kg",
+                    FirebaseFirestoreException.Code.ABORTED
+                )
+            }
+
+            val newStockMatriz = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockMatriz - actualReturnedKg)
+            val newTotalStock = StockQuantityPolicy.normalizeLotQuantity(currentProduct.totalStock - actualReturnedKg)
             transaction.update(productRef, mapOf(
                 "stockMatriz" to newStockMatriz,
                 "totalStock" to newTotalStock,
@@ -259,12 +282,16 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
                 "lastUpdatedByName" to currentUserName
             ))
 
+            val closeNote = if (closedResidualKg > StockQuantityPolicy.FLOAT_EPSILON) {
+                " Cierre automático de residuo: ${String.format("%.3f", closedResidualKg)} kg."
+            } else ""
+
             val newMovementRef = firestore.collection("stockMovements").document()
             val movement = StockMovement(
                 id = newMovementRef.id, userId = user.uid, userName = currentUserName,
                 productId = product.id, productName = product.name, type = MovementType.SALIDA_DEVOLUCION,
-                quantity = quantityToDevolver, locationFrom = Location.MATRIZ, locationTo = Location.PROVEEDOR,
-                reason = "A $proveedorName. Motivo: $motivo. Lotes: ${affectedLotDetails.joinToString()}",
+                quantity = actualReturnedKg, locationFrom = Location.MATRIZ, locationTo = Location.PROVEEDOR,
+                reason = "A $proveedorName. Motivo: $motivo. Lotes: ${affectedLotDetails.joinToString()}.$closeNote",
                 stockAfterMatriz = newStockMatriz, stockAfterCongelador04 = currentProduct.stockCongelador04,
                 stockAfterTotal = newTotalStock, timestamp = Date()
             )
@@ -273,7 +300,7 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
             val newDevolucionRef = firestore.collection("pendingDevoluciones").document()
             val devolucionPendiente = DevolucionPendiente(
                 id = newDevolucionRef.id, productId = product.id, productName = product.name,
-                quantity = quantityToDevolver, unit = product.unit, provider = proveedorName,
+                quantity = actualReturnedKg, unit = product.unit, provider = proveedorName,
                 reason = motivo, userId = user.uid, registeredAt = Date(), status = DevolucionStatus.PENDIENTE
             )
             transaction.set(newDevolucionRef, devolucionPendiente)
@@ -293,4 +320,6 @@ class SalidaDevolucionLotesDialogFragment : DialogFragment() {
             dismiss()
         }
     }
+
 }
+

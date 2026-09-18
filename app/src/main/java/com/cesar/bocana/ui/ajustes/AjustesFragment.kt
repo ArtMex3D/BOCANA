@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.ajustes
 
 import android.os.Bundle
@@ -17,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.*
 import com.cesar.bocana.databinding.FragmentAjustesBinding
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
@@ -48,7 +50,6 @@ class AjustesFragment : Fragment(), MenuProvider {
     private var allSuppliers: List<Supplier> = emptyList()
 
     // Control de UI
-    private val stockEpsilon = 0.01
     private var isSelectionFromList = false
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private var selectedDateCalendar: Calendar = Calendar.getInstance()
@@ -179,7 +180,7 @@ class AjustesFragment : Fragment(), MenuProvider {
                 if (!isAdded) return@addOnSuccessListener
                 allLotesInLocation = result.documents.mapNotNull { doc ->
                     doc.toObject(StockLot::class.java)?.copy(id = doc.id)
-                }
+                }.filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
                 val loteDisplayStrings = allLotesInLocation.map { formatLoteForDisplay(it) }
                 val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, loteDisplayStrings)
                 binding.autoCompleteTextViewAjusteLote.setAdapter(adapter)
@@ -269,12 +270,13 @@ class AjustesFragment : Fragment(), MenuProvider {
 
                     val updateData = mutableMapOf<String, Any?>()
                     val changes = mutableListOf<String>()
-                    val cantidadDiferencia = nuevaCantidad - currentLote.currentQuantity
+                    val nuevaCantidadNormalizada = StockQuantityPolicy.normalizeLotQuantity(nuevaCantidad)
+                    val cantidadDiferencia = nuevaCantidadNormalizada - currentLote.currentQuantity
 
-                    if (kotlin.math.abs(cantidadDiferencia) > stockEpsilon) {
-                        updateData["currentQuantity"] = nuevaCantidad
-                        updateData["isDepleted"] = nuevaCantidad <= stockEpsilon
-                        changes.add("Cant: ${String.format("%.2f", currentLote.currentQuantity)} -> ${String.format("%.2f", nuevaCantidad)}")
+                    if (kotlin.math.abs(cantidadDiferencia) > StockQuantityPolicy.FLOAT_EPSILON) {
+                        updateData["currentQuantity"] = nuevaCantidadNormalizada
+                        updateData["isDepleted"] = !StockQuantityPolicy.isUsable(nuevaCantidadNormalizada)
+                        changes.add("Cant: ${String.format("%.2f", currentLote.currentQuantity)} -> ${String.format("%.2f", nuevaCantidadNormalizada)}")
                     }
                     if (currentLote.supplierName != (proveedorFinal?.name ?: "")) {
                         updateData["supplierId"] = proveedorFinal?.id
@@ -292,10 +294,20 @@ class AjustesFragment : Fragment(), MenuProvider {
 
                     transaction.update(loteRef, updateData)
 
-                    if (kotlin.math.abs(cantidadDiferencia) > stockEpsilon) {
-                        val stockField = if (currentLote.location == Location.MATRIZ) "stockMatriz" else "stockCongelador04"
-                        transaction.update(productRef, stockField, FieldValue.increment(cantidadDiferencia))
-                        transaction.update(productRef, "totalStock", FieldValue.increment(cantidadDiferencia))
+                    if (kotlin.math.abs(cantidadDiferencia) > StockQuantityPolicy.FLOAT_EPSILON) {
+                        val newMatriz = if (currentLote.location == Location.MATRIZ) {
+                            StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockMatriz + cantidadDiferencia)
+                        } else currentProduct.stockMatriz
+                        val newC04 = if (currentLote.location == Location.CONGELADOR_04) {
+                            StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockCongelador04 + cantidadDiferencia)
+                        } else currentProduct.stockCongelador04
+                        transaction.update(productRef, mapOf(
+                            "stockMatriz" to newMatriz,
+                            "stockCongelador04" to newC04,
+                            "totalStock" to StockQuantityPolicy.normalizeLotQuantity(newMatriz + newC04),
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                            "lastUpdatedByName" to currentUserName
+                        ))
                     }
 
                     val newMovementRef = firestore.collection("stockMovements").document()
@@ -402,3 +414,4 @@ class AjustesFragment : Fragment(), MenuProvider {
         private const val TAG = "AjustesFragment"
     }
 }
+

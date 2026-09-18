@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.products
 
 import kotlinx.coroutines.async
@@ -62,6 +63,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.cesar.bocana.databinding.FragmentProductListBinding
 import com.cesar.bocana.ui.adapters.ProductActionListener
 import com.cesar.bocana.ui.adapters.ProductAdapter
@@ -100,7 +102,6 @@ import com.cesar.bocana.ui.dialogs.TraspasoC04MatrizDialogFragment
 
 class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, AjusteSubloteC04DialogFragment.AjusteSubloteC04Listener {
 
-    private val stockEpsilon = 0.1
     private var _binding: FragmentProductListBinding? = null
     private val binding get() = _binding!!
     private var currentLocationContext: String = Location.MATRIZ
@@ -316,15 +317,16 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         builder.setPositiveButton("Ajustar Stock") { _, _ ->
             val quantityString = inputNewQuantity.text.toString()
             try {
-                val newQuantity = quantityString.toDoubleOrNull()
-                if (newQuantity == null || newQuantity < 0.0) {
+                val rawNewQuantity = quantityString.toDoubleOrNull()
+                if (rawNewQuantity == null || rawNewQuantity < 0.0) {
                     view?.let { Snackbar.make(it, "Cantidad inválida (debe ser >= 0.0)", Snackbar.LENGTH_SHORT).show() }; isDialogOpen = false; return@setPositiveButton
                 }
-                if (newQuantity > product.stockCongelador04) {
+                if (rawNewQuantity > product.stockCongelador04 + StockQuantityPolicy.FLOAT_EPSILON) {
                     view?.let { Snackbar.make(it, "Error: Nueva cantidad > actual (${String.format("%.2f", product.stockCongelador04)})", Snackbar.LENGTH_LONG).show() }; isDialogOpen = false; return@setPositiveButton
                 }
+                val newQuantity = StockQuantityPolicy.normalizeLotQuantity(rawNewQuantity)
                 val quantityDifference = product.stockCongelador04 - newQuantity
-                if (quantityDifference <= 0.1) {
+                if (quantityDifference <= StockQuantityPolicy.FLOAT_EPSILON) {
                     view?.let { Snackbar.make(it, "No se requiere ajuste.", Snackbar.LENGTH_SHORT).show() }; isDialogOpen = false; return@setPositiveButton
                 }
                 val limit = (product.stockCongelador04 * 0.40)
@@ -350,71 +352,169 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
 
     private fun performEditC04(product: Product, newQuantityC04: Double, quantityDifference: Double) {
         if (product.id.isEmpty()) {
-            view?.let { Snackbar.make(it, "Error: ID de producto inválido.", Snackbar.LENGTH_LONG).show() }; return
+            view?.let { Snackbar.make(it, "Error: ID de producto inválido.", Snackbar.LENGTH_LONG).show() }
+            return
         }
-        val currentUser = auth.currentUser; if (currentUser == null) {
-            view?.let { Snackbar.make(it, "Error: Usuario no autenticado.", Snackbar.LENGTH_SHORT).show() }; return
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            view?.let { Snackbar.make(it, "Error: Usuario no autenticado.", Snackbar.LENGTH_SHORT).show() }
+            return
         }
         val currentUserName = currentUser.displayName ?: currentUser.email ?: "Unknown"
-
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
+        val targetC04 = StockQuantityPolicy.normalizeLotQuantity(newQuantityC04)
 
-        var productAfterUpdate: Product? = null
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // Leemos IDs de lotes abiertos y dentro de la transacción volvemos a leer cada
+                // documento antes de escribir. Así el ajuste agregado y los lotes quedan unidos.
+                val lotDocs = firestore.collection("inventoryLots")
+                    .whereEqualTo("productId", product.id)
+                    .whereEqualTo("location", Location.CONGELADOR_04)
+                    .whereEqualTo("isDepleted", false)
+                    .get().await()
+                    .documents
+                val lotRefs = lotDocs.map { it.reference }
 
-        firestore.runTransaction { transaction ->
-            val snapshot = transaction.get(productRef)
-            val currentProduct = snapshot.toObject(Product::class.java)
-                ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
+                var productAfterUpdate: Product? = null
+                var actualDifferenceForMessage = 0.0
 
-            if (newQuantityC04 < 0.0 || newQuantityC04 > currentProduct.stockCongelador04) {
-                throw FirebaseFirestoreException("Ajuste inválido. Stock C04: ${String.format(Locale.getDefault(), "%.2f", currentProduct.stockCongelador04)}, ajuste a: ${String.format(Locale.getDefault(), "%.2f", newQuantityC04)}", FirebaseFirestoreException.Code.ABORTED)
-            }
-            val actualDifference = currentProduct.stockCongelador04 - newQuantityC04
-            if (actualDifference <= 0.0) {
-                throw FirebaseFirestoreException("No se requiere ajuste.", FirebaseFirestoreException.Code.CANCELLED)
-            }
+                firestore.runTransaction { transaction ->
+                    val currentProduct = transaction.get(productRef).toObject(Product::class.java)
+                        ?: throw FirebaseFirestoreException("Producto no encontrado.", FirebaseFirestoreException.Code.ABORTED)
 
-            val newTotalStock = currentProduct.stockMatriz + newQuantityC04
+                    if (targetC04 < 0.0 || targetC04 > currentProduct.stockCongelador04 + StockQuantityPolicy.FLOAT_EPSILON) {
+                        throw FirebaseFirestoreException(
+                            "Ajuste inválido. Stock C04: ${String.format(Locale.getDefault(), "%.2f", currentProduct.stockCongelador04)}, ajuste a: ${String.format(Locale.getDefault(), "%.2f", targetC04)}",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
 
-            val movement = StockMovement(
-                userId = currentUser.uid, userName = currentUserName,
-                productId = product.id, productName = currentProduct.name,
-                type = MovementType.AJUSTE_STOCK_C04,
-                quantity = actualDifference,
-                locationFrom = Location.CONGELADOR_04,
-                locationTo = Location.EXTERNO,
-                reason = "Ajuste manual stock C04",
-                stockAfterMatriz = currentProduct.stockMatriz,
-                stockAfterCongelador04 = newQuantityC04,
-                stockAfterTotal = newTotalStock
-            )
+                    val requestedReduction = currentProduct.stockCongelador04 - targetC04
+                    if (requestedReduction <= StockQuantityPolicy.FLOAT_EPSILON) {
+                        throw FirebaseFirestoreException("No se requiere ajuste.", FirebaseFirestoreException.Code.CANCELLED)
+                    }
 
-            transaction.update(productRef, mapOf(
-                "stockCongelador04" to newQuantityC04,
-                "totalStock" to newTotalStock,
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "lastUpdatedByName" to currentUserName
-            ))
-            transaction.set(newMovementRef, movement)
+                    // Firestore exige hacer las lecturas de la transacción antes de empezar a escribir.
+                    val currentLots = lotRefs.mapNotNull { ref ->
+                        val snap = transaction.get(ref)
+                        snap.toObject(StockLot::class.java)?.copy(id = snap.id)
+                    }.filter { !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }
+                        .sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
 
-            productAfterUpdate = currentProduct.copy(stockCongelador04 = newQuantityC04, totalStock = newTotalStock)
-            null
-        }.addOnSuccessListener {
-            val msg = "Stock C04 ajustado a ${String.format("%.2f", newQuantityC04)} (-${String.format("%.2f", quantityDifference)} ${product.unit})"
-            view?.let { Snackbar.make(it, msg, Snackbar.LENGTH_SHORT).show() }
-            productAfterUpdate?.let { updatedProd ->
-                viewLifecycleOwner.lifecycleScope.launch {
+                    val lotStock = currentLots.sumOf { it.currentQuantity }
+                    if (requestedReduction > lotStock + StockQuantityPolicy.FLOAT_EPSILON) {
+                        throw FirebaseFirestoreException(
+                            "El stock C04 no coincide con sus lotes. Ejecuta primero Mantenimiento de inventario en DEV.",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
+
+                    var remaining = requestedReduction
+                    var actualReduced = 0.0
+                    var closedResidual = 0.0
+                    val affected = mutableListOf<String>()
+
+                    for (lot in currentLots) {
+                        if (remaining <= StockQuantityPolicy.FLOAT_EPSILON) break
+                        val withdrawal = StockQuantityPolicy.withdrawFromLot(lot.currentQuantity, remaining)
+                        if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) continue
+
+                        val requestedFromLot = kotlin.math.min(remaining, lot.currentQuantity)
+                        closedResidual += (withdrawal.actualTakenKg - requestedFromLot).coerceAtLeast(0.0)
+                        transaction.update(
+                            firestore.collection("inventoryLots").document(lot.id),
+                            mapOf(
+                                "currentQuantity" to withdrawal.remainingKg,
+                                "isDepleted" to withdrawal.depleted
+                            )
+                        )
+                        actualReduced += withdrawal.actualTakenKg
+                        remaining = (remaining - withdrawal.actualTakenKg).coerceAtLeast(0.0)
+                        affected += "${lot.id.takeLast(4)}:${String.format(Locale.getDefault(), "%.2f", withdrawal.actualTakenKg)}"
+                    }
+
+                    if (remaining > StockQuantityPolicy.FLOAT_EPSILON) {
+                        throw FirebaseFirestoreException(
+                            "No fue posible completar el ajuste. Faltan ${String.format(Locale.getDefault(), "%.3f", remaining)} kg.",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
+
+                    val effectiveC04 = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockCongelador04 - actualReduced)
+                    val newTotalStock = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockMatriz + effectiveC04)
+                    val closeNote = if (closedResidual > StockQuantityPolicy.FLOAT_EPSILON) {
+                        " | Cierre automático de residuo: ${String.format(Locale.getDefault(), "%.3f", closedResidual)} kg"
+                    } else ""
+
+                    val movement = StockMovement(
+                        id = newMovementRef.id,
+                        userId = currentUser.uid,
+                        userName = currentUserName,
+                        productId = product.id,
+                        productName = currentProduct.name,
+                        type = MovementType.AJUSTE_STOCK_C04,
+                        quantity = actualReduced,
+                        locationFrom = Location.CONGELADOR_04,
+                        locationTo = Location.EXTERNO,
+                        reason = "Ajuste manual C04 por FIFO. Lotes: ${affected.joinToString()}$closeNote",
+                        stockAfterMatriz = currentProduct.stockMatriz,
+                        stockAfterCongelador04 = effectiveC04,
+                        stockAfterTotal = newTotalStock,
+                        timestamp = Date(),
+                        affectedLotIds = currentLots.map { it.id }
+                    )
+
+                    transaction.update(productRef, mapOf(
+                        "stockCongelador04" to effectiveC04,
+                        "totalStock" to newTotalStock,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                        "lastUpdatedByName" to currentUserName
+                    ))
+                    transaction.set(newMovementRef, movement)
+
+                    val calendar = Calendar.getInstance()
+                    val checkpointId = "${product.id}_${calendar.get(Calendar.YEAR)}_${calendar.get(Calendar.WEEK_OF_YEAR)}"
+                    transaction.set(
+                        firestore.collection("consumption_history").document(checkpointId),
+                        mapOf("consumedKg" to FieldValue.increment(actualReduced)),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+
+                    actualDifferenceForMessage = actualReduced
+                    productAfterUpdate = currentProduct.copy(
+                        stockCongelador04 = effectiveC04,
+                        totalStock = newTotalStock
+                    )
+                    null
+                }.await()
+
+                if (!isAdded) return@launch
+                val appliedC04 = productAfterUpdate?.stockCongelador04 ?: targetC04
+                val requestedText = if (kotlin.math.abs(quantityDifference - actualDifferenceForMessage) > StockQuantityPolicy.FLOAT_EPSILON) {
+                    " · se cerró el residuo del último lote"
+                } else ""
+                view?.let {
+                    Snackbar.make(
+                        it,
+                        "Stock C04 ajustado a ${String.format(Locale.getDefault(), "%.2f", appliedC04)} (-${String.format(Locale.getDefault(), "%.2f", actualDifferenceForMessage)} ${product.unit})$requestedText",
+                        Snackbar.LENGTH_LONG
+                    ).show()
+                }
+                productAfterUpdate?.let { updatedProd ->
                     NotificationTriggerHelper.triggerLowStockNotification(updatedProd)
                 }
+            } catch (e: Exception) {
+                if (!isAdded) return@launch
+                val msg = if (e is FirebaseFirestoreException &&
+                    (e.code == FirebaseFirestoreException.Code.ABORTED || e.code == FirebaseFirestoreException.Code.CANCELLED)) {
+                    e.message
+                } else {
+                    "Error al ajustar stock C04: ${e.message}"
+                }
+                view?.let { Snackbar.make(it, msg ?: "Error desconocido", Snackbar.LENGTH_LONG).show() }
             }
-        }.addOnFailureListener { e ->
-            val msg = if (e is FirebaseFirestoreException && (e.code == FirebaseFirestoreException.Code.ABORTED || e.code == FirebaseFirestoreException.Code.CANCELLED)) {
-                e.message
-            } else {
-                "Error al ajustar stock C04: ${e.message}"
-            }
-            view?.let { Snackbar.make(it, msg ?: "Error desconocido", Snackbar.LENGTH_LONG).show() }
         }
     }
 
@@ -617,3 +717,4 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         private const val TAG = "ProductListFragment"
     }
 }
+

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -22,6 +23,7 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.ui.adapters.LotSelectionAdapter
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.snackbar.Snackbar // <-- IMPORTACIÓN AÑADIDA
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
@@ -43,7 +45,7 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
     private var product: Product? = null
     private lateinit var firestore: FirebaseFirestore
     private val auth = Firebase.auth
-    private val stockEpsilon = 0.1
+    private val stockEpsilon = StockQuantityPolicy.MIN_USABLE_KG
 
     companion object {
         const val TAG = "TraspasoMatrizC04Dialog"
@@ -106,14 +108,14 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
             val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
 
             var validationError = false
-            if (quantityToTraspasar == null || quantityToTraspasar <= 0.0) {
-                cantidadEditText.error = "Cantidad > 0.0"
+            if (quantityToTraspasar == null || quantityToTraspasar + StockQuantityPolicy.FLOAT_EPSILON < stockEpsilon) {
+                cantidadEditText.error = "Cantidad mínima: 0.10 kg"
                 validationError = true
             }
             if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
                 Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
                 validationError = true
-            } else if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && quantityToTraspasar > selectedLotsTotalNetQuantity + stockEpsilon) {
+            } else if (quantityToTraspasar != null && lotAdapter.currentList.isNotEmpty() && quantityToTraspasar > selectedLotsTotalNetQuantity + StockQuantityPolicy.FLOAT_EPSILON) {
                 cantidadEditText.error = "Excede stock de lotes seleccionados (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
                 validationError = true
             }
@@ -143,6 +145,7 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                 noLotesTextView.isVisible = true
             } else {
                 val lotes = snapshot.toObjects(StockLot::class.java)
+                    .filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
                 lotAdapter.submitList(lotes)
                 recyclerView.isVisible = true
             }
@@ -174,15 +177,15 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                     async(Dispatchers.IO) {
                         val lotSnapshot = firestore.collection("inventoryLots").document(lotId).get().await()
                         val stockLot = lotSnapshot.toObject(StockLot::class.java)?.copy(id = lotSnapshot.id)
-                        if (stockLot == null || stockLot.location != Location.MATRIZ || stockLot.isDepleted) {
+                        if (stockLot == null || stockLot.location != Location.MATRIZ || stockLot.isDepleted || !StockQuantityPolicy.isUsable(stockLot.currentQuantity)) {
                             throw FirebaseFirestoreException("El lote ${lotSnapshot.id} no es válido para traspaso.", FirebaseFirestoreException.Code.ABORTED)
                         }
                         stockLot
                     }
-                }.awaitAll().sortedBy { it.receivedAt ?: Date(0) }
+                }.awaitAll().sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
 
                 val totalDisponible = lotesOrigenMatriz.sumOf { it.currentQuantity }
-                if (quantityToTraspasarTotal > totalDisponible + stockEpsilon) {
+                if (quantityToTraspasarTotal > totalDisponible + StockQuantityPolicy.FLOAT_EPSILON) {
                     throw FirebaseFirestoreException("Stock insuficiente en lotes seleccionados (${String.format("%.2f", totalDisponible)} ${product.unit})", FirebaseFirestoreException.Code.ABORTED)
                 }
 
@@ -199,73 +202,121 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                     }
                 }.awaitAll().toMap()
 
+                var actualTransferredForMessage = 0.0
+
                 firestore.runTransaction { transaction ->
                     val currentProduct = transaction.get(productRef).toObject(Product::class.java)
                         ?: throw FirebaseFirestoreException("Producto no encontrado: ${product.name}", FirebaseFirestoreException.Code.ABORTED)
 
                     var restanteATraspasar = quantityToTraspasarTotal
+                    var actualTransferredKg = 0.0
+                    var closedResidualKg = 0.0
                     val idsOrigenAfectados = mutableListOf<String>()
                     val idsDestinoAfectados = mutableListOf<String>()
                     val newMovementRef = firestore.collection("stockMovements").document()
 
                     for (loteOrigen in lotesOrigenMatriz) {
-                        if (restanteATraspasar <= stockEpsilon) break
-                        val cantDeEsteLote = kotlin.math.min(loteOrigen.currentQuantity, restanteATraspasar)
+                        if (restanteATraspasar <= StockQuantityPolicy.FLOAT_EPSILON) break
 
-                        if (cantDeEsteLote > stockEpsilon) {
-                            idsOrigenAfectados.add("${loteOrigen.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)}")
-                            val nuevaCantOrigen = loteOrigen.currentQuantity - cantDeEsteLote
-                            transaction.update(firestore.collection("inventoryLots").document(loteOrigen.id), mapOf(
-                                "currentQuantity" to nuevaCantOrigen,
-                                "isDepleted" to (nuevaCantOrigen <= stockEpsilon)
-                            ))
+                        val withdrawal = StockQuantityPolicy.withdrawFromLot(loteOrigen.currentQuantity, restanteATraspasar)
+                        if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) continue
 
-                            val subloteExistenteSnapshot = sublotesExistentesData[loteOrigen.id]
+                        val requestedFromLot = kotlin.math.min(restanteATraspasar, loteOrigen.currentQuantity)
+                        closedResidualKg += (withdrawal.actualTakenKg - requestedFromLot).coerceAtLeast(0.0)
+                        val cantDeEsteLote = withdrawal.actualTakenKg
 
-                            if (subloteExistenteSnapshot != null) {
-                                val subloteRef = subloteExistenteSnapshot.reference
-                                transaction.update(subloteRef, "currentQuantity", FieldValue.increment(cantDeEsteLote))
-                                idsDestinoAfectados.add("${subloteRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Exist.)")
-                            } else {
-                                val newLotRef = firestore.collection("inventoryLots").document()
-                                val nuevoSublote = StockLot(
-                                    id = newLotRef.id, productId = loteOrigen.productId, productName = loteOrigen.productName,
-                                    unit = loteOrigen.unit, location = Location.CONGELADOR_04, receivedAt = traspasoTimestamp,
-                                    movementIdIn = newMovementRef.id, initialQuantity = cantDeEsteLote, currentQuantity = cantDeEsteLote,
-                                    isPackaged = loteOrigen.isPackaged, expirationDate = loteOrigen.expirationDate,
-                                    originalLotId = loteOrigen.id, originalReceivedAt = loteOrigen.receivedAt,
-                                    originalSupplierId = loteOrigen.supplierId, originalSupplierName = loteOrigen.supplierName,
-                                    originalLotNumber = loteOrigen.lotNumber
+                        idsOrigenAfectados.add("${loteOrigen.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)}")
+                        transaction.update(
+                            firestore.collection("inventoryLots").document(loteOrigen.id),
+                            mapOf(
+                                "currentQuantity" to withdrawal.remainingKg,
+                                "isDepleted" to withdrawal.depleted
+                            )
+                        )
+
+                        val subloteExistenteSnapshot = sublotesExistentesData[loteOrigen.id]
+                        if (subloteExistenteSnapshot != null) {
+                            val subloteRef = subloteExistenteSnapshot.reference
+                            transaction.update(
+                                subloteRef,
+                                mapOf(
+                                    "currentQuantity" to FieldValue.increment(cantDeEsteLote),
+                                    "isDepleted" to false
                                 )
-                                transaction.set(newLotRef, nuevoSublote)
-                                idsDestinoAfectados.add("${newLotRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Nuevo)")
-                            }
-                            restanteATraspasar -= cantDeEsteLote
+                            )
+                            idsDestinoAfectados.add("${subloteRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Exist.)")
+                        } else {
+                            val newLotRef = firestore.collection("inventoryLots").document()
+                            val fechaOriginal = loteOrigen.originalReceivedAt ?: loteOrigen.receivedAt
+                            val nuevoSublote = StockLot(
+                                id = newLotRef.id,
+                                productId = loteOrigen.productId,
+                                productName = loteOrigen.productName,
+                                unit = loteOrigen.unit,
+                                location = Location.CONGELADOR_04,
+                                receivedAt = traspasoTimestamp,
+                                movementIdIn = newMovementRef.id,
+                                initialQuantity = cantDeEsteLote,
+                                currentQuantity = cantDeEsteLote,
+                                isDepleted = false,
+                                isPackaged = loteOrigen.isPackaged,
+                                expirationDate = loteOrigen.expirationDate,
+                                originalLotId = loteOrigen.originalLotId ?: loteOrigen.id,
+                                originalReceivedAt = fechaOriginal,
+                                originalSupplierId = loteOrigen.originalSupplierId ?: loteOrigen.supplierId,
+                                originalSupplierName = loteOrigen.originalSupplierName ?: loteOrigen.supplierName,
+                                originalLotNumber = loteOrigen.originalLotNumber ?: loteOrigen.lotNumber
+                            )
+                            transaction.set(newLotRef, nuevoSublote)
+                            idsDestinoAfectados.add("${newLotRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Nuevo)")
                         }
+
+                        actualTransferredKg += cantDeEsteLote
+                        restanteATraspasar = (restanteATraspasar - cantDeEsteLote).coerceAtLeast(0.0)
                     }
 
+                    if (restanteATraspasar > StockQuantityPolicy.FLOAT_EPSILON) {
+                        throw FirebaseFirestoreException(
+                            "No fue posible completar el traspaso. Faltan ${String.format("%.3f", restanteATraspasar)} kg",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
+
+                    val newStockMatriz = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockMatriz - actualTransferredKg)
+                    val newStockC04 = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockCongelador04 + actualTransferredKg)
+                    val stableTotalStock = StockQuantityPolicy.normalizeLotQuantity(newStockMatriz + newStockC04)
                     transaction.update(productRef, mapOf(
-                        "stockMatriz" to FieldValue.increment(-quantityToTraspasarTotal),
-                        "stockCongelador04" to FieldValue.increment(quantityToTraspasarTotal),
+                        "stockMatriz" to newStockMatriz,
+                        "stockCongelador04" to newStockC04,
+                        "totalStock" to stableTotalStock,
                         "updatedAt" to FieldValue.serverTimestamp(),
                         "lastUpdatedByName" to currentUserName
                     ))
 
+                    val closeNote = if (closedResidualKg > StockQuantityPolicy.FLOAT_EPSILON) {
+                        " | Cierre automático de residuo: ${String.format("%.3f", closedResidualKg)} kg"
+                    } else ""
+
                     val movement = StockMovement(
                         id = newMovementRef.id, userId = user.uid, userName = currentUserName,
                         productId = product.id, productName = product.name, type = MovementType.TRASPASO_M_C04,
-                        quantity = quantityToTraspasarTotal, locationFrom = Location.MATRIZ, locationTo = Location.CONGELADOR_04,
-                        reason = "Origen(M): ${idsOrigenAfectados.joinToString()}; Destino(C04): ${idsDestinoAfectados.joinToString()}",
-                        stockAfterMatriz = currentProduct.stockMatriz - quantityToTraspasarTotal,
-                        stockAfterCongelador04 = currentProduct.stockCongelador04 + quantityToTraspasarTotal,
-                        stockAfterTotal = currentProduct.totalStock, timestamp = traspasoTimestamp,
+                        quantity = actualTransferredKg, locationFrom = Location.MATRIZ, locationTo = Location.CONGELADOR_04,
+                        reason = "Origen(M): ${idsOrigenAfectados.joinToString()}; Destino(C04): ${idsDestinoAfectados.joinToString()}$closeNote",
+                        stockAfterMatriz = newStockMatriz,
+                        stockAfterCongelador04 = newStockC04,
+                        stockAfterTotal = stableTotalStock, timestamp = traspasoTimestamp,
                         affectedLotIds = lotesOrigenMatriz.map { it.id }
                     )
                     transaction.set(newMovementRef, movement)
+                    actualTransferredForMessage = actualTransferredKg
                 }.await()
 
                 if (isAdded) {
-                    Snackbar.make(requireActivity().findViewById(android.R.id.content), "Traspaso realizado con éxito.", Snackbar.LENGTH_LONG).show()
+                    Snackbar.make(
+                        requireActivity().findViewById(android.R.id.content),
+                        "Traspaso realizado: ${String.format("%.2f", actualTransferredForMessage)} ${product.unit}",
+                        Snackbar.LENGTH_LONG
+                    ).show()
                     dismiss()
                 }
 
@@ -279,4 +330,6 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
             }
         }
     }
+
 }
+
