@@ -296,7 +296,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Referencia histórica / semana"
+                            android:text="Referencia habitual / semana"
                             android:textColor="#64748B"
                             android:textSize="12sp" />
                         <TextView
@@ -318,7 +318,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Referencia histórica / mes"
+                            android:text="Referencia habitual / 30 días"
                             android:textColor="#64748B"
                             android:textSize="12sp" />
                         <TextView

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -24,6 +25,7 @@ import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.helpers.NotificationTriggerHelper
 import com.cesar.bocana.ui.adapters.LotSelectionAdapter
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
@@ -41,7 +43,7 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
     private var product: Product? = null
     private lateinit var firestore: FirebaseFirestore
     private val auth = Firebase.auth
-    private val stockEpsilon = 0.1
+    private val stockEpsilon = StockQuantityPolicy.MIN_USABLE_KG
 
     companion object {
         const val TAG = "SalidaConsumoLotesDialog"
@@ -106,14 +108,14 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
             val selectedLotsTotalNetQuantity = lotAdapter.getSelectedLotsTotalQuantity()
 
             var validationError = false
-            if (quantityToConsume == null || quantityToConsume <= 0.0) {
-                cantidadEditText.error = "Cantidad > 0.0"
+            if (quantityToConsume == null || quantityToConsume + StockQuantityPolicy.FLOAT_EPSILON < stockEpsilon) {
+                cantidadEditText.error = "Cantidad mínima: 0.10 kg"
                 validationError = true
             }
             if (selectedLotIds.isEmpty() && lotAdapter.currentList.isNotEmpty()) {
                 Toast.makeText(context, "Debes seleccionar al menos un lote origen", Toast.LENGTH_SHORT).show()
                 validationError = true
-            } else if (quantityToConsume != null && lotAdapter.currentList.isNotEmpty() && quantityToConsume > selectedLotsTotalNetQuantity + stockEpsilon) {
+            } else if (quantityToConsume != null && lotAdapter.currentList.isNotEmpty() && quantityToConsume > selectedLotsTotalNetQuantity + StockQuantityPolicy.FLOAT_EPSILON) {
                 cantidadEditText.error = "Excede stock de lotes seleccionados (${String.format("%.2f", selectedLotsTotalNetQuantity)})"
                 validationError = true
             }
@@ -138,7 +140,9 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
                 noLotesTextView.text = "No hay lotes con stock en Matriz."
                 noLotesTextView.isVisible = true
             } else {
-                val lotes = snapshot.toObjects(StockLot::class.java).map { it.copy(id = it.id) }
+                val lotes = snapshot.toObjects(StockLot::class.java)
+                    .map { it.copy(id = it.id) }
+                    .filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
                 lotAdapter.submitList(lotes)
                 recyclerView.isVisible = true
             }
@@ -160,7 +164,6 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
         val productRef = firestore.collection("products").document(product.id)
         val newMovementRef = firestore.collection("stockMovements").document()
 
-        // Calcular ID del Checkpoint Semanal
         val calendar = java.util.Calendar.getInstance()
         val currentYear = calendar.get(java.util.Calendar.YEAR)
         val currentWeek = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
@@ -176,33 +179,49 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
                 val lotSnapshot = transaction.get(firestore.collection("inventoryLots").document(lotId))
                 lotSnapshot.toObject(StockLot::class.java)?.copy(id = lotSnapshot.id)
                     ?: throw FirebaseFirestoreException("Lote no encontrado", FirebaseFirestoreException.Code.ABORTED)
-            }.sortedBy { it.receivedAt }
+            }.filter { !it.isDepleted && StockQuantityPolicy.isUsable(it.currentQuantity) }
+                .sortedBy { it.receivedAt }
 
             val totalSelectedStock = lotObjects.sumOf { it.currentQuantity }
-            if (quantityToConsume > totalSelectedStock + stockEpsilon) {
+            if (quantityToConsume > totalSelectedStock + StockQuantityPolicy.FLOAT_EPSILON) {
                 throw FirebaseFirestoreException("Stock insuficiente en lotes seleccionados", FirebaseFirestoreException.Code.ABORTED)
             }
 
             var remainingToConsume = quantityToConsume
+            var actualConsumedKg = 0.0
+            var closedResidualKg = 0.0
             val affectedLotDetails = mutableListOf<String>()
 
             for (lot in lotObjects) {
-                if (remainingToConsume <= stockEpsilon) break
-                val quantityFromThisLot = kotlin.math.min(remainingToConsume, lot.currentQuantity)
-                if (quantityFromThisLot > stockEpsilon) {
-                    val newLotQuantity = lot.currentQuantity - quantityFromThisLot
-                    transaction.update(
-                        firestore.collection("inventoryLots").document(lot.id),
-                        "currentQuantity", newLotQuantity,
-                        "isDepleted", newLotQuantity <= stockEpsilon
-                    )
-                    remainingToConsume -= quantityFromThisLot
-                    affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", quantityFromThisLot)}")
-                }
+                if (remainingToConsume <= StockQuantityPolicy.FLOAT_EPSILON) break
+
+                val withdrawal = StockQuantityPolicy.withdrawFromLot(lot.currentQuantity, remainingToConsume)
+                if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) continue
+
+                val requestedFromLot = kotlin.math.min(remainingToConsume, lot.currentQuantity)
+                val extraClosed = (withdrawal.actualTakenKg - requestedFromLot).coerceAtLeast(0.0)
+                closedResidualKg += extraClosed
+
+                transaction.update(
+                    firestore.collection("inventoryLots").document(lot.id),
+                    "currentQuantity", withdrawal.remainingKg,
+                    "isDepleted", withdrawal.depleted
+                )
+
+                actualConsumedKg += withdrawal.actualTakenKg
+                remainingToConsume = (remainingToConsume - withdrawal.actualTakenKg).coerceAtLeast(0.0)
+                affectedLotDetails.add("${lot.id.takeLast(4)}:${String.format("%.2f", withdrawal.actualTakenKg)}")
             }
 
-            val newStockMatriz = currentProduct.stockMatriz - quantityToConsume
-            val newTotalStock = currentProduct.totalStock - quantityToConsume
+            if (remainingToConsume > StockQuantityPolicy.FLOAT_EPSILON) {
+                throw FirebaseFirestoreException(
+                    "No fue posible completar la salida. Faltan ${String.format("%.3f", remainingToConsume)} kg",
+                    FirebaseFirestoreException.Code.ABORTED
+                )
+            }
+
+            val newStockMatriz = StockQuantityPolicy.normalizeLotQuantity(currentProduct.stockMatriz - actualConsumedKg)
+            val newTotalStock = StockQuantityPolicy.normalizeLotQuantity(currentProduct.totalStock - actualConsumedKg)
             transaction.update(productRef, mapOf(
                 "stockMatriz" to newStockMatriz,
                 "totalStock" to newTotalStock,
@@ -210,20 +229,23 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
                 "lastUpdatedByName" to currentUserName
             ))
 
+            val closeNote = if (closedResidualKg > StockQuantityPolicy.FLOAT_EPSILON) {
+                " | Cierre automático de residuo: ${String.format("%.3f", closedResidualKg)} kg"
+            } else ""
+
             val movement = StockMovement(
                 id = newMovementRef.id, userId = user.uid, userName = currentUserName,
                 productId = product.id, productName = product.name, type = MovementType.SALIDA_CONSUMO,
-                quantity = quantityToConsume, locationFrom = Location.MATRIZ, locationTo = Location.EXTERNO,
-                reason = "Lotes: ${affectedLotDetails.joinToString()}",
+                quantity = actualConsumedKg, locationFrom = Location.MATRIZ, locationTo = Location.EXTERNO,
+                reason = "Lotes: ${affectedLotDetails.joinToString()}$closeNote",
                 stockAfterMatriz = newStockMatriz, stockAfterCongelador04 = currentProduct.stockCongelador04,
                 stockAfterTotal = newTotalStock, timestamp = Date()
             )
             transaction.set(newMovementRef, movement)
 
-            // NUEVO: Actualizar el Checkpoint Semanal automáticamente
             transaction.set(
                 checkpointRef,
-                mapOf("consumedKg" to FieldValue.increment(quantityToConsume)),
+                mapOf("consumedKg" to FieldValue.increment(actualConsumedKg)),
                 com.google.firebase.firestore.SetOptions.merge()
             )
 
@@ -242,4 +264,6 @@ class SalidaConsumoLotesDialogFragment : DialogFragment() {
             dismiss()
         }
     }
+
 }
+

@@ -1,3 +1,4 @@
+
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -16,6 +17,7 @@ import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.PendingPackagingTask
 import com.cesar.bocana.data.model.StockLot
+import com.cesar.bocana.util.StockQuantityPolicy
 import com.cesar.bocana.databinding.DialogEmpaqueBinding
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.auth.ktx.auth
@@ -139,6 +141,14 @@ class EmpaqueDialogFragment : DialogFragment() {
             if (pesoUltimaCaja <= 0) {
                 binding.textViewCalculoResultado.text = "Incongruencia: El peso es mayor al disponible."
                 binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.holo_red_dark))
+            } else if (pesoUltimaCaja + StockQuantityPolicy.FLOAT_EPSILON < StockQuantityPolicy.MIN_USABLE_KG) {
+                val promedioAjustado = totalGranel / cajasNormales.toDouble()
+                binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
+                binding.textViewCalculoResultado.text = String.format(
+                    Locale.getDefault(),
+                    "El remanente de %.3f Kg es menor a 0.10 Kg y no formará otro lote. Se integrará al empaque normal: %d %ss, %.3f Kg promedio c/u.",
+                    pesoUltimaCaja, cajasNormales, unidadEmpaque, promedioAjustado
+                )
             } else {
                 binding.textViewCalculoResultado.setTextColor(ContextCompat.getColor(requireContext(), R.color.purple_700))
                 binding.textViewCalculoResultado.text = String.format(Locale.getDefault(), "= %d %ss de %.2f Kg y 1 %s de %.2f Kg", cajasNormales, unidadEmpaque, pesoFijo, unidadEmpaque, pesoUltimaCaja)
@@ -210,6 +220,12 @@ class EmpaqueDialogFragment : DialogFragment() {
                         ?: throw FirebaseFirestoreException("El lote a empacar ya no existe.", FirebaseFirestoreException.Code.ABORTED)
 
                     if (lotToUpdate.isPackaged) throw FirebaseFirestoreException("Este lote ya fue marcado como empacado.", FirebaseFirestoreException.Code.ABORTED)
+                    if (lotToUpdate.isDepleted || !StockQuantityPolicy.isUsable(lotToUpdate.currentQuantity)) {
+                        throw FirebaseFirestoreException(
+                            "El lote ya no tiene stock operativo (menos de 0.10 kg).",
+                            FirebaseFirestoreException.Code.ABORTED
+                        )
+                    }
 
                     if (isVariable) {
                         // LÓGICA NUEVA: VARIABLE (PROMEDIADOR)
@@ -236,22 +252,30 @@ class EmpaqueDialogFragment : DialogFragment() {
                             pesoUltimaCaja = totalKg
                         }
 
+                        val ultimoEsResiduo = pesoUltimaCaja >= 0.0 &&
+                            pesoUltimaCaja + StockQuantityPolicy.FLOAT_EPSILON < StockQuantityPolicy.MIN_USABLE_KG
+
                         if (cajasNormales > 0 && pesoFijo != null) {
+                            // Si la última “caja” sería un residuo < 0.10 kg, no se crea un lote fantasma.
+                            // Ese pequeño remanente se absorbe en el lote empacado normal para conservar la masa total.
+                            val kgLoteNormal = if (ultimoEsResiduo) totalKg else cajasNormales * pesoFijo
+                            val pesoPromedioReal = kgLoteNormal / cajasNormales.toDouble()
                             val newLotRefNormal = firestore.collection("inventoryLots").document()
                             val newLotNormal = lotToUpdate.copy(
                                 id = newLotRefNormal.id, isPackaged = true, unidadDeEmpaque = unidad,
-                                pesoPorUnidad = pesoFijo, initialQuantity = cajasNormales * pesoFijo,
-                                currentQuantity = cajasNormales * pesoFijo, cantidadInicialUnidades = cajasNormales.toDouble()
+                                pesoPorUnidad = pesoPromedioReal, initialQuantity = kgLoteNormal,
+                                currentQuantity = kgLoteNormal, cantidadInicialUnidades = cajasNormales.toDouble(),
+                                isDepleted = false
                             )
                             transaction.set(newLotRefNormal, newLotNormal)
                         }
 
-                        if (pesoUltimaCaja > 0.01) {
+                        if (!ultimoEsResiduo && StockQuantityPolicy.isUsable(pesoUltimaCaja)) {
                             val newLotRefSobrante = firestore.collection("inventoryLots").document()
                             val newLotSobrante = lotToUpdate.copy(
                                 id = newLotRefSobrante.id, isPackaged = true, unidadDeEmpaque = unidad,
                                 pesoPorUnidad = pesoUltimaCaja, initialQuantity = pesoUltimaCaja,
-                                currentQuantity = pesoUltimaCaja, cantidadInicialUnidades = 1.0
+                                currentQuantity = pesoUltimaCaja, cantidadInicialUnidades = 1.0, isDepleted = false
                             )
                             transaction.set(newLotRefSobrante, newLotSobrante)
                         }
@@ -283,3 +307,4 @@ class EmpaqueDialogFragment : DialogFragment() {
         _binding = null
     }
 }
+
