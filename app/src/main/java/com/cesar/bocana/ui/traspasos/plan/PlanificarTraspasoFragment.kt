@@ -101,7 +101,7 @@ class PlanificarTraspasoFragment : Fragment() {
         context?.let { ctx ->
             AlertDialog.Builder(ctx)
                 .setTitle("Continuar Planificación")
-                .setMessage("Se encontró un plan sin terminar del día de hoy. ¿Deseas continuar con él?")
+                .setMessage("Se encontró un plan sin terminar de hoy. Continuar conserva tus cantidades y vuelve a leer el stock local, por si empacaste mercancía o cambió el inventario.")
                 .setPositiveButton("Sí, continuar") { _, _ ->
                     viewModel.cargarPlanDesdeCache()
                 }
@@ -156,6 +156,11 @@ class PlanificarTraspasoFragment : Fragment() {
 
         binding.btnGenerarPdfTop.setOnClickListener {
             viewModel.guardarPlanEnFirestore(selectedDate)
+        }
+
+        binding.btnRegenerarSugerencias.setOnClickListener {
+            adapter.showAllReasonsAgain()
+            viewModel.regenerarSugerencias()
         }
 
         binding.btnAgregarFilaVacia.setOnClickListener {

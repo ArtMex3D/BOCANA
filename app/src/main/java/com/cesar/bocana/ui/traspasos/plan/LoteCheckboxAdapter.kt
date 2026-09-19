@@ -58,12 +58,12 @@ class LoteCheckboxAdapter(
         fun bind(item: Pair<StockLot, Double?>) {
             val (lote, cantidadAsignada) = item
 
-            val fecha = dateFormat.format(lote.receivedAt ?: Date())
-            val proveedor = lote.supplierName ?: "S/P"
+            val fecha = dateFormat.format(lote.originalReceivedAt ?: lote.receivedAt ?: Date())
+            val proveedor = lote.supplierName ?: lote.originalSupplierName ?: "S/P"
 
             val esGranel = isBulkProduct
 
-            binding.textviewLoteInfo.text = "$fecha ($proveedor)"
+            binding.textviewLoteInfo.text = "$proveedor · $fecha"
 
             val esLoteEspecificoGranel = lote.unidadDeEmpaque.isNullOrBlank() || lote.pesoPorUnidad == null || lote.pesoPorUnidad <= 0.0
 

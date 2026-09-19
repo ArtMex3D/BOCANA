@@ -15,6 +15,12 @@ interface DevolucionDao {
     @Query("SELECT * FROM pending_devoluciones ORDER BY status DESC, registeredAt DESC")
     fun getAllDevolucionesStream(): Flow<List<DevolucionPendiente>>
 
+    @Query("SELECT * FROM pending_devoluciones ORDER BY status DESC, registeredAt DESC")
+    suspend fun getAllDevolucionesOnce(): List<DevolucionPendiente>
+
+    @Query("SELECT * FROM pending_devoluciones WHERE productId = :productId ORDER BY registeredAt DESC")
+    suspend fun getDevolucionesForProductOnce(productId: String): List<DevolucionPendiente>
+
     @Query("DELETE FROM pending_devoluciones")
     suspend fun clearAll()
 }

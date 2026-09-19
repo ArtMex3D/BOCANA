@@ -108,6 +108,16 @@ data class PredictiveGroupConfig(
     val memberRules: List<GroupMemberRule> = emptyList(),
     val primaryProductId: String? = null,
     val secondaryProductIds: List<String> = emptyList(),
+    /**
+     * Objetivo HABITUAL conjunto de C04. Lo configura el usuario.
+     * V3 calcula aparte un objetivo dinámico; nunca reescribe este valor.
+     */
+    val c04GroupTargetKg: Double = 0.0,
+    /**
+     * Mínimo operativo del producto rector dentro del grupo (ej. H.O.).
+     * No sustituye Product.minStock, que sigue siendo una reserva GENERAL.
+     */
+    val primaryMinimumC04Kg: Double = 0.0,
     val enabled: Boolean = true
 )
 

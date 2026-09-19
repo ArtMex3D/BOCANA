@@ -61,7 +61,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Stock Ideal C-04 (Kg)">
+                android:hint="Objetivo habitual C-04 (Kg)">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/editTextStockIdealC04"

@@ -12,8 +12,10 @@ import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.predictive.v3.PredictiveV3Coordinator
+import com.cesar.bocana.predictive.v3.data.PredictiveV3RoomDataSource
 import com.cesar.bocana.predictive.v3.model.BacktestSignal
 import com.cesar.bocana.predictive.v3.model.ConfidenceLevel
 import com.cesar.bocana.predictive.v3.model.GroupAnalysisV3
@@ -106,29 +108,40 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             isFillViewport = true
         }
 
-        // Fallback inmediato con V2. En DEV, V3 reemplaza estos valores al terminar el análisis.
-        renderLegacyFallback()
-
         val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
         if (projectId == DEV_PROJECT_ID) {
+            // En DEV no mostramos primero una predicción V2 que luego cambie a V3.
+            // Mientras V3 analiza, la UI queda en estado neutro para evitar datos contradictorios.
+            renderV3LoadingState()
             addLoadingCard()
             viewLifecycleOwner.lifecycleScope.launch {
                 try {
-                    val analysis = PredictiveV3Coordinator(FirebaseFirestore.getInstance())
-                        .analyzeProduct(product.id)
+                    val roomSource = PredictiveV3RoomDataSource(
+                        AppDatabase.getDatabase(requireContext().applicationContext)
+                    )
+                    val analysis = PredictiveV3Coordinator(
+                        firestore = FirebaseFirestore.getInstance(),
+                        dataSource = roomSource
+                    ).analyzeProduct(product.id)
                     if (!isAdded) return@launch
                     renderV3(analysis)
                 } catch (e: Exception) {
                     if (!isAdded) return@launch
+
+                    // V2 se conserva únicamente como respaldo real si V3 falla.
+                    renderLegacyFallback()
                     v3DeepContainer.removeAllViews()
                     addSectionCard(
-                        title = "No se pudo completar el análisis V3",
-                        subtitle = "Los datos V2 siguen visibles. Detalle: ${e.message ?: "error desconocido"}",
+                        title = "Análisis avanzado no disponible",
+                        subtitle = "Se muestran datos de respaldo. Detalle: ${e.message ?: "error desconocido"}",
                         accent = "#B91C1C",
                         background = "#FFF7F7"
                     )
                 }
             }
+        } else {
+            // Mientras V3 siga validándose en DEV, producción conserva el comportamiento V2 actual.
+            renderLegacyFallback()
         }
     }
 
@@ -146,6 +159,34 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         view?.findViewById<NestedScrollView>(R.id.scrollPredictive)?.post {
             view?.findViewById<NestedScrollView>(R.id.scrollPredictive)?.scrollTo(0, 0)
         }
+    }
+
+    private fun renderV3LoadingState() {
+        val neutral = Color.parseColor("#94A3B8")
+
+        tvGaugeNumber.text = "…"
+        tvGaugeText.text = "ANALIZANDO"
+        tvGaugeExtra.visibility = View.GONE
+        tvGaugeNumber.setTextColor(neutral)
+        tvGaugeText.setTextColor(neutral)
+        progressGauge.progressDrawable.setTint(neutral)
+        progressGauge.progress = 0
+
+        cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F1F5F9"))
+        tvStatusBadge.setTextColor(Color.parseColor("#64748B"))
+        tvStatusBadge.text = "Analizando inventario"
+
+        tvMainPrediction.text = "Calculando cobertura…"
+        tvProbableRange.text = "Revisando historial, lotes y grupos"
+
+        tvForecastWeekly.text = "—"
+        tvForecast30Days.text = "—"
+        tvAverageWeekly.text = "—"
+        tvAverageMonthly.text = "—"
+
+        tvHighDemandScenario.text = "Preparando escenario de mayor consumo…"
+        tvLowDemandScenario.text = "Preparando escenario de menor consumo…"
+        tvSeasonInsight.text = "Preparando análisis predictivo V3…"
     }
 
     private fun renderLegacyFallback() {
@@ -862,3 +903,4 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         else -> "#CBD5E1"
     }
 }
+

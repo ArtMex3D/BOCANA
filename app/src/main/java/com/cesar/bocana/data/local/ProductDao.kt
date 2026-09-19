@@ -19,6 +19,12 @@ interface ProductDao {
     @Query("SELECT * FROM products WHERE isActive = 1 ORDER BY name ASC")
     fun getAllActiveProductsStream(): Flow<List<Product>>
 
+    @Query("SELECT * FROM products WHERE isActive = 1 ORDER BY ordenTraspaso ASC, name ASC")
+    suspend fun getAllActiveProductsOnce(): List<Product>
+
+    @Query("SELECT * FROM products WHERE id = :productId LIMIT 1")
+    suspend fun getProductByIdOnce(productId: String): Product?
+
     @Query("SELECT * FROM products WHERE isActive = 0 ORDER BY name ASC")
     fun getAllArchivedProductsStream(): Flow<List<Product>>
 

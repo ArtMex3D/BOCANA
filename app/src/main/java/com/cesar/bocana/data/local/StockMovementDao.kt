@@ -24,6 +24,15 @@ interface StockMovementDao {
     @Query("SELECT DISTINCT userName FROM stock_movements WHERE userName IS NOT NULL")
     suspend fun getAllUserNames(): List<String>
 
+    @Query("SELECT * FROM stock_movements ORDER BY timestamp ASC")
+    suspend fun getAllMovementsOnce(): List<StockMovement>
+
+    @Query("SELECT * FROM stock_movements WHERE productId = :productId ORDER BY timestamp ASC")
+    suspend fun getMovementsForProductOnce(productId: String): List<StockMovement>
+
+    @Query("SELECT * FROM stock_movements WHERE timestamp >= :startMillis AND timestamp < :endMillis ORDER BY timestamp ASC")
+    suspend fun getMovementsBetweenOnce(startMillis: Long, endMillis: Long): List<StockMovement>
+
     // Usaremos RawQuery para ejecutar una consulta construida dinámicamente
     @RawQuery(observedEntities = [StockMovement::class])
     fun getFilteredMovementsPaged(query: SupportSQLiteQuery): PagingSource<Int, StockMovement>

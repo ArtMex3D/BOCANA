@@ -26,6 +26,7 @@ import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment
 import com.cesar.bocana.ui.groups.PredictiveGroupsFragment
+import com.cesar.bocana.ui.groups.GroupStockFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
 import com.google.firebase.FirebaseApp
@@ -71,6 +72,7 @@ class MoreOptionsFragment : Fragment() {
         binding.buttonNavToProveedores.setOnClickListener { navigateTo(SupplierListFragment(), "SupplierListFragment") }
         binding.buttonNavToConfigTraspasos.setOnClickListener { navigateTo(ConfiguracionTraspasoFragment(), "ConfiguracionTraspasoFragment") }
         binding.buttonNavToPredictiveGroups.setOnClickListener { navigateTo(PredictiveGroupsFragment(), "PredictiveGroupsFragment") }
+        binding.buttonNavToGroupStock.setOnClickListener { navigateTo(GroupStockFragment(), "GroupStockFragment") }
 
 
 
@@ -576,4 +578,3 @@ class MoreOptionsFragment : Fragment() {
         _binding = null
     }
 }
-

@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.ui.traspasos.plan
 
 import android.app.Dialog
@@ -18,16 +17,14 @@ import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
+import com.cesar.bocana.data.local.AppDatabase
+import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.databinding.DialogSeleccionarLotesBinding
-import com.cesar.bocana.utils.FirestoreCollections
 import com.google.android.material.textfield.TextInputEditText
 import com.cesar.bocana.util.StockQuantityPolicy
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.floor
@@ -45,6 +42,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
 
     private var isBulkProductArg: Boolean = false
     private var productInfo: Product? = null
+    private val localDb by lazy { AppDatabase.getDatabase(requireContext().applicationContext) }
 
     companion object {
         const val TAG = "SeleccionarLotesDialog"
@@ -102,10 +100,9 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
     private fun loadProductInfo(productId: String) {
         lifecycleScope.launch {
             try {
-                val productDoc = Firebase.firestore.collection(FirestoreCollections.PRODUCTS).document(productId).get().await()
-                productInfo = productDoc.toObject(Product::class.java)?.copy(id = productDoc.id)
+                productInfo = localDb.productDao().getProductByIdOnce(productId)
             } catch (e: Exception) {
-                Log.e(TAG, "Error al cargar información del producto $productId", e)
+                Log.e(TAG, "Error al cargar información local del producto $productId", e)
             }
         }
     }
@@ -207,7 +204,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         val inputLayout = dialogView.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.textField_layout_cantidad_edit)
 
         val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-        val fecha = dateFormat.format(lote.receivedAt ?: Date())
+        val fecha = dateFormat.format(lote.originalReceivedAt ?: lote.receivedAt ?: Date())
         val proveedor = lote.supplierName ?: "S/P"
         loteInfoTextView.text = "Editando: $fecha ($proveedor)"
 
@@ -294,28 +291,24 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         lifecycleScope.launch {
             binding.progressBarDialogLotes.isVisible = true
             try {
-                // 💡 FIX LISTA VACÍA: Quitamos la condición ".whereEqualTo("estadoTraspaso", null)"
-                // Firestore no busca "null" de forma directa, se filtra en la memoria en Kotlin.
-                val snapshot = Firebase.firestore.collection("inventoryLots")
-                    .whereEqualTo("productId", productId)
-                    .whereEqualTo("location", "MATRIZ")
-                    .whereEqualTo("isDepleted", false)
-                    .orderBy("receivedAt")
-                    .get().await()
-
-                allLotes = snapshot.toObjects(StockLot::class.java)
+                // Local-first: Traspasos ya no vuelve a descargar los lotes al abrir el selector.
+                // Room es mantenido por la sincronización/listeners generales de la app.
+                allLotes = localDb.stockLotDao()
+                    .getOpenLotsForProductOnce(productId)
                     .filter {
-                        it.isPackaged != false &&
+                        it.location == Location.MATRIZ &&
+                            it.isPackaged &&
                             it.estadoTraspaso == null &&
                             !it.isDepleted &&
                             StockQuantityPolicy.isUsable(it.currentQuantity)
                     }
+                    .sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
 
                 updateAdapterList()
             } catch (e: Exception) {
-                Log.e(TAG, "Error al cargar lotes", e)
+                Log.e(TAG, "Error al cargar lotes locales", e)
             } finally {
-                if(isAdded) {
+                if (isAdded) {
                     binding.progressBarDialogLotes.isVisible = false
                     binding.textviewNoLotes.isVisible = allLotes.isEmpty()
                     if (allLotes.isEmpty()) {
@@ -331,4 +324,3 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         _binding = null
     }
 }
-

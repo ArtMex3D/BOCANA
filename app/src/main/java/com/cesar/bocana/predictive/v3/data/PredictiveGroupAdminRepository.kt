@@ -159,6 +159,9 @@ class PredictiveGroupAdminRepository(
             }
         }
 
+        if (changed) {
+            PredictiveV3ConfigRepository.invalidateMemoryCache()
+        }
         return changed
     }
 
@@ -225,6 +228,7 @@ class PredictiveGroupAdminRepository(
         }
 
         docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+        PredictiveV3ConfigRepository.invalidateMemoryCache()
         return docRef.id
     }
 
@@ -287,7 +291,35 @@ class PredictiveGroupAdminRepository(
         }
 
         docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+        PredictiveV3ConfigRepository.invalidateMemoryCache()
         return docRef.id
+    }
+
+    /**
+     * Actualiza únicamente los parámetros operativos de stock grupal.
+     * No cambia miembros, prioridades, históricos ni relaciones.
+     */
+    suspend fun saveGroupStockConfig(
+        groupId: String,
+        c04GroupTargetKg: Double,
+        primaryMinimumC04Kg: Double
+    ) {
+        require(groupId.isNotBlank()) { "Grupo no válido." }
+
+        val target = c04GroupTargetKg.coerceAtLeast(0.0)
+        val minimum = primaryMinimumC04Kg.coerceAtLeast(0.0)
+
+        firestore.collection(COLLECTION).document(groupId)
+            .update(
+                mapOf(
+                    "c04GroupTargetKg" to target,
+                    "primaryMinimumC04Kg" to minimum,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
+            .await()
+
+        PredictiveV3ConfigRepository.invalidateMemoryCache()
     }
 
     /**
@@ -311,6 +343,7 @@ class PredictiveGroupAdminRepository(
         }
 
         batch.commit().await()
+        PredictiveV3ConfigRepository.invalidateMemoryCache()
     }
 
     private suspend fun validateNoDuplicateJointMembership(
@@ -390,6 +423,8 @@ class PredictiveGroupAdminRepository(
                     secondaryProductIds = (doc.get("secondaryProductIds") as? List<*>)
                         ?.mapNotNull { it as? String }
                         .orEmpty(),
+                    c04GroupTargetKg = doc.getDouble("c04GroupTargetKg") ?: 0.0,
+                    primaryMinimumC04Kg = doc.getDouble("primaryMinimumC04Kg") ?: 0.0,
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             }

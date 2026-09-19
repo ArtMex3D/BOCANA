@@ -20,13 +20,13 @@ import java.util.Date
 
 class PredictiveV3FirestoreDataSource(
     private val firestore: FirebaseFirestore
-) {
+) : PredictiveV3DataSource {
     companion object {
         private const val IN_LIMIT = 30
         const val ACTIVE_EPSILON_KG = StockQuantityPolicy.MIN_USABLE_KG
     }
 
-    suspend fun loadProducts(): List<Product> {
+    override suspend fun loadProducts(): List<Product> {
         return firestore.collection("products")
             .get().await()
             .documents
@@ -39,7 +39,7 @@ class PredictiveV3FirestoreDataSource(
      * Los residuos < 0.10 kg se conservan en el resultado para poder reportarlos,
      * pero NO se consideran stock activo por el motor.
      */
-    suspend fun loadOpenLotInsights(productIds: Set<String>): List<LotInsight> {
+    override suspend fun loadOpenLotInsights(productIds: Set<String>): List<LotInsight> {
         if (productIds.isEmpty()) return emptyList()
         val docs = coroutineScope {
             productIds.map { productId ->
@@ -74,7 +74,7 @@ class PredictiveV3FirestoreDataSource(
             .toList()
     }
 
-    fun activeMatrizFifoByProduct(lots: List<LotInsight>): Map<String, List<FifoLotSnapshot>> {
+    override fun activeMatrizFifoByProduct(lots: List<LotInsight>): Map<String, List<FifoLotSnapshot>> {
         return lots.asSequence()
             .filter { it.location == Location.MATRIZ && StockQuantityPolicy.isUsable(it.currentKg) }
             .map { lot ->
@@ -92,7 +92,7 @@ class PredictiveV3FirestoreDataSource(
             .mapValues { (_, value) -> value.sortedBy { it.effectiveReceivedAt()?.time ?: Long.MAX_VALUE } }
     }
 
-    suspend fun loadCheckpointValues(
+    override suspend fun loadCheckpointValues(
         productIds: Set<String>,
         weeks: List<PredictiveV3Time.WeekRef>
     ): Map<String, Double> {
@@ -114,7 +114,7 @@ class PredictiveV3FirestoreDataSource(
         return result
     }
 
-    suspend fun loadConsumptionForRange(
+    override suspend fun loadConsumptionForRange(
         productIds: Set<String>,
         startInclusive: Date,
         endExclusive: Date
@@ -144,7 +144,7 @@ class PredictiveV3FirestoreDataSource(
     }
 
     /** Todos los movimientos de UN producto: compras, traspasos y devoluciones se derivan sin consultas extra. */
-    suspend fun loadMovementsForProduct(productId: String): List<StockMovement> {
+    override suspend fun loadMovementsForProduct(productId: String): List<StockMovement> {
         val snapshot = firestore.collection("stockMovements")
             .whereEqualTo("productId", productId)
             .get().await()
@@ -153,7 +153,7 @@ class PredictiveV3FirestoreDataSource(
             .sortedBy { it.timestamp?.time ?: Long.MIN_VALUE }
     }
 
-    suspend fun loadPackagingSignal(productId: String): PackagingSignal? {
+    override suspend fun loadPackagingSignal(productId: String): PackagingSignal? {
         val snapshot = firestore.collection("pendingPackaging")
             .whereEqualTo("productId", productId)
             .get().await()
@@ -168,7 +168,7 @@ class PredictiveV3FirestoreDataSource(
         )
     }
 
-    suspend fun loadReturnSignal(productId: String, productMovements: List<StockMovement>): ReturnSignal? {
+    override suspend fun loadReturnSignal(productId: String, productMovements: List<StockMovement>): ReturnSignal? {
         val snapshot = firestore.collection("pendingDevoluciones")
             .whereEqualTo("productId", productId)
             .get().await()
@@ -197,7 +197,7 @@ class PredictiveV3FirestoreDataSource(
         )
     }
 
-    fun seriesForProduct(
+    override fun seriesForProduct(
         productId: String,
         weeks: List<PredictiveV3Time.WeekRef>,
         checkpointValues: Map<String, Double>
@@ -209,7 +209,7 @@ class PredictiveV3FirestoreDataSource(
         }
     }
 
-    fun currentWeekConsumed(
+    override fun currentWeekConsumed(
         productId: String,
         currentWeek: PredictiveV3Time.WeekRef,
         checkpointValues: Map<String, Double>

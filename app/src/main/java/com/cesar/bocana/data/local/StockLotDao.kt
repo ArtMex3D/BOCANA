@@ -22,6 +22,15 @@ interface StockLotDao {
     @Query("SELECT * FROM stock_lots WHERE productId = :productId AND location = :location AND isDepleted = 0 ORDER BY receivedAt ASC")
     fun getActiveLotsStream(productId: String, location: String): Flow<List<StockLot>>
 
+    @Query("SELECT * FROM stock_lots WHERE isDepleted = 0 ORDER BY receivedAt ASC")
+    suspend fun getAllOpenLotsOnce(): List<StockLot>
+
+    @Query("SELECT * FROM stock_lots WHERE productId = :productId AND isDepleted = 0 ORDER BY receivedAt ASC")
+    suspend fun getOpenLotsForProductOnce(productId: String): List<StockLot>
+
+    @Query("SELECT * FROM stock_lots WHERE location = 'MATRIZ' AND isDepleted = 0 AND isPackaged = 1 ORDER BY receivedAt ASC")
+    suspend fun getOpenPackagedMatrizLotsOnce(): List<StockLot>
+
     @Query("SELECT id FROM stock_lots WHERE receivedAt >= :startOfDay AND receivedAt <= :endOfDay")
     suspend fun getLotIdsByDateRange(startOfDay: Long, endOfDay: Long): List<String>
 }

@@ -1776,6 +1776,412 @@ class InventoryResidualRepair(
 --- FIN DE ARCHIVO ---
 
 
+--- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\predictive\v3\data\PredictiveGroupAdminRepository.kt ---
+
+package com.cesar.bocana.predictive.v3.data
+
+import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.predictive.v3.model.GroupMemberRule
+import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
+import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.tasks.await
+
+/**
+ * Repositorio ADMINISTRATIVO para la pantalla "Grupos y prioridades".
+ *
+ * Este repositorio sí escribe porque el usuario lo ordena explícitamente desde la UI.
+ * NO se usa desde PredictiveV3Coordinator ni desde el motor automático.
+ */
+class PredictiveGroupAdminRepository(
+    private val firestore: FirebaseFirestore
+) {
+    companion object {
+        private const val COLLECTION = PredictiveV3ConfigRepository.COLLECTION
+        private const val PRIMARY_WEIGHT = 1.35
+        private const val SECONDARY_WEIGHT = 1.15
+        private const val NORMAL_WEIGHT = 1.0
+    }
+
+    data class AdminBundle(
+        val activeProducts: List<Product>,
+        val groups: List<PredictiveGroupConfig>,
+        val balances: List<PredictiveServiceRelation>
+    )
+
+    suspend fun load(): AdminBundle {
+        val products = firestore.collection("products")
+            .whereEqualTo("isActive", true)
+            .get()
+            .await()
+            .documents
+            .mapNotNull { doc -> doc.toObject(Product::class.java)?.copy(id = doc.id) }
+            .sortedBy { it.name.lowercase() }
+
+        val allConfig = loadAllConfig()
+        return AdminBundle(products, allConfig.groups, allConfig.services)
+    }
+
+    /**
+     * Se ejecuta únicamente al abrir la pantalla administrativa.
+     * Retira de la configuración productos desactivados, pero NO toca movimientos,
+     * checkpoints, lotes agotados ni históricos.
+     */
+    suspend fun cleanupInactiveMembers(activeProductIds: Set<String>): Boolean {
+        val snapshot = firestore.collection(COLLECTION).get().await()
+        var changed = false
+
+        snapshot.documents.forEach { doc ->
+            val type = doc.getString("configType")?.uppercase() ?: "GROUP"
+
+            if (type == "SERVICE" || type == "BALANCE") {
+                val legacyAnchor = doc.getString("anchorProductId").orEmpty()
+                val stored = (doc.get("anchorProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+
+                val originalAnchors = (stored + listOf(legacyAnchor))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val anchors = originalAnchors
+                    .filter { activeProductIds.contains(it) }
+                    .distinct()
+
+                val oldHistoricalAnchors = (doc.get("historicalAnchorProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+                val historicalAnchors = (oldHistoricalAnchors + originalAnchors.filterNot { activeProductIds.contains(it) })
+                    .filter { it.isNotBlank() && !anchors.contains(it) }
+                    .distinct()
+
+                val oldPrimary = doc.getString("primaryAnchorProductId")
+                val newPrimary = oldPrimary
+                    ?.takeIf { activeProductIds.contains(it) && anchors.contains(it) }
+                    ?: anchors.firstOrNull()
+
+                val preferred = doc.getString("preferredGroupProductId")
+                    ?.takeIf { activeProductIds.contains(it) }
+
+                if (anchors != originalAnchors ||
+                    historicalAnchors != oldHistoricalAnchors.distinct() ||
+                    newPrimary != oldPrimary ||
+                    preferred != doc.getString("preferredGroupProductId")
+                ) {
+                    doc.reference.update(
+                        mapOf(
+                            "anchorProductIds" to anchors,
+                            "historicalAnchorProductIds" to historicalAnchors,
+                            "anchorProductId" to (newPrimary ?: ""),
+                            "primaryAnchorProductId" to newPrimary,
+                            "preferredGroupProductId" to preferred,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                    changed = true
+                }
+            } else {
+                val members = (doc.get("memberProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+
+                val cleanMembers = members.filter { activeProductIds.contains(it) }.distinct()
+
+                val oldHistorical = (doc.get("historicalProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+                val historical = (oldHistorical + members.filterNot { activeProductIds.contains(it) })
+                    .filter { it.isNotBlank() && !cleanMembers.contains(it) }
+                    .distinct()
+
+                val oldSecondary = (doc.get("secondaryProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+                val cleanSecondary = oldSecondary
+                    .filter { activeProductIds.contains(it) && cleanMembers.contains(it) }
+                    .distinct()
+
+                val oldPrimary = doc.getString("primaryProductId")
+                val cleanPrimary = oldPrimary
+                    ?.takeIf { activeProductIds.contains(it) && cleanMembers.contains(it) }
+
+                val oldRules = (doc.get("memberRules") as? List<*>).orEmpty()
+                val cleanRules = oldRules.mapNotNull { raw ->
+                    val map = raw as? Map<*, *> ?: return@mapNotNull null
+                    val productId = map["productId"] as? String ?: return@mapNotNull null
+                    if (!cleanMembers.contains(productId)) return@mapNotNull null
+                    mapOf(
+                        "productId" to productId,
+                        "priorityWeight" to ((map["priorityWeight"] as? Number)?.toDouble() ?: NORMAL_WEIGHT),
+                        "enabled" to ((map["enabled"] as? Boolean) ?: true)
+                    )
+                }
+
+                if (cleanMembers != members.distinct() ||
+                    historical != oldHistorical.distinct() ||
+                    cleanSecondary != oldSecondary.distinct() ||
+                    cleanPrimary != oldPrimary ||
+                    cleanRules.size != oldRules.size
+                ) {
+                    doc.reference.update(
+                        mapOf(
+                            "memberProductIds" to cleanMembers,
+                            "historicalProductIds" to historical,
+                            "memberRules" to cleanRules,
+                            "primaryProductId" to cleanPrimary,
+                            "secondaryProductIds" to cleanSecondary,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                    changed = true
+                }
+            }
+        }
+
+        return changed
+    }
+
+    suspend fun saveJointGroup(
+        existingId: String?,
+        name: String,
+        memberProductIds: List<String>,
+        primaryProductId: String?,
+        secondaryProductIds: List<String>
+    ): String {
+        require(name.isNotBlank()) { "El grupo necesita un nombre." }
+
+        val members = memberProductIds.filter { it.isNotBlank() }.distinct()
+        require(members.isNotEmpty()) { "Selecciona al menos un producto." }
+
+        validateNoDuplicateJointMembership(existingId, members)
+
+        val primary = primaryProductId?.takeIf { members.contains(it) }
+        val secondaries = secondaryProductIds
+            .filter { members.contains(it) && it != primary }
+            .distinct()
+
+        val existing = existingId
+            ?.let { id -> loadAllConfig().groups.firstOrNull { it.id == id } }
+        val historical = (
+            existing?.historicalProductIds.orEmpty() +
+                existing?.memberProductIds.orEmpty().filterNot { members.contains(it) }
+            )
+            .filter { it.isNotBlank() && !members.contains(it) }
+            .distinct()
+
+        val rules = members.map { productId ->
+            val weight = when {
+                productId == primary -> PRIMARY_WEIGHT
+                secondaries.contains(productId) -> SECONDARY_WEIGHT
+                else -> NORMAL_WEIGHT
+            }
+            mapOf(
+                "productId" to productId,
+                "priorityWeight" to weight,
+                "enabled" to true
+            )
+        }
+
+        val docRef = existingId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { firestore.collection(COLLECTION).document(it) }
+            ?: firestore.collection(COLLECTION).document()
+
+        val data = hashMapOf<String, Any?>(
+            "configType" to "GROUP",
+            "name" to name.trim(),
+            "memberProductIds" to members,
+            "historicalProductIds" to historical,
+            "memberRules" to rules,
+            "primaryProductId" to primary,
+            "secondaryProductIds" to secondaries,
+            "enabled" to true,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        if (existingId.isNullOrBlank()) {
+            data["createdAt"] = FieldValue.serverTimestamp()
+        }
+
+        docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+        return docRef.id
+    }
+
+    suspend fun saveBalanceGroup(
+        existingId: String?,
+        name: String,
+        anchorProductIds: List<String>,
+        primaryAnchorProductId: String?,
+        linkedGroupId: String,
+        preferredGroupProductId: String?
+    ): String {
+        require(name.isNotBlank()) { "El grupo necesita un nombre." }
+
+        val anchors = anchorProductIds.filter { it.isNotBlank() }.distinct()
+        require(anchors.isNotEmpty()) { "Selecciona al menos un producto directo." }
+        require(linkedGroupId.isNotBlank()) { "Selecciona el grupo relacionado." }
+
+        val primary = primaryAnchorProductId
+            ?.takeIf { anchors.contains(it) }
+            ?: anchors.first()
+
+        val allConfig = loadAllConfig()
+        val existing = existingId
+            ?.let { id -> allConfig.services.firstOrNull { it.id == id } }
+        val historicalAnchors = (
+            existing?.historicalAnchorProductIds.orEmpty() +
+                existing?.effectiveAnchorProductIds().orEmpty().filterNot { anchors.contains(it) }
+            )
+            .filter { it.isNotBlank() && !anchors.contains(it) }
+            .distinct()
+
+        val linkedGroup = allConfig.groups.firstOrNull { it.id == linkedGroupId }
+            ?: error("El grupo relacionado ya no existe.")
+
+        val preferred = preferredGroupProductId
+            ?.takeIf { linkedGroup.memberProductIds.contains(it) }
+
+        val docRef = existingId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { firestore.collection(COLLECTION).document(it) }
+            ?: firestore.collection(COLLECTION).document()
+
+        val data = hashMapOf<String, Any?>(
+            // Se conserva SERVICE por compatibilidad interna; para el usuario es un grupo de equilibrio.
+            "configType" to "SERVICE",
+            "name" to name.trim(),
+            "anchorProductId" to primary,
+            "anchorProductIds" to anchors,
+            "historicalAnchorProductIds" to historicalAnchors,
+            "primaryAnchorProductId" to primary,
+            "linkedGroupId" to linkedGroupId,
+            "preferredGroupProductId" to preferred,
+            "relationMode" to "INVERSE_SUPPORT",
+            "enabled" to true,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        if (existingId.isNullOrBlank()) {
+            data["createdAt"] = FieldValue.serverTimestamp()
+        }
+
+        docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+        return docRef.id
+    }
+
+    /**
+     * Elimina únicamente la CONFIGURACIÓN.
+     * No toca Product, lotes, movimientos, checkpoints ni estadísticas.
+     *
+     * Si se borra un grupo conjunto, se borran también las configuraciones de equilibrio
+     * que dependían de ese grupo para evitar referencias rotas.
+     */
+    suspend fun deleteConfig(configId: String) {
+        val snapshot = firestore.collection(COLLECTION).get().await()
+        val batch = firestore.batch()
+
+        val target = firestore.collection(COLLECTION).document(configId)
+        batch.delete(target)
+
+        snapshot.documents.forEach { doc ->
+            if (doc.id != configId && doc.getString("linkedGroupId") == configId) {
+                batch.delete(doc.reference)
+            }
+        }
+
+        batch.commit().await()
+    }
+
+    private suspend fun validateNoDuplicateJointMembership(
+        currentGroupId: String?,
+        requestedProductIds: List<String>
+    ) {
+        val requested = requestedProductIds.toSet()
+        val bundle = loadAllConfig()
+
+        val conflict = bundle.groups
+            .filter { it.id != currentGroupId }
+            .firstOrNull { group -> group.memberProductIds.any { requested.contains(it) } }
+
+        if (conflict != null) {
+            val duplicated = conflict.memberProductIds.first { requested.contains(it) }
+            throw IllegalStateException(
+                "Un producto sólo puede pertenecer a un grupo de cobertura conjunta. " +
+                    "Ya existe en “${conflict.name}” (ID de producto: ${duplicated.takeLast(6)})."
+            )
+        }
+    }
+
+    private suspend fun loadAllConfig(): PredictiveV3ConfigRepository.ConfigBundle {
+        val snapshot = firestore.collection(COLLECTION).get().await()
+        val groups = mutableListOf<PredictiveGroupConfig>()
+        val services = mutableListOf<PredictiveServiceRelation>()
+
+        snapshot.documents.forEach { doc ->
+            val type = doc.getString("configType")?.uppercase() ?: "GROUP"
+
+            if (type == "SERVICE" || type == "BALANCE") {
+                val legacyAnchor = doc.getString("anchorProductId").orEmpty()
+                val anchors = ((doc.get("anchorProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty() + listOf(legacyAnchor))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                services += PredictiveServiceRelation(
+                    id = doc.id,
+                    name = doc.getString("name") ?: doc.id,
+                    anchorProductId = legacyAnchor.ifBlank { anchors.firstOrNull().orEmpty() },
+                    anchorProductIds = anchors,
+                    historicalAnchorProductIds = (doc.get("historicalAnchorProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        .orEmpty(),
+                    primaryAnchorProductId = doc.getString("primaryAnchorProductId"),
+                    linkedGroupId = doc.getString("linkedGroupId").orEmpty(),
+                    preferredGroupProductId = doc.getString("preferredGroupProductId"),
+                    relationMode = doc.getString("relationMode") ?: "INVERSE_SUPPORT",
+                    enabled = doc.getBoolean("enabled") ?: true
+                )
+            } else {
+                val rules = (doc.get("memberRules") as? List<*>)
+                    ?.mapNotNull { raw ->
+                        val map = raw as? Map<*, *> ?: return@mapNotNull null
+                        val productId = map["productId"] as? String ?: return@mapNotNull null
+                        GroupMemberRule(
+                            productId = productId,
+                            priorityWeight = (map["priorityWeight"] as? Number)?.toDouble() ?: NORMAL_WEIGHT,
+                            enabled = (map["enabled"] as? Boolean) ?: true
+                        )
+                    }
+                    .orEmpty()
+
+                groups += PredictiveGroupConfig(
+                    id = doc.id,
+                    name = doc.getString("name") ?: doc.id,
+                    memberProductIds = (doc.get("memberProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        .orEmpty(),
+                    historicalProductIds = (doc.get("historicalProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        .orEmpty(),
+                    memberRules = rules,
+                    primaryProductId = doc.getString("primaryProductId"),
+                    secondaryProductIds = (doc.get("secondaryProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        .orEmpty(),
+                    enabled = doc.getBoolean("enabled") ?: true
+                )
+            }
+        }
+
+        return PredictiveV3ConfigRepository.ConfigBundle(groups, services)
+    }
+}
+
+--- FIN DE ARCHIVO ---
+
+
 --- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\predictive\v3\data\PredictiveV3ConfigRepository.kt ---
 
 package com.cesar.bocana.predictive.v3.data
@@ -1786,6 +2192,12 @@ import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
+/**
+ * Repositorio de SOLO LECTURA usado por el motor predictivo.
+ *
+ * Las altas/ediciones/bajas de grupos viven en PredictiveGroupAdminRepository.
+ * De esta forma el motor V3 nunca escribe configuración por sí mismo.
+ */
 class PredictiveV3ConfigRepository(
     private val firestore: FirebaseFirestore
 ) {
@@ -1805,13 +2217,31 @@ class PredictiveV3ConfigRepository(
 
         snapshot.documents.forEach { doc ->
             val type = doc.getString("configType")?.uppercase() ?: "GROUP"
-            if (type == "SERVICE") {
+
+            if (type == "SERVICE" || type == "BALANCE") {
+                val anchorIds = (doc.get("anchorProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    ?.filter { it.isNotBlank() }
+                    .orEmpty()
+
+                val legacyAnchor = doc.getString("anchorProductId").orEmpty()
+                val normalizedAnchorIds = (anchorIds + listOf(legacyAnchor))
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
                 services += PredictiveServiceRelation(
                     id = doc.id,
                     name = doc.getString("name") ?: doc.id,
-                    anchorProductId = doc.getString("anchorProductId") ?: "",
+                    anchorProductId = legacyAnchor.ifBlank { normalizedAnchorIds.firstOrNull().orEmpty() },
+                    anchorProductIds = normalizedAnchorIds,
+                    historicalAnchorProductIds = (doc.get("historicalAnchorProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        ?.distinct()
+                        .orEmpty(),
+                    primaryAnchorProductId = doc.getString("primaryAnchorProductId"),
                     linkedGroupId = doc.getString("linkedGroupId") ?: "",
                     preferredGroupProductId = doc.getString("preferredGroupProductId"),
+                    relationMode = doc.getString("relationMode") ?: "INVERSE_SUPPORT",
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             } else {
@@ -1832,16 +2262,28 @@ class PredictiveV3ConfigRepository(
                     name = doc.getString("name") ?: doc.id,
                     memberProductIds = (doc.get("memberProductIds") as? List<*>)
                         ?.mapNotNull { it as? String }
+                        ?.distinct()
+                        .orEmpty(),
+                    historicalProductIds = (doc.get("historicalProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        ?.distinct()
                         .orEmpty(),
                     memberRules = rules,
+                    primaryProductId = doc.getString("primaryProductId"),
+                    secondaryProductIds = (doc.get("secondaryProductIds") as? List<*>)
+                        ?.mapNotNull { it as? String }
+                        ?.distinct()
+                        .orEmpty(),
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             }
         }
-        return ConfigBundle(groups.filter { it.enabled }, services.filter { it.enabled })
+
+        return ConfigBundle(
+            groups = groups.filter { it.enabled },
+            services = services.filter { it.enabled }
+        )
     }
-
-
 }
 
 --- FIN DE ARCHIVO ---
@@ -2376,7 +2818,9 @@ data class PredictiveV3Analysis(
     val packagingSignal: PackagingSignal? = null,
     val returnSignal: ReturnSignal? = null,
     val consumptionPattern: ConsumptionPatternSignal? = null,
-    val backtest: BacktestSignal? = null
+    val backtest: BacktestSignal? = null,
+    val groupBacktest: BacktestSignal? = null,
+    val serviceBacktest: BacktestSignal? = null
 )
 
 data class OperationalRecommendation(
@@ -2402,6 +2846,8 @@ data class ServiceAnalysisV3(
     val allocation: ServiceAllocationResult,
     val learnedAnchorNormalShare: Double,
     val learnedAnchorMinimumShare: Double,
+    val learnedSupportUpliftPct: Double = 0.0,
+    val relationSampleCount: Int = 0,
     val anchorProductName: String,
     val linkedGroupName: String
 )
@@ -2626,22 +3072,73 @@ data class GroupMemberRule(
     val enabled: Boolean = true
 )
 
+/**
+ * Grupo de demanda conjunta.
+ *
+ * memberProductIds conserva los IDs reales de Product. El nombre del grupo puede
+ * cambiar sin romper históricos porque el documento Firestore mantiene un ID estable.
+ *
+ * primaryProductId y secondaryProductIds son reglas operativas suaves:
+ * FIFO y necesidad C04 siguen teniendo prioridad sobre estas preferencias.
+ */
 data class PredictiveGroupConfig(
     val id: String = "",
     val name: String = "",
     val memberProductIds: List<String> = emptyList(),
+    // Miembros retirados/desactivados: sólo se usan para conservar la historia del grupo.
+    val historicalProductIds: List<String> = emptyList(),
     val memberRules: List<GroupMemberRule> = emptyList(),
+    val primaryProductId: String? = null,
+    val secondaryProductIds: List<String> = emptyList(),
     val enabled: Boolean = true
 )
 
+/**
+ * Grupo de equilibrio/complemento.
+ *
+ * Se mantiene el nombre histórico PredictiveServiceRelation por compatibilidad,
+ * pero en la UI se administra exactamente igual que cualquier otro grupo.
+ *
+ * Ejemplo Bocana:
+ *   Róbalo + Pargos
+ *   - lado directo: Róbalo (anchorProductIds)
+ *   - grupo relacionado: Pargos (linkedGroupId)
+ *   - producto de apoyo preferente dentro de Pargos: HO
+ *
+ * IMPORTANTE: la relación es directa, pero NO significa 1 kg faltante = 1 kg del otro.
+ * El motor aprende del historial cuánto aumenta la presión del grupo cuando el lado
+ * directo está corto y limita ese ajuste.
+ */
 data class PredictiveServiceRelation(
     val id: String = "",
     val name: String = "",
+    // Campo antiguo: se conserva para leer documentos ya existentes.
     val anchorProductId: String = "",
+    // Campo nuevo: permite más de un producto directo en el futuro.
+    val anchorProductIds: List<String> = emptyList(),
+    // Productos directos antiguos: no participan en stock actual, pero conservan contexto histórico.
+    val historicalAnchorProductIds: List<String> = emptyList(),
+    val primaryAnchorProductId: String? = null,
     val linkedGroupId: String = "",
     val preferredGroupProductId: String? = null,
+    val relationMode: String = "INVERSE_SUPPORT",
     val enabled: Boolean = true
-)
+) {
+    fun effectiveAnchorProductIds(): List<String> =
+        (anchorProductIds + listOf(anchorProductId))
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    fun effectivePrimaryAnchorId(): String? =
+        primaryAnchorProductId?.takeIf { it.isNotBlank() }
+            ?: anchorProductId.takeIf { it.isNotBlank() }
+            ?: effectiveAnchorProductIds().firstOrNull()
+
+    fun allHistoricalAnchorIds(): List<String> =
+        (effectiveAnchorProductIds() + historicalAnchorProductIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+}
 
 data class GroupMemberState(
     val productId: String,
@@ -2684,24 +3181,35 @@ data class GroupAllocationResult(
     val reasons: List<String>
 )
 
+/**
+ * Entrada de la relación complementaria.
+ *
+ * No redistribuye un total fijo. Conserva la predicción propia del producto directo
+ * y solamente puede elevar moderadamente la presión del grupo relacionado cuando:
+ * 1) la cobertura del producto directo es baja, y
+ * 2) el histórico realmente muestra que el grupo suele subir en esas condiciones.
+ */
 data class ServiceAllocationInput(
     val serviceId: String,
-    val totalWeeklyDemandKg: Double,
-    val anchorNormalShare: Double,
-    val anchorMinimumShare: Double,
-    val anchorStockAvailableKg: Double,
-    val anchorReserveKg: Double,
-    val planningHorizonWeeks: Double
+    val anchorForecastWeeklyKg: Double,
+    val linkedGroupForecastWeeklyKg: Double,
+    val anchorCoverageDays: Double?,
+    val learnedSupportUpliftPct: Double,
+    val planningHorizonWeeks: Double = 2.0,
+    val maxSupportUpliftPct: Double = 0.50
 )
 
 data class ServiceAllocationResult(
     val serviceId: String,
+    // Suma informativa después del ajuste; NO representa una bolsa que se reparte 1:1.
     val totalWeeklyDemandKg: Double,
     val anchorWeeklyKg: Double,
     val linkedGroupWeeklyKg: Double,
     val anchorWasRestrictedByStock: Boolean,
+    val supportPressurePct: Double = 0.0,
     val reasons: List<String>
 )
+
 
 data class PredictiveDecisionRecord(
     val id: String = "",
@@ -2913,54 +3421,58 @@ object PredictiveGroupEngine {
     }
 
     /**
-     * Relación Róbalo ↔ grupo Pargos.
-     * El total del servicio se conserva; solo cambia el reparto.
+     * Relación directa de APOYO entre un producto/lado directo y un grupo.
+     *
+     * NO conserva una bolsa fija de kg y NO convierte un faltante en compensación 1:1.
+     * El producto directo conserva su propia predicción. Si su cobertura cae, el grupo
+     * relacionado puede recibir una presión adicional únicamente en la proporción que
+     * el histórico haya demostrado, con un límite de seguridad.
      */
     fun allocateService(input: ServiceAllocationInput): ServiceAllocationResult {
-        val total = input.totalWeeklyDemandKg.coerceAtLeast(0.0)
-        if (total <= 0.0) {
-            return ServiceAllocationResult(
-                serviceId = input.serviceId,
-                totalWeeklyDemandKg = 0.0,
-                anchorWeeklyKg = 0.0,
-                linkedGroupWeeklyKg = 0.0,
-                anchorWasRestrictedByStock = false,
-                reasons = listOf("No existe demanda válida del servicio")
-            )
+        val anchor = input.anchorForecastWeeklyKg.coerceAtLeast(0.0)
+        val groupBase = input.linkedGroupForecastWeeklyKg.coerceAtLeast(0.0)
+
+        val horizonDays = input.planningHorizonWeeks.coerceAtLeast(0.25) * 7.0
+        val scarcity = when (val coverage = input.anchorCoverageDays) {
+            null -> 0.0
+            else -> when {
+                coverage <= 0.0 -> 1.0
+                coverage >= horizonDays -> 0.0
+                else -> (1.0 - coverage / horizonDays).coerceIn(0.0, 1.0)
+            }
         }
 
-        val normalShare = input.anchorNormalShare.coerceIn(0.0, 1.0)
-        val minShare = min(normalShare, input.anchorMinimumShare.coerceIn(0.0, 1.0))
-        val desiredAnchor = total * normalShare
-        val minimumAnchor = total * minShare
+        val learnedUplift = input.learnedSupportUpliftPct
+            .coerceIn(0.0, input.maxSupportUpliftPct.coerceAtLeast(0.0))
 
-        val usableAnchorStock = max(0.0, input.anchorStockAvailableKg - input.anchorReserveKg)
-        val horizon = input.planningHorizonWeeks.coerceAtLeast(0.25)
-        val sustainableAnchorWeekly = usableAnchorStock / horizon
+        val pressurePct = (learnedUplift * scarcity)
+            .coerceIn(0.0, input.maxSupportUpliftPct.coerceAtLeast(0.0))
 
-        val anchor = when {
-            usableAnchorStock <= 0.01 -> 0.0
-            sustainableAnchorWeekly >= desiredAnchor -> desiredAnchor
-            sustainableAnchorWeekly >= minimumAnchor -> sustainableAnchorWeekly
-            else -> min(minimumAnchor, sustainableAnchorWeekly)
-        }.coerceIn(0.0, total)
-
-        val group = max(0.0, total - anchor)
-        val restricted = anchor + 0.01 < desiredAnchor
+        val adjustedGroup = groupBase * (1.0 + pressurePct)
+        val restricted = scarcity > 0.05
 
         return ServiceAllocationResult(
             serviceId = input.serviceId,
-            totalWeeklyDemandKg = total,
+            totalWeeklyDemandKg = anchor + adjustedGroup,
             anchorWeeklyKg = anchor,
-            linkedGroupWeeklyKg = group,
+            linkedGroupWeeklyKg = adjustedGroup,
             anchorWasRestrictedByStock = restricted,
+            supportPressurePct = pressurePct,
             reasons = buildList {
-                add("Demanda total del servicio conservada: ${String.format(java.util.Locale.US, "%.1f", total)} kg/sem")
-                if (restricted) add("Róbalo restringido por cobertura; la diferencia pasa a Pargos")
-                else add("Róbalo puede operar cerca de su participación normal")
+                add("Cada lado conserva su propia demanda; no existe reemplazo kilo por kilo")
+                if (pressurePct > 0.005) {
+                    add(
+                        "La cobertura del producto directo está baja y el histórico sugiere " +
+                            "aproximadamente ${String.format(java.util.Locale.US, "%.0f", pressurePct * 100.0)}% " +
+                            "de presión adicional sobre el grupo"
+                    )
+                } else {
+                    add("No se detecta presión adicional relevante sobre el grupo en este momento")
+                }
             }
         )
     }
+
 
     fun pickFifoLots(lots: List<FifoLotSnapshot>, requestedKg: Double): List<LotPick> {
         var remaining = requestedKg.coerceAtLeast(0.0)
@@ -3193,16 +3705,21 @@ class PredictiveV3Coordinator(
 
         val relevantProductIds = linkedSetOf(selected.id)
         val selectedGroups = config.groups.filter { it.memberProductIds.contains(selected.id) }
-        selectedGroups.flatMapTo(relevantProductIds) { it.memberProductIds }
+        selectedGroups.forEach { group ->
+            relevantProductIds.addAll(group.memberProductIds)
+            relevantProductIds.addAll(group.historicalProductIds)
+        }
 
         val serviceRelations = config.services.filter { relation ->
-            relation.anchorProductId == selected.id || selectedGroups.any { it.id == relation.linkedGroupId }
+            relation.effectiveAnchorProductIds().contains(selected.id) ||
+                selectedGroups.any { it.id == relation.linkedGroupId }
         }
         serviceRelations.forEach { relation ->
-            relevantProductIds += relation.anchorProductId
-            config.groups.firstOrNull { it.id == relation.linkedGroupId }
-                ?.memberProductIds
-                ?.let { relevantProductIds.addAll(it) }
+            relevantProductIds.addAll(relation.allHistoricalAnchorIds())
+            config.groups.firstOrNull { it.id == relation.linkedGroupId }?.let { linked ->
+                relevantProductIds.addAll(linked.memberProductIds)
+                relevantProductIds.addAll(linked.historicalProductIds)
+            }
         }
 
         val checkpoints = safeRead("Historial semanal", emptyMap<String, Double>()) {
@@ -3281,23 +3798,12 @@ class PredictiveV3Coordinator(
             )
         }
 
-        // Aplicar el reparto servicio Róbalo↔Pargos a la recomendación operativa,
-        // sin alterar ni borrar la predicción cruda que usamos para comparar/backtesting.
+        // Relación complementaria:
+        // - el producto directo (ej. Róbalo) conserva su pronóstico y operación individual;
+        // - sólo el grupo relacionado puede recibir presión adicional APRENDIDA del histórico;
+        // - nunca existe compensación automática kilo por kilo.
         if (serviceAnalysis != null) {
             val relation = serviceAnalysis.relation
-            if (selected.id == relation.anchorProductId) {
-                individualOperational = operationalFromForecast(
-                    forecast = individual,
-                    weeklyKg = serviceAnalysis.allocation.anchorWeeklyKg,
-                    stockC04Kg = selected.stockCongelador04,
-                    stockMatrizKg = selected.stockMatriz,
-                    matrixReserveKg = matrixReserveForCommitment(selected),
-                    targetWindowDays = targetWindowDays,
-                    source = "SERVICE_ALLOCATION",
-                    extraReason = "Demanda ajustada por relación Róbalo/Pargos"
-                )
-            }
-
             val selectedGroup = groupAnalysis?.config
             if (selectedGroup != null && selectedGroup.id == relation.linkedGroupId) {
                 groupAnalysis = buildGroupAnalysis(
@@ -3352,6 +3858,30 @@ class PredictiveV3Coordinator(
         )
         val backtest = PredictiveV3Backtest.evaluate(recentSeries)
 
+        val groupBacktest = groupAnalysis?.config?.let { groupConfig ->
+            val ids = (groupConfig.memberProductIds + groupConfig.historicalProductIds)
+                .filter { it.isNotBlank() }
+                .distinct()
+            PredictiveV3Backtest.evaluate(
+                aggregateGroupByRequestedWeeks(ids, completeWeeks, checkpoints)
+            )
+        }
+
+        val serviceBacktest = serviceAnalysis?.relation?.let { relation ->
+            val linked = config.groups.firstOrNull { it.id == relation.linkedGroupId }
+            val ids = buildList {
+                addAll(relation.allHistoricalAnchorIds())
+                if (linked != null) {
+                    addAll(linked.memberProductIds)
+                    addAll(linked.historicalProductIds)
+                }
+            }.filter { it.isNotBlank() }.distinct()
+
+            PredictiveV3Backtest.evaluate(
+                aggregateGroupByRequestedWeeks(ids, completeWeeks, checkpoints)
+            )
+        }
+
         val smartReasons = buildList {
             addAll(PredictiveV3Signals.plainReasons(
                 deviationPct = deviationPct,
@@ -3399,7 +3929,9 @@ class PredictiveV3Coordinator(
             packagingSignal = packagingSignal,
             returnSignal = returnSignal,
             consumptionPattern = consumptionPattern,
-            backtest = backtest
+            backtest = backtest,
+            groupBacktest = groupBacktest,
+            serviceBacktest = serviceBacktest
         )
     }
 
@@ -3447,7 +3979,10 @@ class PredictiveV3Coordinator(
         val memberSeries = members.associate { product ->
             product.id to dataSource.seriesForProduct(product.id, completeWeeks, checkpoints)
         }
-        val groupSeries = aggregateGroupByRequestedWeeks(members.map { it.id }, completeWeeks, checkpoints)
+        val historicalGroupIds = (group.memberProductIds + group.historicalProductIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+        val groupSeries = aggregateGroupByRequestedWeeks(historicalGroupIds, completeWeeks, checkpoints)
         val currentConsumed = members.sumOf {
             dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
         }
@@ -3470,7 +4005,7 @@ class PredictiveV3Coordinator(
                 stockTotalKg = stockTotal,
                 generalReserveKg = matrixReserve,
                 legacyC04ReferenceKg = legacyC04,
-                seasonalReferenceWeeklyKg = averageGroupExisting(members.map { it.id }, seasonalWeeks, checkpoints),
+                seasonalReferenceWeeklyKg = averageGroupExisting(historicalGroupIds, seasonalWeeks, checkpoints),
                 regime = regime
             )
         )
@@ -3483,8 +4018,8 @@ class PredictiveV3Coordinator(
             stockMatrizKg = stockMatriz,
             matrixReserveKg = matrixReserve,
             targetWindowDays = targetWindowDays,
-            source = if (effectiveWeeklyOverride != null) "SERVICE_ALLOCATION" else "GROUP_FORECAST",
-            extraReason = if (effectiveWeeklyOverride != null) "Demanda del grupo corregida por el servicio compartido" else null
+            source = if (effectiveWeeklyOverride != null) "COMPLEMENTARY_SUPPORT" else "GROUP_FORECAST",
+            extraReason = if (effectiveWeeklyOverride != null) "Demanda del grupo ajustada por presión complementaria aprendida" else null
         )
 
         val periodsUsed = groupSeries.map { it.periodKey }.toSet()
@@ -3492,10 +4027,16 @@ class PredictiveV3Coordinator(
         val rulesByProduct = group.memberRules.associateBy { it.productId }
 
         val memberStates = members.map { product ->
+            val configuredWeight = rulesByProduct[product.id]?.priorityWeight
+            val roleWeight = when {
+                product.id == group.primaryProductId -> 1.35
+                group.secondaryProductIds.contains(product.id) -> 1.15
+                else -> 1.0
+            }
             GroupMemberState(
                 productId = product.id,
                 typicalShare = shares[product.id] ?: 0.0,
-                priorityWeight = rulesByProduct[product.id]?.priorityWeight ?: 1.0,
+                priorityWeight = configuredWeight ?: roleWeight,
                 stockC04Kg = product.stockCongelador04,
                 stockMatrizKg = product.stockMatriz,
                 generalReserveKg = matrixReserveForCommitment(product),
@@ -3533,74 +4074,145 @@ class PredictiveV3Coordinator(
         elapsedDays: Double,
         regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
     ): ServiceAnalysisV3? {
-        val anchor = productsById[relation.anchorProductId] ?: return null
+        val anchors = relation.effectiveAnchorProductIds().mapNotNull { productsById[it] }
         val groupMembers = linkedGroup.memberProductIds.mapNotNull { productsById[it] }
-        if (groupMembers.isEmpty()) return null
 
-        val serviceSeries = aggregateGroupByRequestedWeeks(
-            listOf(anchor.id) + groupMembers.map { it.id },
-            completeWeeks,
-            checkpoints
-        )
+        if (anchors.isEmpty() || groupMembers.isEmpty()) return null
+
+        val anchorIds = anchors.map { it.id }
+        val anchorHistoryIds = relation.allHistoricalAnchorIds()
+        val groupIds = groupMembers.map { it.id }
+        val groupHistoryIds = (linkedGroup.memberProductIds + linkedGroup.historicalProductIds)
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val anchorSeries = aggregateGroupByRequestedWeeks(anchorHistoryIds, completeWeeks, checkpoints)
+        val groupSeries = aggregateGroupByRequestedWeeks(groupHistoryIds, completeWeeks, checkpoints)
+        val serviceSeries = aggregateGroupByRequestedWeeks(anchorHistoryIds + groupHistoryIds, completeWeeks, checkpoints)
+
         if (serviceSeries.size < 3) return null
 
-        val anchorShares = mutableListOf<Double>()
-        completeWeeks.forEach { week ->
-            val anchorKg = checkpoints[week.checkpointId(anchor.id)] ?: 0.0
-            val groupKg = groupMembers.sumOf { checkpoints[week.checkpointId(it.id)] ?: 0.0 }
-            val total = anchorKg + groupKg
-            if (total > 0.01) anchorShares += (anchorKg / total).coerceIn(0.0, 1.0)
+        val anchorCurrent = anchors.sumOf {
+            dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
         }
-        if (anchorShares.size < 3) return null
+        val groupCurrent = groupMembers.sumOf {
+            dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints)
+        }
 
-        val normalShare = median(anchorShares)
-        val minimumShare = percentile(anchorShares, 0.25).coerceAtMost(normalShare)
+        val anchorForecast = PredictiveV3Engine.forecast(
+            ForecastContext(
+                entityId = "${relation.id}_DIRECT",
+                entityType = DemandEntityType.SERVICE,
+                completeWeeks = anchorSeries,
+                currentWeekConsumedKg = anchorCurrent,
+                currentWeekElapsedDays = elapsedDays,
+                targetWindowDays = targetWindowDays,
+                stockC04Kg = anchors.sumOf { it.stockCongelador04 },
+                stockMatrizKg = anchors.sumOf { it.stockMatriz },
+                stockTotalKg = anchors.sumOf { it.totalStock },
+                generalReserveKg = anchors.sumOf(::matrixReserveForCommitment),
+                seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds, seasonalWeeks, checkpoints),
+                regime = regime
+            )
+        )
 
-        val currentConsumed = dataSource.currentWeekConsumed(anchor.id, currentWeek, checkpoints) +
-            groupMembers.sumOf { dataSource.currentWeekConsumed(it.id, currentWeek, checkpoints) }
-        val serviceStockC04 = anchor.stockCongelador04 + groupMembers.sumOf { it.stockCongelador04 }
-        val serviceStockMatriz = anchor.stockMatriz + groupMembers.sumOf { it.stockMatriz }
-        val serviceTotal = anchor.totalStock + groupMembers.sumOf { it.totalStock }
-        val serviceReserve = matrixReserveForCommitment(anchor) + groupMembers.sumOf(::matrixReserveForCommitment)
+        val linkedGroupForecast = PredictiveV3Engine.forecast(
+            ForecastContext(
+                entityId = linkedGroup.id,
+                entityType = DemandEntityType.GROUP,
+                completeWeeks = groupSeries,
+                currentWeekConsumedKg = groupCurrent,
+                currentWeekElapsedDays = elapsedDays,
+                targetWindowDays = targetWindowDays,
+                stockC04Kg = groupMembers.sumOf { it.stockCongelador04 },
+                stockMatrizKg = groupMembers.sumOf { it.stockMatriz },
+                stockTotalKg = groupMembers.sumOf { it.totalStock },
+                generalReserveKg = groupMembers.sumOf(::matrixReserveForCommitment),
+                legacyC04ReferenceKg = groupMembers.sumOf { it.stockIdealC04 },
+                seasonalReferenceWeeklyKg = averageGroupExisting(groupHistoryIds, seasonalWeeks, checkpoints),
+                regime = regime
+            )
+        )
 
+        // Pronóstico agregado sólo para diagnóstico / referencia histórica.
+        // NO se usa como una bolsa de kg que deba repartirse.
         val serviceForecast = PredictiveV3Engine.forecast(
             ForecastContext(
                 entityId = relation.id,
                 entityType = DemandEntityType.SERVICE,
                 completeWeeks = serviceSeries,
-                currentWeekConsumedKg = currentConsumed,
+                currentWeekConsumedKg = anchorCurrent + groupCurrent,
                 currentWeekElapsedDays = elapsedDays,
                 targetWindowDays = targetWindowDays,
-                stockC04Kg = serviceStockC04,
-                stockMatrizKg = serviceStockMatriz,
-                stockTotalKg = serviceTotal,
-                generalReserveKg = serviceReserve,
-                seasonalReferenceWeeklyKg = averageGroupExisting(
-                    listOf(anchor.id) + groupMembers.map { it.id }, seasonalWeeks, checkpoints
-                ),
+                stockC04Kg = anchors.sumOf { it.stockCongelador04 } + groupMembers.sumOf { it.stockCongelador04 },
+                stockMatrizKg = anchors.sumOf { it.stockMatriz } + groupMembers.sumOf { it.stockMatriz },
+                stockTotalKg = anchors.sumOf { it.totalStock } + groupMembers.sumOf { it.totalStock },
+                generalReserveKg = anchors.sumOf(::matrixReserveForCommitment) +
+                    groupMembers.sumOf(::matrixReserveForCommitment),
+                seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds + groupHistoryIds, seasonalWeeks, checkpoints),
                 regime = regime
             )
         )
 
+        // Aprender si, históricamente, el grupo sube cuando el lado directo baja.
+        // No inventamos equivalencia 1:1.
+        val weeklyPairs = completeWeeks.map { week ->
+            val anchorKg = anchorHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val groupKg = groupHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            anchorKg.coerceAtLeast(0.0) to groupKg.coerceAtLeast(0.0)
+        }.filter { (anchorKg, groupKg) -> anchorKg + groupKg > 0.01 }
+
+        val anchorValues = weeklyPairs.map { it.first }
+        val lowAnchorThreshold = percentile(anchorValues, 0.35)
+        val normalAnchorThreshold = percentile(anchorValues, 0.65)
+
+        val groupWhenAnchorLow = weeklyPairs
+            .filter { it.first <= lowAnchorThreshold }
+            .map { it.second }
+
+        val groupWhenAnchorNormal = weeklyPairs
+            .filter { it.first >= normalAnchorThreshold }
+            .map { it.second }
+
+        val learnedSupportUpliftPct = if (
+            groupWhenAnchorLow.size >= 2 &&
+            groupWhenAnchorNormal.size >= 2
+        ) {
+            val lowMedian = median(groupWhenAnchorLow)
+            val normalMedian = median(groupWhenAnchorNormal)
+            if (normalMedian > 0.01) {
+                (lowMedian / normalMedian - 1.0).coerceIn(0.0, 0.60)
+            } else 0.0
+        } else 0.0
+
         val allocation = PredictiveGroupEngine.allocateService(
             ServiceAllocationInput(
                 serviceId = relation.id,
-                totalWeeklyDemandKg = serviceForecast.forecastWeeklyKg,
-                anchorNormalShare = normalShare,
-                anchorMinimumShare = minimumShare,
-                anchorStockAvailableKg = anchor.totalStock,
-                anchorReserveKg = anchor.minStock,
-                planningHorizonWeeks = SERVICE_STOCK_HORIZON_WEEKS
+                anchorForecastWeeklyKg = anchorForecast.forecastWeeklyKg,
+                linkedGroupForecastWeeklyKg = linkedGroupForecast.forecastWeeklyKg,
+                anchorCoverageDays = anchorForecast.coverageDays,
+                learnedSupportUpliftPct = learnedSupportUpliftPct,
+                planningHorizonWeeks = SERVICE_STOCK_HORIZON_WEEKS,
+                maxSupportUpliftPct = 0.50
             )
         )
+
+        val anchorShares = completeWeeks.mapNotNull { week ->
+            val anchorKg = anchorHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val groupKg = groupHistoryIds.sumOf { id -> checkpoints[week.checkpointId(id)] ?: 0.0 }
+            val total = anchorKg + groupKg
+            if (total > 0.01) (anchorKg / total).coerceIn(0.0, 1.0) else null
+        }
 
         return ServiceAnalysisV3(
             relation = relation,
             serviceForecast = serviceForecast,
             allocation = allocation,
-            learnedAnchorNormalShare = normalShare,
-            learnedAnchorMinimumShare = minimumShare,
-            anchorProductName = anchor.name,
+            learnedAnchorNormalShare = if (anchorShares.isNotEmpty()) median(anchorShares) else 0.0,
+            learnedAnchorMinimumShare = if (anchorShares.isNotEmpty()) percentile(anchorShares, 0.25) else 0.0,
+            learnedSupportUpliftPct = learnedSupportUpliftPct,
+            relationSampleCount = weeklyPairs.size,
+            anchorProductName = anchors.joinToString(" + ") { it.name },
             linkedGroupName = linkedGroup.name
         )
     }
@@ -8261,25 +8873,58 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     }
 
     private fun renderV3(analysis: PredictiveV3Analysis) {
-        val forecast = analysis.individualForecast
-        val operational = analysis.individualOperational
-        val coverage = analysis.effectiveCoverageDays
+        val individualForecast = analysis.individualForecast
+        val group = analysis.groupAnalysis
+
+        val primaryForecast = group?.forecast ?: individualForecast
+        val primaryOperational = group?.operational ?: analysis.individualOperational
+        val groupStocks = groupStockTotals(analysis)
+        val primaryTotalStock = if (group != null) {
+            groupStocks?.let { it.first + it.second }
+                ?: group.forecast.coverageDays?.let { days ->
+                    if (primaryOperational.effectiveWeeklyKg > 0.01) {
+                        days * (primaryOperational.effectiveWeeklyKg / 7.0)
+                    } else 0.0
+                }
+                ?: 0.0
+        } else {
+            product.totalStock
+        }
+
+        val coverage = if (group != null) {
+            coverageDaysDouble(primaryTotalStock, primaryOperational.effectiveWeeklyKg)
+                ?: group.forecast.coverageDays
+        } else {
+            analysis.effectiveCoverageDays
+        }
         val coverageInt = coverage?.coerceAtLeast(0.0)?.roundToInt()
 
-        tvForecastWeekly.text = formatQuantity(operational.effectiveWeeklyKg, product.unit)
-        tvForecast30Days.text = formatQuantity(operational.effectiveWeeklyKg * 30.0 / 7.0, product.unit)
-        tvAverageWeekly.text = formatQuantity(forecast.baselineWeeklyKg, product.unit)
-        tvAverageMonthly.text = formatQuantity(forecast.baselineWeeklyKg * 4.0, product.unit)
+        // Si pertenece a un grupo de cobertura conjunta, el GRUPO manda en la parte principal.
+        tvForecastWeekly.text = formatQuantity(primaryOperational.effectiveWeeklyKg, product.unit)
+        tvForecast30Days.text = formatQuantity(primaryOperational.effectiveWeeklyKg * 30.0 / 7.0, product.unit)
+        tvAverageWeekly.text = formatQuantity(primaryForecast.baselineWeeklyKg, product.unit)
+        tvAverageMonthly.text = formatQuantity(primaryForecast.baselineWeeklyKg * 30.0 / 7.0, product.unit)
 
-        val highDays = coverageDays(product.totalStock, forecast.highScenarioWeeklyKg)
-        val lowDays = coverageDays(product.totalStock, forecast.lowScenarioWeeklyKg)
+        val highDays = coverageDays(primaryTotalStock, primaryForecast.highScenarioWeeklyKg)
+        val lowDays = coverageDays(primaryTotalStock, primaryForecast.lowScenarioWeeklyKg)
         val probableMin = listOfNotNull(highDays, coverageInt, lowDays).minOrNull()
         val probableMax = listOfNotNull(highDays, coverageInt, lowDays).maxOrNull()
 
+        val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
+        val coverageTitle = if (groupName != null) {
+            "Cobertura conjunta de $groupName"
+        } else {
+            coverageInt?.let { "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(it)}" }
+                ?: "Cobertura no calculable"
+        }
+
         renderCoverage(
             days = coverageInt,
-            mainText = coverageInt?.let { "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(it)}" }
-                ?: "Cobertura no calculable",
+            mainText = if (groupName != null && coverageInt != null) {
+                "$coverageTitle\nStock estimado para ${PredictiveConsumptionEngine.formatDuration(coverageInt)}"
+            } else {
+                coverageTitle
+            },
             rangeText = if (probableMin != null && probableMax != null) {
                 "Rango probable: ${PredictiveConsumptionEngine.formatDuration(probableMin)} a ${PredictiveConsumptionEngine.formatDuration(probableMax)}"
             } else "Rango probable no disponible"
@@ -8288,31 +8933,42 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         tvHighDemandScenario.text = highDays?.let {
             "Si aumenta el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
         } ?: "No hay suficiente información para el escenario de mayor consumo."
+
         tvLowDemandScenario.text = lowDays?.let {
             "Si baja el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
         } ?: "No hay suficiente información para el escenario de menor consumo."
+
         tvSeasonInsight.text = seasonExplanation(analysis.regime)
 
         v3DeepContainer.removeAllViews()
         addOperationalCard(analysis)
-        analysis.groupAnalysis?.let { addGroupCard(it, analysis) }
+        group?.let { addGroupCard(it, analysis) }
+
         analysis.serviceAnalysis?.let { service ->
+            val pressure = service.allocation.supportPressurePct
             addSectionCard(
-                title = "Relación de servicio",
+                title = "Apoyo con ${service.linkedGroupName}",
                 rows = listOf(
-                    "Demanda total" to "${format1(service.allocation.totalWeeklyDemandKg)} kg/semana",
-                    service.anchorProductName to "${format1(service.allocation.anchorWeeklyKg)} kg/semana",
-                    service.linkedGroupName to "${format1(service.allocation.linkedGroupWeeklyKg)} kg/semana"
+                    "Producto directo" to service.anchorProductName,
+                    "Grupo relacionado" to service.linkedGroupName,
+                    "Presión adicional" to if (pressure > 0.005) {
+                        "~${format0(pressure * 100.0)}%"
+                    } else {
+                        "Sin aumento"
+                    }
                 ),
-                note = if (service.allocation.anchorWasRestrictedByStock) {
-                    "El stock de ${service.anchorProductName} es limitado; el motor desplaza parte de la necesidad al grupo sin aumentar la demanda total."
+                note = if (pressure > 0.005) {
+                    "La cobertura del producto directo está baja y el historial muestra mayor uso del grupo. No es reemplazo kilo por kilo."
                 } else {
-                    "El reparto se mantiene cerca de su comportamiento histórico normal."
+                    "La relación existe, pero hoy no requiere aumentar la demanda del grupo."
                 },
                 accent = "#0F766E",
-                background = "#F0FDFA"
+                background = "#F0FDFA",
+                collapsible = true,
+                collapsedByDefault = true
             )
         }
+
         addInventoryCard(analysis.inventoryDeep)
         addPendingCard(analysis)
         addHistoryCard(analysis)
@@ -8320,56 +8976,97 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     }
 
     private fun addOperationalCard(analysis: PredictiveV3Analysis) {
-        val operational = analysis.individualOperational
-        val groupName = analysis.groupAnalysis?.let { groupDisplayName(it.config.id, it.config.name) } ?: "No"
-        val pattern = analysis.consumptionPattern?.title ?: "Sin clasificar"
+        val group = analysis.groupAnalysis
+        val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
+        val groupStocks = groupStockTotals(analysis)
+
+        val operational = group?.operational ?: analysis.individualOperational
+        val c04Current = if (group != null) {
+            groupStocks?.second ?: 0.0
+        } else {
+            analysis.selectedProduct.stockCongelador04
+        }
+        val totalStock = if (group != null) {
+            groupStocks?.let { it.first + it.second } ?: 0.0
+        } else {
+            analysis.selectedProduct.totalStock
+        }
+        val coverage = if (group != null) {
+            coverageDaysDouble(totalStock, operational.effectiveWeeklyKg)
+                ?: group.forecast.coverageDays
+        } else {
+            analysis.effectiveCoverageDays
+        }
+
+        val rows = buildList {
+            add("Temporada" to seasonLabel(analysis.regime))
+            add("Próximo traspaso a C04" to formatNextTransfer(analysis.targetWindowDays))
+            add("Demanda estimada" to "${format1(operational.effectiveWeeklyKg)} kg/semana")
+            add(
+                (if (group != null) "Cobertura conjunta" else "Cobertura total") to
+                    (coverage?.let { "${format0(it)} días" } ?: "Sin dato")
+            )
+            if (group == null) {
+                add("Comportamiento" to (analysis.consumptionPattern?.title ?: "Sin clasificar"))
+            }
+            add("C04 actual" to "${format1(c04Current)} kg")
+            add("Objetivo C04" to "${format1(operational.dynamicC04TargetKg)} kg")
+            add(
+                "Traspaso sugerido" to
+                    "${format1(group?.allocation?.allocatedKg ?: operational.suggestedTransferKg)} kg"
+            )
+            if (groupName != null) add("Grupo" to groupName)
+        }
 
         addSectionCard(
             title = "Resumen operativo",
             badge = "DEV · SOLO SUGIERE",
-            rows = listOf(
-                "Temporada" to seasonLabel(analysis.regime),
-                "Cubierto por" to formatWindowDays(analysis.targetWindowDays),
-                "Demanda estimada" to "${format1(operational.effectiveWeeklyKg)} kg/semana",
-                "Cobertura total" to (analysis.effectiveCoverageDays?.let { "${format0(it)} días" } ?: "Sin dato"),
-                "Comportamiento" to pattern,
-                "C04 actual" to "${format1(analysis.selectedProduct.stockCongelador04)} kg",
-                "Objetivo C04" to "${format1(operational.dynamicC04TargetKg)} kg",
-                "Traspaso sugerido" to "${format1(operational.suggestedTransferKg)} kg",
-                "Pertenece a grupo" to groupName
-            ),
-            note = analysis.consumptionPattern?.explanation,
+            rows = rows,
+            note = if (group != null) {
+                "El grupo manda para cobertura y traspaso. El producto abierto se muestra abajo como detalle."
+            } else {
+                analysis.consumptionPattern?.explanation
+            },
             accent = "#6D28D9",
             background = "#FAF5FF"
         )
     }
 
+    /**
+     * En productos agrupados, la cobertura principal ya aparece arriba como GRUPO.
+     * Esta tarjeta deja muy claro cuánto dura únicamente el producto abierto.
+     */
     private fun addGroupCard(group: GroupAnalysisV3, analysis: PredictiveV3Analysis) {
+        val selectedAllocation = group.allocation.members
+            .firstOrNull { it.productId == analysis.selectedProduct.id }
+            ?.suggestedKg
+            ?: 0.0
+
+        val individualCoverage = analysis.effectiveCoverageDays
         val allocationLines = group.allocation.members.map { member ->
             val name = group.memberNames[member.productId] ?: member.productId.takeLast(6)
             "$name: ${format1(member.suggestedKg)} kg"
         }
-        val monthLines = formatMonthSummaries(analysis.groupInventory?.matrizByMonth.orEmpty(), maxItems = 4)
 
         addSectionCard(
-            title = "Grupo ${groupDisplayName(group.config.id, group.config.name)}",
+            title = "Detalle de ${analysis.selectedProduct.name}",
+            subtitle = "Dato individual dentro de ${groupDisplayName(group.config.id, group.config.name)}",
             rows = listOf(
-                "Demanda conjunta" to "${format1(group.operational.effectiveWeeklyKg)} kg/semana",
-                "Objetivo C04 conjunto" to "${format1(group.operational.dynamicC04TargetKg)} kg",
-                "Traspaso conjunto" to "${format1(group.allocation.allocatedKg)} kg"
+                "Cobertura individual" to (individualCoverage?.let { "${format0(it)} días" } ?: "Sin dato"),
+                "Demanda individual" to "${format1(analysis.individualOperational.effectiveWeeklyKg)} kg/semana",
+                "Stock individual" to "${format1(analysis.selectedProduct.totalStock)} kg",
+                "C04 individual" to "${format1(analysis.selectedProduct.stockCongelador04)} kg",
+                "Aporte sugerido" to "${format1(selectedAllocation)} kg"
             ),
             bullets = buildList {
                 if (allocationLines.isNotEmpty()) {
-                    add("Reparto sugerido: ${allocationLines.joinToString(" · ")}")
+                    add("Reparto del grupo: ${allocationLines.joinToString(" · ")}")
                 }
-                if (monthLines.isNotEmpty()) {
-                    add("Mercancía del grupo por mes en Matriz: ${monthLines.joinToString(" | ")}")
-                }
-                if (group.allocation.unallocatedKg > 0.01) {
-                    add("Faltan ${format1(group.allocation.unallocatedKg)} kg por disponibilidad o reserva de Matriz.")
-                }
+                val primary = group.config.primaryProductId
+                    ?.let { group.memberNames[it] }
+                if (!primary.isNullOrBlank()) add("Producto principal del grupo: $primary")
             },
-            note = "La demanda se calcula primero para todo el grupo y después se reparte por antigüedad, stock disponible y prioridad operativa.",
+            note = "La cobertura conjunta es la referencia principal. Esta tarjeta sólo explica el producto abierto.",
             accent = "#1D4ED8",
             background = "#EFF6FF"
         )
@@ -8404,13 +9101,15 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         addSectionCard(
             title = "Lotes y antigüedad",
             rows = listOf(
-                "Matriz" to "${inventory.matrizLots.size} lotes · ${format1(matrizTotal)} kg",
-                "C04" to "${inventory.c04Lots.size} lotes · ${format1(c04Total)} kg"
+                "Matriz" to "${formatLotCount(inventory.matrizLots.size)} · ${format1(matrizTotal)} kg",
+                "C04" to "${formatLotCount(inventory.c04Lots.size)} · ${format1(c04Total)} kg"
             ),
             bullets = bullets,
             note = "Para la antigüedad se usa la fecha original de recepción, aunque el lote después haya sido traspasado a C04.",
             accent = "#B45309",
-            background = "#FFFBEB"
+            background = "#FFFBEB",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -8447,7 +9146,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             rows = rows,
             bullets = bullets,
             accent = "#047857",
-            background = "#ECFDF5"
+            background = "#ECFDF5",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -8462,7 +9163,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             rows = rows,
             note = "Estas referencias ayudan a distinguir una temporada normal de un cambio temporal de consumo.",
             accent = "#475569",
-            background = "#F8FAFC"
+            background = "#F8FAFC",
+            collapsible = true,
+            collapsedByDefault = true
         )
     }
 
@@ -8477,6 +9180,26 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
                 add("Cambio reciente: ${if (it >= 0) "+" else ""}${format0(it)}% frente a la base")
             }
             addBacktestLines(this, backtest)
+
+            analysis.groupBacktest?.takeIf { it.sampleCount > 0 }?.let { groupTest ->
+                add(
+                    "Validación del grupo: ${groupTest.qualityLabel} · " +
+                        "${groupTest.sampleCount} pruebas" +
+                        (groupTest.meanAbsolutePercentError?.let { " · error ~${format0(it)}%" } ?: "")
+                )
+            }
+
+            analysis.serviceAnalysis?.let { service ->
+                add(
+                    "Relación ${service.anchorProductName} ↔ ${service.linkedGroupName}: " +
+                        "${service.relationSampleCount} semanas analizadas"
+                )
+                add(
+                    "Apoyo histórico aprendido: hasta ~" +
+                        "${format0(service.learnedSupportUpliftPct * 100.0)}% cuando el producto directo baja"
+                )
+            }
+
             analysis.purchaseAttention?.let { add("Compra: ${it.message}") }
             analysis.smartReasons.forEach { add(it) }
         }.distinct()
@@ -8548,7 +9271,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         note: String? = null,
         badge: String? = null,
         accent: String = "#334155",
-        background: String = "#FFFFFF"
+        background: String = "#FFFFFF",
+        collapsible: Boolean = false,
+        collapsedByDefault: Boolean = false
     ) {
         val card = MaterialCardView(requireContext()).apply {
             radius = dp(16).toFloat()
@@ -8558,6 +9283,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             setCardBackgroundColor(Color.parseColor(background))
             layoutParams = sectionLayoutParams(top = 12)
         }
+
         val content = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -8566,7 +9292,13 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         val titleRow = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
+            isClickable = collapsible
+            isFocusable = collapsible
+            if (collapsible) {
+                setBackgroundResource(android.R.drawable.list_selector_background)
+            }
         }
+
         val titleView = TextView(requireContext()).apply {
             text = title
             setTextColor(Color.parseColor(accent))
@@ -8575,6 +9307,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleRow.addView(titleView)
+
         badge?.let {
             titleRow.addView(TextView(requireContext()).apply {
                 text = it
@@ -8584,10 +9317,23 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
                 setPadding(dp(8), dp(4), dp(8), dp(4))
             })
         }
+
+        val arrow = if (collapsible) {
+            TextView(requireContext()).apply {
+                setTextColor(Color.parseColor("#64748B"))
+                textSize = 13f
+                setPadding(dp(8), 0, 0, 0)
+            }.also(titleRow::addView)
+        } else null
+
         content.addView(titleRow)
 
+        val body = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
         subtitle?.let {
-            content.addView(TextView(requireContext()).apply {
+            body.addView(TextView(requireContext()).apply {
                 text = it
                 setTextColor(Color.parseColor("#64748B"))
                 textSize = 12f
@@ -8596,13 +9342,13 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
 
         rows.forEachIndexed { index, pair ->
-            if (index == 0) content.addView(spacer(dp(8)))
-            content.addView(valueRow(pair.first, pair.second))
+            if (index == 0) body.addView(spacer(dp(8)))
+            body.addView(valueRow(pair.first, pair.second))
         }
 
         if (bullets.isNotEmpty()) {
-            content.addView(spacer(dp(8)))
-            content.addView(TextView(requireContext()).apply {
+            body.addView(spacer(dp(8)))
+            body.addView(TextView(requireContext()).apply {
                 text = bullets.joinToString("\n") { "• $it" }
                 setTextColor(Color.parseColor("#475569"))
                 textSize = 11.5f
@@ -8611,7 +9357,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
 
         note?.takeIf { it.isNotBlank() }?.let {
-            content.addView(TextView(requireContext()).apply {
+            body.addView(TextView(requireContext()).apply {
                 text = it
                 setTextColor(Color.parseColor("#64748B"))
                 textSize = 10.5f
@@ -8619,6 +9365,18 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             })
         }
 
+        if (collapsible) {
+            body.visibility = if (collapsedByDefault) View.GONE else View.VISIBLE
+            arrow?.text = if (body.visibility == View.VISIBLE) "▴" else "▾"
+
+            titleRow.setOnClickListener {
+                val open = body.visibility == View.VISIBLE
+                body.visibility = if (open) View.GONE else View.VISIBLE
+                arrow?.text = if (open) "▾" else "▴"
+            }
+        }
+
+        content.addView(body)
         card.addView(content)
         v3DeepContainer.addView(card)
     }
@@ -8734,15 +9492,38 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     private fun formatDate(date: Date?): String =
         date?.let { SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(it) } ?: "Sin fecha"
 
-    private fun groupDisplayName(id: String, configuredName: String): String = when (id.uppercase(Locale.ROOT)) {
-        "FILETE" -> "Filetes"
-        "PARGOS" -> "Pargos / Huachinangos"
-        else -> configuredName
+    private fun groupDisplayName(id: String, configuredName: String): String =
+        configuredName.takeIf { it.isNotBlank() } ?: id
+
+    private fun groupStockTotals(analysis: PredictiveV3Analysis): Pair<Double, Double>? {
+        val inventory = analysis.groupInventory ?: return null
+        val matriz = inventory.matrizByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) }
+        val c04 = inventory.c04ByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) }
+        return matriz to c04
     }
+
+    private fun coverageDaysDouble(stock: Double, weeklyKg: Double): Double? {
+        if (weeklyKg <= 0.01) return null
+        return stock.coerceAtLeast(0.0) / (weeklyKg / 7.0)
+    }
+
+    private fun formatNextTransfer(days: Double): String {
+        val rounded = days.roundToLong().coerceAtLeast(0)
+        return when (rounded) {
+            0L -> "Hoy"
+            1L -> "En 1 día"
+            else -> "En $rounded días"
+        }
+    }
+
+    private fun formatLotCount(count: Int): String =
+        if (count == 1) "1 lote" else "$count lotes"
 
     private fun formatWindowDays(days: Double): String {
         val rounded = days.roundToLong()
-        return if (abs(days - rounded) < 0.05) "$rounded días" else "${format1(days)} días"
+        return if (rounded == 1L) "1 día"
+        else if (abs(days - rounded) < 0.05) "$rounded días"
+        else "${format1(days)} días"
     }
 
     private fun formatQuantity(value: Double, unit: String): String {
@@ -10773,6 +11554,799 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
 --- FIN DE ARCHIVO ---
 
 
+--- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\ui\groups\PredictiveGroupsFragment.kt ---
+
+package com.cesar.bocana.ui.groups
+
+import android.graphics.Color
+import android.graphics.Typeface
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import com.cesar.bocana.R
+import com.cesar.bocana.data.model.Product
+import com.cesar.bocana.databinding.FragmentPredictiveGroupsBinding
+import com.cesar.bocana.predictive.v3.data.PredictiveGroupAdminRepository
+import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
+import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.launch
+import java.util.Locale
+
+/**
+ * Fase 5.2 — Administración de grupos.
+ *
+ * Una sola entrada "Agregar grupo".
+ * Internamente puede ser:
+ * 1) Cobertura conjunta (Filetes, Pargos, etc.)
+ * 2) Equilibrio complementario (Róbalo + Pargos)
+ *
+ * No existe un botón separado de "crear relación": la función/relación forma parte
+ * de la configuración del propio grupo.
+ */
+class PredictiveGroupsFragment : Fragment() {
+
+    private var _binding: FragmentPredictiveGroupsBinding? = null
+    private val binding get() = _binding!!
+
+    private val firestore = Firebase.firestore
+    private lateinit var repository: PredictiveGroupAdminRepository
+
+    private var bundle = PredictiveGroupAdminRepository.AdminBundle(
+        activeProducts = emptyList(),
+        groups = emptyList(),
+        balances = emptyList()
+    )
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentPredictiveGroupsBinding.inflate(inflater, container, false)
+        repository = PredictiveGroupAdminRepository(firestore)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        (activity as? AppCompatActivity)?.supportActionBar?.title = "Grupos y prioridades"
+
+        binding.buttonAddGroup.setOnClickListener { showNewGroupTypeDialog() }
+        loadData(cleanInactive = true)
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    private fun loadData(cleanInactive: Boolean) {
+        if (_binding == null) return
+        binding.progressGroups.visibility = View.VISIBLE
+        binding.buttonAddGroup.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                var loaded = repository.load()
+
+                if (cleanInactive) {
+                    val activeIds = loaded.activeProducts.map { it.id }.toSet()
+                    val changed = repository.cleanupInactiveMembers(activeIds)
+                    if (changed) loaded = repository.load()
+                }
+
+                bundle = loaded
+                renderGroups()
+            } catch (e: Exception) {
+                if (_binding == null) return@launch
+                Toast.makeText(
+                    requireContext(),
+                    "No se pudieron cargar los grupos: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                if (_binding != null) {
+                    binding.progressGroups.visibility = View.GONE
+                    binding.buttonAddGroup.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun renderGroups() {
+        val container = binding.groupListContainer
+        container.removeAllViews()
+
+        val allItems = buildList {
+            bundle.groups
+                .sortedBy { it.name.lowercase(Locale.getDefault()) }
+                .forEach { add(AdminItem.Joint(it)) }
+
+            bundle.balances
+                .sortedBy { it.name.lowercase(Locale.getDefault()) }
+                .forEach { add(AdminItem.Balance(it)) }
+        }
+
+        binding.textEmptyGroups.visibility =
+            if (allItems.isEmpty()) View.VISIBLE else View.GONE
+
+        allItems.forEach { item ->
+            container.addView(createGroupCard(item))
+        }
+    }
+
+    private fun createGroupCard(item: AdminItem): View {
+        val groupName: String
+        val badge: String
+        val summary: String
+
+        when (item) {
+            is AdminItem.Joint -> {
+                groupName = item.group.name
+                badge = "COBERTURA CONJUNTA"
+
+                val productNames = item.group.memberProductIds
+                    .mapNotNull(::productName)
+                    .ifEmpty { listOf("Sin productos activos") }
+
+                val primary = item.group.primaryProductId?.let(::productName)
+                val secondary = item.group.secondaryProductIds.mapNotNull(::productName)
+
+                summary = buildString {
+                    append(productNames.joinToString(" · "))
+                    if (!primary.isNullOrBlank()) append("\nPrincipal: $primary")
+                    if (secondary.isNotEmpty()) {
+                        append("\nSecundarios: ${secondary.joinToString(", ")}")
+                    }
+                }
+            }
+
+            is AdminItem.Balance -> {
+                groupName = item.relation.name
+                badge = "EQUILIBRIO"
+
+                val anchors = item.relation.effectiveAnchorProductIds()
+                    .mapNotNull(::productName)
+                val linked = bundle.groups.firstOrNull { it.id == item.relation.linkedGroupId }
+                val preferred = item.relation.preferredGroupProductId?.let(::productName)
+
+                summary = buildString {
+                    append(
+                        "${anchors.ifEmpty { listOf("Sin producto directo") }.joinToString(" + ")}" +
+                            " ↔ ${linked?.name ?: "Grupo no disponible"}"
+                    )
+                    if (!preferred.isNullOrBlank()) {
+                        append("\nApoyo principal del grupo: $preferred")
+                    }
+                }
+            }
+        }
+
+        val card = MaterialCardView(requireContext()).apply {
+            radius = dp(14).toFloat()
+            cardElevation = dp(1).toFloat()
+            strokeWidth = dp(1)
+            strokeColor = Color.parseColor("#D7DCEF")
+            setCardBackgroundColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(12)
+            }
+        }
+
+        val root = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(12), dp(12))
+        }
+
+        val top = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+
+        val titleWrap = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        }
+
+        titleWrap.addView(TextView(requireContext()).apply {
+            text = groupName
+            textSize = 17f
+            setTextColor(Color.parseColor("#0B185B"))
+            setTypeface(typeface, Typeface.BOLD)
+        })
+
+        titleWrap.addView(TextView(requireContext()).apply {
+            text = badge
+            textSize = 9f
+            setTextColor(
+                if (badge == "EQUILIBRIO") Color.parseColor("#0F766E")
+                else Color.parseColor("#6D28D9")
+            )
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setPadding(0, dp(3), 0, 0)
+        })
+
+        top.addView(titleWrap)
+
+        top.addView(TextView(requireContext()).apply {
+            text = "✎"
+            textSize = 21f
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                when (item) {
+                    is AdminItem.Joint -> showJointEditor(item.group)
+                    is AdminItem.Balance -> showBalanceEditor(item.relation)
+                }
+            }
+        })
+
+        top.addView(TextView(requireContext()).apply {
+            text = "🗑"
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                showDeleteConfirmation(
+                    id = when (item) {
+                        is AdminItem.Joint -> item.group.id
+                        is AdminItem.Balance -> item.relation.id
+                    },
+                    name = groupName,
+                    isJoint = item is AdminItem.Joint
+                )
+            }
+        })
+
+        root.addView(top)
+
+        root.addView(TextView(requireContext()).apply {
+            text = summary
+            textSize = 12f
+            setTextColor(Color.parseColor("#5F6B7A"))
+            setPadding(0, dp(10), 0, 0)
+            setLineSpacing(0f, 1.12f)
+        })
+
+        card.addView(root)
+
+        card.setOnClickListener {
+            when (item) {
+                is AdminItem.Joint -> showJointEditor(item.group)
+                is AdminItem.Balance -> showBalanceEditor(item.relation)
+            }
+        }
+
+        return card
+    }
+
+    private fun showNewGroupTypeDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Agregar grupo")
+            .setItems(
+                arrayOf(
+                    "Cobertura conjunta",
+                    "Equilibrio entre producto y grupo"
+                )
+            ) { _, which ->
+                if (which == 0) showJointEditor(null)
+                else showBalanceEditor(null)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    /**
+     * Ejemplos:
+     * Filetes = Lengua + Curvina + futuros filetes.
+     * Pargos = HO + HM + RO + RM + VJ + futuros miembros.
+     */
+    private fun showJointEditor(existing: PredictiveGroupConfig?) {
+        val otherUsedIds = bundle.groups
+            .filter { it.id != existing?.id }
+            .flatMap { it.memberProductIds }
+            .toSet()
+
+        val availableProducts = bundle.activeProducts
+            .filter { !otherUsedIds.contains(it.id) || existing?.memberProductIds?.contains(it.id) == true }
+            .sortedBy { it.name.lowercase(Locale.getDefault()) }
+
+        if (availableProducts.isEmpty()) {
+            Toast.makeText(requireContext(), "No hay productos disponibles para otro grupo.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val selectedIds = existing?.memberProductIds?.toMutableSet() ?: linkedSetOf()
+        var primaryId = existing?.primaryProductId
+        val secondaryIds = existing?.secondaryProductIds?.toMutableSet() ?: linkedSetOf()
+
+        val view = editorBase()
+        val nameInput = EditText(requireContext()).apply {
+            hint = "Nombre del grupo"
+            setText(existing?.name.orEmpty())
+            textSize = 15f
+            setSingleLine(true)
+        }
+        view.addView(nameInput)
+
+        val selectedSummary = editorSummary()
+        val primarySummary = editorSummary()
+        val secondarySummary = editorSummary()
+
+        fun refresh() {
+            val selectedNames = availableProducts
+                .filter { selectedIds.contains(it.id) }
+                .map { it.name }
+
+            selectedSummary.text = if (selectedNames.isEmpty()) {
+                "Productos: ninguno"
+            } else {
+                "Productos: ${selectedNames.joinToString(", ")}"
+            }
+
+            primarySummary.text = "Principal: ${primaryId?.let(::productName) ?: "Sin principal"}"
+
+            val secondNames = secondaryIds.mapNotNull(::productName)
+            secondarySummary.text = if (secondNames.isEmpty()) {
+                "Secundarios: ninguno"
+            } else {
+                "Secundarios: ${secondNames.joinToString(", ")}"
+            }
+        }
+
+        view.addView(editorButton("Elegir productos") {
+            val labels = availableProducts.map { it.name }.toTypedArray()
+            val checks = availableProducts.map { selectedIds.contains(it.id) }.toBooleanArray()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Productos del grupo")
+                .setMultiChoiceItems(labels, checks) { _, which, checked ->
+                    val id = availableProducts[which].id
+                    if (checked) selectedIds.add(id)
+                    else {
+                        selectedIds.remove(id)
+                        if (primaryId == id) primaryId = null
+                        secondaryIds.remove(id)
+                    }
+                }
+                .setPositiveButton("Aceptar") { _, _ ->
+                    primaryId = primaryId?.takeIf { selectedIds.contains(it) }
+                    secondaryIds.retainAll(selectedIds)
+                    refresh()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        })
+        view.addView(selectedSummary)
+
+        view.addView(editorButton("Elegir principal") {
+            val selected = availableProducts.filter { selectedIds.contains(it.id) }
+            if (selected.isEmpty()) {
+                toast("Primero elige los productos.")
+                return@editorButton
+            }
+
+            val labels = arrayOf("Sin principal") + selected.map { it.name }
+            val current = if (primaryId == null) 0
+            else selected.indexOfFirst { it.id == primaryId }.let { if (it < 0) 0 else it + 1 }
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Producto principal")
+                .setSingleChoiceItems(labels, current) { dialog, which ->
+                    primaryId = if (which == 0) null else selected[which - 1].id
+                    primaryId?.let { secondaryIds.remove(it) }
+                    dialog.dismiss()
+                    refresh()
+                }
+                .show()
+        })
+        view.addView(primarySummary)
+
+        view.addView(editorButton("Elegir secundarios") {
+            val selected = availableProducts.filter {
+                selectedIds.contains(it.id) && it.id != primaryId
+            }
+            if (selected.isEmpty()) {
+                toast("No hay productos disponibles como secundarios.")
+                return@editorButton
+            }
+
+            val labels = selected.map { it.name }.toTypedArray()
+            val checks = selected.map { secondaryIds.contains(it.id) }.toBooleanArray()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Productos secundarios")
+                .setMultiChoiceItems(labels, checks) { _, which, checked ->
+                    val id = selected[which].id
+                    if (checked) secondaryIds.add(id) else secondaryIds.remove(id)
+                }
+                .setPositiveButton("Aceptar") { _, _ ->
+                    secondaryIds.retainAll(selectedIds)
+                    primaryId?.let { secondaryIds.remove(it) }
+                    refresh()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        })
+        view.addView(secondarySummary)
+
+        view.addView(TextView(requireContext()).apply {
+            text = "El principal tiene preferencia suave. FIFO, stock disponible y necesidad C04 siguen mandando."
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(10), 0, 0)
+        })
+
+        refresh()
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(if (existing == null) "Nuevo grupo" else "Editar grupo")
+            .setView(wrapInScroll(view))
+            .setPositiveButton("Guardar", null)
+            .setNegativeButton("Cancelar", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameInput.text?.toString()?.trim().orEmpty()
+                if (name.isBlank()) {
+                    nameInput.error = "Escribe un nombre."
+                    return@setOnClickListener
+                }
+                if (selectedIds.isEmpty()) {
+                    toast("Selecciona al menos un producto.")
+                    return@setOnClickListener
+                }
+
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        repository.saveJointGroup(
+                            existingId = existing?.id,
+                            name = name,
+                            memberProductIds = selectedIds.toList(),
+                            primaryProductId = primaryId,
+                            secondaryProductIds = secondaryIds.toList()
+                        )
+                        dialog.dismiss()
+                        loadData(cleanInactive = false)
+                    } catch (e: Exception) {
+                        toast(e.message ?: "No se pudo guardar el grupo.")
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    }
+                }
+            }
+        }
+
+        dialog.show()
+    }
+
+    /**
+     * El usuario sigue viendo un GRUPO.
+     * Ejemplo: Róbalo + Pargos.
+     *
+     * La relación es directa, pero no convierte 1 kg faltante en 1 kg del otro.
+     * La presión adicional la aprende el motor del histórico.
+     */
+    private fun showBalanceEditor(existing: PredictiveServiceRelation?) {
+        if (bundle.groups.isEmpty()) {
+            toast("Primero crea al menos un grupo de cobertura conjunta.")
+            return
+        }
+
+        val selectedAnchorIds = existing?.effectiveAnchorProductIds()?.toMutableSet() ?: linkedSetOf()
+        var primaryAnchorId = existing?.effectivePrimaryAnchorId()
+        var linkedGroupId = existing?.linkedGroupId.orEmpty()
+        var preferredProductId = existing?.preferredGroupProductId
+
+        val view = editorBase()
+        val nameInput = EditText(requireContext()).apply {
+            hint = "Nombre del grupo"
+            setText(existing?.name.orEmpty())
+            textSize = 15f
+            setSingleLine(true)
+        }
+        view.addView(nameInput)
+
+        val anchorSummary = editorSummary()
+        val primarySummary = editorSummary()
+        val linkedSummary = editorSummary()
+        val preferredSummary = editorSummary()
+
+        fun linkedGroup(): PredictiveGroupConfig? =
+            bundle.groups.firstOrNull { it.id == linkedGroupId }
+
+        fun refresh() {
+            val anchorNames = selectedAnchorIds.mapNotNull(::productName)
+            anchorSummary.text = if (anchorNames.isEmpty()) {
+                "Producto directo: ninguno"
+            } else {
+                "Producto directo: ${anchorNames.joinToString(" + ")}"
+            }
+
+            primarySummary.text =
+                "Principal directo: ${primaryAnchorId?.let(::productName) ?: "Sin principal"}"
+
+            linkedSummary.text =
+                "Grupo relacionado: ${linkedGroup()?.name ?: "Ninguno"}"
+
+            preferredSummary.text =
+                "Apoyo principal: ${preferredProductId?.let(::productName) ?: "Sin preferencia"}"
+        }
+
+        view.addView(editorButton("Elegir producto directo") {
+            val products = bundle.activeProducts
+            val labels = products.map { it.name }.toTypedArray()
+            val checks = products.map { selectedAnchorIds.contains(it.id) }.toBooleanArray()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Producto directo")
+                .setMultiChoiceItems(labels, checks) { _, which, checked ->
+                    val id = products[which].id
+                    if (checked) selectedAnchorIds.add(id)
+                    else {
+                        selectedAnchorIds.remove(id)
+                        if (primaryAnchorId == id) primaryAnchorId = null
+                    }
+                }
+                .setPositiveButton("Aceptar") { _, _ ->
+                    primaryAnchorId = primaryAnchorId?.takeIf { selectedAnchorIds.contains(it) }
+                        ?: selectedAnchorIds.firstOrNull()
+                    refresh()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        })
+        view.addView(anchorSummary)
+
+        view.addView(editorButton("Elegir principal directo") {
+            val selected = bundle.activeProducts.filter { selectedAnchorIds.contains(it.id) }
+            if (selected.isEmpty()) {
+                toast("Primero elige el producto directo.")
+                return@editorButton
+            }
+
+            val labels = selected.map { it.name }.toTypedArray()
+            val current = selected.indexOfFirst { it.id == primaryAnchorId }.coerceAtLeast(0)
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Principal directo")
+                .setSingleChoiceItems(labels, current) { dialog, which ->
+                    primaryAnchorId = selected[which].id
+                    dialog.dismiss()
+                    refresh()
+                }
+                .show()
+        })
+        view.addView(primarySummary)
+
+        view.addView(editorButton("Elegir grupo relacionado") {
+            val groups = bundle.groups
+            val labels = groups.map { it.name }.toTypedArray()
+            val current = groups.indexOfFirst { it.id == linkedGroupId }
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Grupo relacionado")
+                .setSingleChoiceItems(labels, current) { dialog, which ->
+                    linkedGroupId = groups[which].id
+
+                    // Si el producto directo también vive dentro del grupo relacionado,
+                    // se permite editar, pero no guardar hasta corregirlo.
+                    preferredProductId = preferredProductId
+                        ?.takeIf { groups[which].memberProductIds.contains(it) }
+
+                    dialog.dismiss()
+                    refresh()
+                }
+                .show()
+        })
+        view.addView(linkedSummary)
+
+        view.addView(editorButton("Elegir apoyo principal") {
+            val group = linkedGroup()
+            if (group == null) {
+                toast("Primero elige el grupo relacionado.")
+                return@editorButton
+            }
+
+            val products = group.memberProductIds
+                .mapNotNull { id -> bundle.activeProducts.firstOrNull { it.id == id } }
+
+            if (products.isEmpty()) {
+                toast("Ese grupo no tiene productos activos.")
+                return@editorButton
+            }
+
+            val labels = arrayOf("Sin preferencia") + products.map { it.name }
+            val current = if (preferredProductId == null) 0
+            else products.indexOfFirst { it.id == preferredProductId }
+                .let { if (it < 0) 0 else it + 1 }
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Apoyo principal del grupo")
+                .setSingleChoiceItems(labels, current) { dialog, which ->
+                    preferredProductId = if (which == 0) null else products[which - 1].id
+                    dialog.dismiss()
+                    refresh()
+                }
+                .show()
+        })
+        view.addView(preferredSummary)
+
+        view.addView(TextView(requireContext()).apply {
+            text = "El motor observa si el producto directo baja y si históricamente el grupo aumenta. No convierte faltantes kilo por kilo."
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, dp(10), 0, 0)
+        })
+
+        refresh()
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setTitle(if (existing == null) "Nuevo grupo de equilibrio" else "Editar grupo de equilibrio")
+            .setView(wrapInScroll(view))
+            .setPositiveButton("Guardar", null)
+            .setNegativeButton("Cancelar", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameInput.text?.toString()?.trim().orEmpty()
+
+                if (name.isBlank()) {
+                    nameInput.error = "Escribe un nombre."
+                    return@setOnClickListener
+                }
+                if (selectedAnchorIds.isEmpty()) {
+                    toast("Selecciona el producto directo.")
+                    return@setOnClickListener
+                }
+
+                val linked = linkedGroup()
+                if (linked == null) {
+                    toast("Selecciona el grupo relacionado.")
+                    return@setOnClickListener
+                }
+
+                val conflict = selectedAnchorIds.firstOrNull { linked.memberProductIds.contains(it) }
+                if (conflict != null) {
+                    toast("${productName(conflict)} no puede estar en ambos lados de este equilibrio.")
+                    return@setOnClickListener
+                }
+
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        repository.saveBalanceGroup(
+                            existingId = existing?.id,
+                            name = name,
+                            anchorProductIds = selectedAnchorIds.toList(),
+                            primaryAnchorProductId = primaryAnchorId,
+                            linkedGroupId = linked.id,
+                            preferredGroupProductId = preferredProductId
+                        )
+                        dialog.dismiss()
+                        loadData(cleanInactive = false)
+                    } catch (e: Exception) {
+                        toast(e.message ?: "No se pudo guardar el grupo.")
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    }
+                }
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun showDeleteConfirmation(id: String, name: String, isJoint: Boolean) {
+        val dependentCount = if (isJoint) {
+            bundle.balances.count { it.linkedGroupId == id }
+        } else 0
+
+        val extra = if (dependentCount > 0) {
+            "\n\nTambién se eliminarán $dependentCount configuración(es) de equilibrio que dependen de este grupo."
+        } else ""
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Eliminar grupo")
+            .setMessage(
+                "¿Eliminar “$name” de la configuración?$extra\n\n" +
+                    "No se borrarán productos, lotes, movimientos ni históricos."
+            )
+            .setPositiveButton("Eliminar") { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        repository.deleteConfig(id)
+                        loadData(cleanInactive = false)
+                    } catch (e: Exception) {
+                        toast("No se pudo eliminar: ${e.message}")
+                    }
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun editorBase(): LinearLayout =
+        LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+
+    private fun editorSummary(): TextView =
+        TextView(requireContext()).apply {
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(dp(4), dp(2), dp(4), dp(8))
+        }
+
+    private fun editorButton(text: String, action: () -> Unit): MaterialButton =
+        MaterialButton(requireContext()).apply {
+            this.text = text
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(Color.parseColor("#0B185B"))
+            setBackgroundColor(Color.parseColor("#EEF1FF"))
+            setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(46)
+            ).apply {
+                topMargin = dp(10)
+            }
+        }
+
+    private fun wrapInScroll(content: View): ScrollView =
+        ScrollView(requireContext()).apply {
+            addView(content)
+        }
+
+    private fun productName(productId: String): String? =
+        bundle.activeProducts.firstOrNull { it.id == productId }?.name
+
+    private fun toast(message: String) {
+        Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    private sealed class AdminItem {
+        data class Joint(val group: PredictiveGroupConfig) : AdminItem()
+        data class Balance(val relation: PredictiveServiceRelation) : AdminItem()
+    }
+}
+
+--- FIN DE ARCHIVO ---
+
+
 --- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\ui\history\AdvancedHistoryFragment.kt ---
 
 package com.cesar.bocana.ui.history
@@ -11682,7 +13256,6 @@ class MainActivity : AppCompatActivity() {
 
 --- INICIO DE ARCHIVO: app\src\main\java\com\cesar\bocana\ui\masopciones\MoreOptionsFragment.kt ---
 
-
 package com.cesar.bocana.ui.masopciones
 
 import android.app.DownloadManager
@@ -11710,6 +13283,7 @@ import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
 import com.cesar.bocana.ui.history.AdvancedHistoryFragment
 import com.cesar.bocana.ui.history.HistoryFragment
+import com.cesar.bocana.ui.groups.PredictiveGroupsFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
 import com.google.firebase.FirebaseApp
@@ -11754,6 +13328,7 @@ class MoreOptionsFragment : Fragment() {
         binding.buttonNavToDevoluciones.setOnClickListener { navigateTo(DevolucionesFragment(), "DevolucionesFragment") }
         binding.buttonNavToProveedores.setOnClickListener { navigateTo(SupplierListFragment(), "SupplierListFragment") }
         binding.buttonNavToConfigTraspasos.setOnClickListener { navigateTo(ConfiguracionTraspasoFragment(), "ConfiguracionTraspasoFragment") }
+        binding.buttonNavToPredictiveGroups.setOnClickListener { navigateTo(PredictiveGroupsFragment(), "PredictiveGroupsFragment") }
 
 
 
@@ -11766,9 +13341,6 @@ class MoreOptionsFragment : Fragment() {
         // En PROD permanece oculta hasta que el procedimiento haya sido validado.
         val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
         binding.buttonMigrateData.visibility = if (projectId == "testserver-89") View.VISIBLE else View.GONE
-        if (projectId == "testserver-89") {
-            binding.buttonMigrateData.text = "Mantenimiento de inventario"
-        }
 
         // 🚀 INICIA EL BUSCADOR DE ACTUALIZACIONES
         checkForUpdates()
@@ -22775,7 +24347,7 @@ object PredictiveConsumptionEngine {
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Referencia histórica / semana"
+                            android:text="Referencia habitual / semana"
                             android:textColor="#64748B"
                             android:textSize="12sp" />
                         <TextView
@@ -22797,7 +24369,7 @@ object PredictiveConsumptionEngine {
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Referencia histórica / mes"
+                            android:text="Referencia habitual / 30 días"
                             android:textColor="#64748B"
                             android:textSize="12sp" />
                         <TextView
@@ -26259,6 +27831,93 @@ object PredictiveConsumptionEngine {
 
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- ── SUBSECCIÓN: CONFIGURACIÓN DE GESTIÓN ── -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="CONFIGURACIÓN"
+                android:textColor="#2E5EAA"
+                android:textSize="10sp"
+                android:letterSpacing="0.12"
+                android:textAllCaps="true"
+                android:textStyle="bold"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="8dp" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="2dp"
+                app:cardBackgroundColor="@android:color/white"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp">
+
+                    <LinearLayout
+                        android:id="@+id/buttonNavToPredictiveGroups"
+                        android:layout_width="match_parent"
+                        android:layout_height="62dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="#1A2E5EAA"
+                            android:gravity="center"
+                            android:text="🔗"
+                            android:textSize="15sp"
+                            android:includeFontPadding="false" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="14dp"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Grupos y prioridades"
+                                android:textColor="@color/Letras"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="Productos que trabajan juntos y su prioridad"
+                                android:textColor="#7A8190"
+                                android:textSize="10.5sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="›"
+                            android:textColor="#BBBBBB"
+                            android:textSize="20sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- ── ITEMS OCULTOS (visibility=gone, respetados) ── -->
             <LinearLayout
                 android:id="@+id/button_history"
@@ -26792,6 +28451,149 @@ object PredictiveConsumptionEngine {
         tools:visibility="visible" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+--- FIN DE ARCHIVO ---
+
+
+--- INICIO DE ARCHIVO: app\src\main\res\layout\fragment_predictive_groups.xml ---
+
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F0F2FF"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/Letras"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="22dp"
+            android:paddingBottom="22dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CONFIGURACIÓN"
+                android:textColor="#AAB3E8"
+                android:textSize="10sp"
+                android:letterSpacing="0.14"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="Grupos y prioridades"
+                android:textColor="@android:color/white"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Tú decides qué productos trabajan juntos. El motor sólo lee esta configuración."
+                android:textColor="#D7DCF7"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="18dp"
+            android:paddingBottom="28dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="#FFFFFF"
+                app:strokeColor="#D7DCEF"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Cómo funciona"
+                        android:textColor="@color/Letras"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Cobertura conjunta: el grupo manda y cada producto queda como detalle.\nEquilibrio: relaciona un producto con otro grupo sin convertir faltantes kilo por kilo."
+                        android:textColor="#5F6B7A"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="2dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <ProgressBar
+                android:id="@+id/progressGroups"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="24dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/textEmptyGroups"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:gravity="center"
+                android:text="Aún no hay grupos configurados."
+                android:textColor="#64748B"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/groupListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonAddGroup"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="18dp"
+                android:text="+  Agregar grupo"
+                android:textAllCaps="false"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/white"
+                app:backgroundTint="@color/brand_purple"
+                app:cornerRadius="14dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
 
 --- FIN DE ARCHIVO ---
 

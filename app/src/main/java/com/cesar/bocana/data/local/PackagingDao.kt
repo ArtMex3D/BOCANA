@@ -15,6 +15,12 @@ interface PackagingDao {
     @Query("SELECT * FROM pending_packaging ORDER BY receivedAt ASC")
     fun getAllPackagingTasksStream(): Flow<List<PendingPackagingTask>>
 
+    @Query("SELECT * FROM pending_packaging ORDER BY receivedAt ASC")
+    suspend fun getAllPackagingTasksOnce(): List<PendingPackagingTask>
+
+    @Query("SELECT * FROM pending_packaging WHERE productId = :productId ORDER BY receivedAt ASC")
+    suspend fun getPackagingTasksForProductOnce(productId: String): List<PendingPackagingTask>
+
     @Query("DELETE FROM pending_packaging")
     suspend fun clearAll()
 }

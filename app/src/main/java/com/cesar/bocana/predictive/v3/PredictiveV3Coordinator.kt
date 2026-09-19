@@ -3,6 +3,7 @@ package com.cesar.bocana.predictive.v3
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.predictive.v3.data.PredictiveV3ConfigRepository
+import com.cesar.bocana.predictive.v3.data.PredictiveV3DataSource
 import com.cesar.bocana.predictive.v3.data.PredictiveV3FirestoreDataSource
 import com.cesar.bocana.predictive.v3.data.PredictiveV3Time
 import com.cesar.bocana.predictive.v3.model.DemandEntityType
@@ -38,6 +39,7 @@ import kotlin.math.min
 
 class PredictiveV3Coordinator(
     private val firestore: FirebaseFirestore,
+    private val dataSource: PredictiveV3DataSource = PredictiveV3FirestoreDataSource(firestore),
     private val nowProvider: () -> Date = { Date() }
 ) {
     companion object {
@@ -46,7 +48,6 @@ class PredictiveV3Coordinator(
         private const val SERVICE_STOCK_HORIZON_WEEKS = 2.0
     }
 
-    private val dataSource = PredictiveV3FirestoreDataSource(firestore)
     private val configRepository = PredictiveV3ConfigRepository(firestore)
 
     suspend fun analyzeProduct(productId: String): PredictiveV3Analysis {
@@ -368,7 +369,8 @@ class PredictiveV3Coordinator(
         val stockMatriz = members.sumOf { it.stockMatriz }
         val stockTotal = members.sumOf { it.totalStock }
         val matrixReserve = members.sumOf(::matrixReserveForCommitment)
-        val legacyC04 = members.sumOf { it.stockIdealC04 }
+        val legacyC04 = group.c04GroupTargetKg.takeIf { it > 0.0 }
+            ?: members.sumOf { it.stockIdealC04 }
 
         val forecast = PredictiveV3Engine.forecast(
             ForecastContext(
@@ -506,7 +508,8 @@ class PredictiveV3Coordinator(
                 stockMatrizKg = groupMembers.sumOf { it.stockMatriz },
                 stockTotalKg = groupMembers.sumOf { it.totalStock },
                 generalReserveKg = groupMembers.sumOf(::matrixReserveForCommitment),
-                legacyC04ReferenceKg = groupMembers.sumOf { it.stockIdealC04 },
+                legacyC04ReferenceKg = linkedGroup.c04GroupTargetKg.takeIf { it > 0.0 }
+                    ?: groupMembers.sumOf { it.stockIdealC04 },
                 seasonalReferenceWeeklyKg = averageGroupExisting(groupHistoryIds, seasonalWeeks, checkpoints),
                 regime = regime
             )

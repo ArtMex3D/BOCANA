@@ -82,7 +82,7 @@
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Stock Ideal en C-04 (Kg)"
+                android:hint="Objetivo habitual C-04 (Kg)"
                 app:boxStrokeColor="@color/Letras"
                 app:hintTextColor="@color/Letras">
 
@@ -122,4 +122,3 @@
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
-

@@ -1,64 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp"
-    android:gravity="center_vertical"
-    android:background="?attr/selectableItemBackground">
-
-    <CheckBox
-        android:id="@+id/checkbox_lote"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
+    android:layout_marginBottom="6dp"
+    app:cardBackgroundColor="#FCFCFF"
+    app:cardCornerRadius="10dp"
+    app:cardElevation="0dp"
+    app:strokeColor="#E5E7EB"
+    app:strokeWidth="1dp">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="8dp">
+        android:orientation="horizontal"
+        android:padding="10dp"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground">
 
-        <TextView
-            android:id="@+id/textview_lote_info"
+        <CheckBox
+            android:id="@+id/checkbox_lote"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textAppearance="?attr/textAppearanceBody2"
-            android:textStyle="bold"
-            tools:text="19/09/25 (roberto) - 20 cajas" />
+            android:layout_height="wrap_content" />
 
-        <TextView
-            android:id="@+id/textview_lote_detalle"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textAppearance="?attr/textAppearanceCaption"
-            tools:text="15.00 Kg c/u = 300.00 Kg Disp."/>
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="6dp">
+
+            <TextView
+                android:id="@+id/textview_lote_info"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#111827"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                tools:text="MobyDick · 19/09/25" />
+
+            <TextView
+                android:id="@+id/textview_lote_detalle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#6B7280"
+                android:textSize="11.5sp"
+                tools:text="Disp: 20 cajas (300.00 Kg)" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="#EAF0FF"
+                android:paddingStart="7dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="2dp"
+                android:text="FIFO"
+                android:textColor="#3047A5"
+                android:textSize="9.5sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/input_layout_cantidad_desglose"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+            android:layout_width="100dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:visibility="gone"
+            android:hint="Cantidad"
+            tools:visibility="visible">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/edit_text_cantidad_desglose"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="numberDecimal"
+                android:selectAllOnFocus="true"
+                android:clickable="false"
+                android:focusable="false" />
+        </com.google.android.material.textfield.TextInputLayout>
 
     </LinearLayout>
-
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/input_layout_cantidad_desglose"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
-        android:layout_width="100dp"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:visibility="gone"
-        tools:visibility="visible"
-        android:hint="Cantidad">
-
-        <!-- item_lote_checkbox.xml -->
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/edit_text_cantidad_desglose"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="numberDecimal"
-            android:selectAllOnFocus="true"
-            android:clickable="false"
-            android:focusable="false" />
-
-    </com.google.android.material.textfield.TextInputLayout>
-
-</LinearLayout>
+</com.google.android.material.card.MaterialCardView>

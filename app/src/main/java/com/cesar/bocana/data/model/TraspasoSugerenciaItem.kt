@@ -32,5 +32,21 @@ data class TraspasoSugerenciaItem(
     var unidadDeEmpaqueEditada: String = "",
     var lotesSeleccionadosManualmente: @RawValue List<StockLot>? = null,
     var isRecalculating: Boolean = false,
-    var isSugerenciaLiquidacion: Boolean = false // NUEVO Flag para icono 💡
+    var isSugerenciaLiquidacion: Boolean = false,
+
+    // --- METADATOS SUPER TRASPASO V3 (sugerentes; NO se escriben al inventario) ---
+    var v3OriginalSuggestedKg: Double = 0.0,
+    var v3RequestedKg: Double = 0.0,
+    var cantidadSolicitadaUnidades: Int? = null,
+    var v3AvailablePackagedKg: Double = 0.0,
+    var v3AvailableUnits: Int? = null,
+    var v3PendingPackagingKg: Double = 0.0,
+    var v3ReasonText: String? = null,
+    var v3GroupId: String? = null,
+    var v3GroupName: String? = null,
+    var v3GroupHabitualTargetKg: Double? = null,
+    var v3GroupDynamicTargetKg: Double? = null,
+    var v3ShowGroupHeader: Boolean = false,
+    var v3IsGroupPrimary: Boolean = false,
+    var v3ManualOverride: Boolean = false
 ) : Parcelable

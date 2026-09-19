@@ -11,12 +11,26 @@ import kotlinx.coroutines.tasks.await
  *
  * Las altas/ediciones/bajas de grupos viven en PredictiveGroupAdminRepository.
  * De esta forma el motor V3 nunca escribe configuración por sí mismo.
+ *
+ * La configuración se carga una sola vez por proceso y queda en memoria para evitar
+ * releer Firestore cada vez que el usuario abre un popup o vuelve a Traspasos.
+ * Las pantallas administrativas invalidan la caché inmediatamente al guardar.
  */
 class PredictiveV3ConfigRepository(
     private val firestore: FirebaseFirestore
 ) {
     companion object {
         const val COLLECTION = "predictive_groups"
+        @Volatile
+        private var memoryCache: CacheEntry? = null
+
+        fun invalidateMemoryCache() {
+            memoryCache = null
+        }
+
+        private data class CacheEntry(
+            val bundle: ConfigBundle
+        )
     }
 
     data class ConfigBundle(
@@ -24,7 +38,12 @@ class PredictiveV3ConfigRepository(
         val services: List<PredictiveServiceRelation>
     )
 
-    suspend fun load(): ConfigBundle {
+    suspend fun load(forceRefresh: Boolean = false): ConfigBundle {
+        val cached = memoryCache
+        if (!forceRefresh && cached != null) {
+            return cached.bundle
+        }
+
         val snapshot = firestore.collection(COLLECTION).get().await()
         val groups = mutableListOf<PredictiveGroupConfig>()
         val services = mutableListOf<PredictiveServiceRelation>()
@@ -88,14 +107,18 @@ class PredictiveV3ConfigRepository(
                         ?.mapNotNull { it as? String }
                         ?.distinct()
                         .orEmpty(),
+                    c04GroupTargetKg = doc.getDouble("c04GroupTargetKg") ?: 0.0,
+                    primaryMinimumC04Kg = doc.getDouble("primaryMinimumC04Kg") ?: 0.0,
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             }
         }
 
-        return ConfigBundle(
+        val bundle = ConfigBundle(
             groups = groups.filter { it.enabled },
             services = services.filter { it.enabled }
         )
+        memoryCache = CacheEntry(bundle)
+        return bundle
     }
 }
