@@ -106,9 +106,9 @@ object PredictiveTransferPlannerV3 {
         val allMatrizLots = snapshot.openLots
             .filter {
                 it.location == Location.MATRIZ &&
-                        !it.isDepleted &&
-                        it.estadoTraspaso == null &&
-                        StockQuantityPolicy.isUsable(it.currentQuantity)
+                    !it.isDepleted &&
+                    it.estadoTraspaso == null &&
+                    StockQuantityPolicy.isUsable(it.currentQuantity)
             }
             .groupBy { it.productId }
             .mapValues { (_, lots) ->
@@ -213,7 +213,7 @@ object PredictiveTransferPlannerV3 {
                     max(
                         0.0,
                         group.primaryMinimumC04Kg.coerceAtLeast(0.0) -
-                                primary.stockCongelador04.coerceAtLeast(0.0)
+                            primary.stockCongelador04.coerceAtLeast(0.0)
                     )
                 }
                 ?: 0.0
@@ -437,6 +437,14 @@ object PredictiveTransferPlannerV3 {
         }
 
         var remaining = max(0.0, groupNeedKg - allocated.values.sum())
+        if (remaining <= 0.01) {
+            return GroupAllocation(
+                byProduct = allocated,
+                originalByProduct = allocated.toMap(),
+                codesByProduct = codes,
+                remainingKg = 0.0
+            )
+        }
 
         val capacities = members.associate { product ->
             product.id to availableMatrizWithinReserve(
@@ -456,34 +464,26 @@ object PredictiveTransferPlannerV3 {
         val primaryId = group.primaryProductId
         val primary = primaryId?.let(membersById::get)
 
-        // El rector conserva su mínimo operativo siempre que haya mercancía transferible,
-        // incluso si un override manual de H.M./V.J./otro miembro ya cubrió o superó
-        // el objetivo grupal. La única excepción es cuando el usuario editó directamente
-        // al rector: en ese caso su cantidad manual se respeta exactamente.
-        //
-        // Por eso este refuerzo NO se limita por `remaining`: una decisión humana sobre otro
-        // miembro puede dejar el total por encima del objetivo dinámico, pero no debe sacrificar
-        // el mínimo de H.O. a escondidas.
-        if (primary != null && !overridesKg.containsKey(primary.id)) {
+        // El rector puede saltar a una fecha posterior únicamente para proteger su mínimo operativo.
+        if (primary != null && !overridesKg.containsKey(primary.id) && remaining > 0.01) {
             val missingPrimary = max(
                 0.0,
                 group.primaryMinimumC04Kg.coerceAtLeast(0.0) -
-                        primary.stockCongelador04.coerceAtLeast(0.0)
+                    primary.stockCongelador04.coerceAtLeast(0.0)
             )
-            val forced = min(missingPrimary, capacities[primary.id] ?: 0.0)
+            val forced = min(
+                remaining,
+                min(missingPrimary, capacities[primary.id] ?: 0.0)
+            )
             if (forced > 0.01) {
                 allocated[primary.id] = (allocated[primary.id] ?: 0.0) + forced
                 capacities[primary.id] = max(0.0, (capacities[primary.id] ?: 0.0) - forced)
                 codes.getOrPut(primary.id) { mutableListOf() } += TransferReasonCode.PRIMARY_MINIMUM
+                remaining -= forced
             }
             if (missingPrimary > forced + 0.1) {
                 codes.getOrPut(primary.id) { mutableListOf() } += TransferReasonCode.PRIMARY_SHORTAGE
             }
-
-            // Recalcular después de proteger al rector. Si la edición manual + mínimo H.O.
-            // ya exceden el objetivo del grupo, no quitamos kilos de ninguna fila: el usuario
-            // podrá volver a editar y V3 recalculará de nuevo.
-            remaining = max(0.0, groupNeedKg - allocated.values.sum())
         }
 
         if (remaining <= 0.01) {
@@ -525,7 +525,7 @@ object PredictiveTransferPlannerV3 {
         while (remaining > 0.01) {
             val first = candidates.firstOrNull {
                 !consumedLots.contains(it.lot.id) &&
-                        (capacities[it.productId] ?: 0.0) > 0.01
+                    (capacities[it.productId] ?: 0.0) > 0.01
             } ?: break
 
             val startTime = first.date?.time
@@ -892,7 +892,7 @@ object TransferMessageFactory {
         val set = codes.toSet()
         return when {
             set.contains(TransferReasonCode.PACKAGING_SHORTAGE) &&
-                    set.contains(TransferReasonCode.PACKAGING_PENDING_AVAILABLE) ->
+                set.contains(TransferReasonCode.PACKAGING_PENDING_AVAILABLE) ->
                 "Disponible empacado: ${format1(availablePackagedKg)} kg. Hay ${format1(pendingPackagingKg)} kg pendientes de empacar."
 
             set.contains(TransferReasonCode.PRIMARY_SHORTAGE) ->

@@ -19,6 +19,7 @@ import com.cesar.bocana.databinding.ItemProductBinding
 import com.cesar.bocana.utils.NetworkStatus.isOnline
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.math.roundToInt
 
 interface ProductActionListener {
     fun onAddCompraClicked(product: Product)
@@ -82,36 +83,38 @@ class ProductAdapter(
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
 
             // --- CONSUMO PREDICTIVO ---
-            val consumoPromedio = item.consumoSemanalPromedio
-            val stockTotal = item.totalStock
+            // La tarjeta exterior habla en DÍAS: es la lectura operativa rápida.
+            // Se usa primero la demanda semanal prevista ya guardada localmente y,
+            // si todavía no existe, se conserva el promedio semanal como respaldo.
+            val demandaSemanal = item.demandaSemanalPrevista
+                .takeIf { it > 0.0 }
+                ?: item.consumoSemanalPromedio
+            val stockTotal = item.totalStock.coerceAtLeast(0.0)
 
-            if (consumoPromedio > 0.0) {
-                val semanasRestantes = stockTotal / consumoPromedio
+            if (demandaSemanal > 0.0) {
+                val diasRestantes = ((stockTotal / demandaSemanal) * 7.0)
+                    .coerceAtLeast(0.0)
+                    .roundToInt()
 
-                // Formatear a 1 decimal (ej. 3.5 Semanas)
-                val semanasStr = String.format(Locale.getDefault(), "%.1f", semanasRestantes)
-                binding.textViewConsumoPredictivo.text = "$semanasStr Semanas"
+                binding.textViewConsumoPredictivo.text =
+                    if (diasRestantes == 1) "1 día" else "$diasRestantes días"
 
-                // Lógica de colores
+                // Mismos umbrales operativos que antes, expresados ahora en días.
                 when {
-                    semanasRestantes >= 4.0 -> {
-                        // Verde (Tranquilidad)
+                    diasRestantes >= 28 -> {
                         binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#2E7D32"))
                         binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#2E7D32"))
                     }
-                    semanasRestantes >= 2.0 -> {
-                        // Naranja (Precaución)
+                    diasRestantes >= 14 -> {
                         binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#F57C00"))
                         binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#F57C00"))
                     }
                     else -> {
-                        // Rojo (Alerta)
                         binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#D32F2F"))
                         binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#D32F2F"))
                     }
                 }
             } else {
-                // Sin historial de consumo
                 binding.textViewConsumoPredictivo.text = "Sin consumo reciente"
                 binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
                 binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))

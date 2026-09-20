@@ -227,9 +227,9 @@ class GroupStockFragment : Fragment() {
 
     private fun inputEdit(value: Double): TextInputEditText =
         TextInputEditText(requireContext()).apply {
-            layoutParams = TextInputLayout.LayoutParams(
-                TextInputLayout.LayoutParams.MATCH_PARENT,
-                TextInputLayout.LayoutParams.WRAP_CONTENT
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(if (value > 0.0) format(value) else "")

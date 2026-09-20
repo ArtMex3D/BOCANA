@@ -28,7 +28,6 @@ import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
-import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -47,7 +46,6 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
     companion object {
         const val TAG = "ConsumoPredictivoBottomSheet"
-        private const val DEV_PROJECT_ID = "testserver-89"
     }
 
     private lateinit var progressGauge: ProgressBar
@@ -108,40 +106,41 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             isFillViewport = true
         }
 
-        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
-        if (projectId == DEV_PROJECT_ID) {
-            // En DEV no mostramos primero una predicción V2 que luego cambie a V3.
-            // Mientras V3 analiza, la UI queda en estado neutro para evitar datos contradictorios.
-            renderV3LoadingState()
-            addLoadingCard()
-            viewLifecycleOwner.lifecycleScope.launch {
-                try {
-                    val roomSource = PredictiveV3RoomDataSource(
-                        AppDatabase.getDatabase(requireContext().applicationContext)
-                    )
-                    val analysis = PredictiveV3Coordinator(
-                        firestore = FirebaseFirestore.getInstance(),
-                        dataSource = roomSource
-                    ).analyzeProduct(product.id)
-                    if (!isAdded) return@launch
-                    renderV3(analysis)
-                } catch (e: Exception) {
-                    if (!isAdded) return@launch
+        // V3 se muestra directamente. No pintamos una predicción provisional V2 antes.
+        // El análisis operativo se construye primero desde Room, que ya es actualizado por
+        // InventoryRepository/listeners y por la sincronización de movimientos.
+        //
+        // Resultado:
+        // - abrir/cerrar el popup NO vuelve a descargar productos, lotes o movimientos;
+        // - si esos datos cambiaron, Room ya contiene la nueva fotografía sincronizada;
+        // - la configuración de grupos conserva su caché en memoria y sólo vuelve a Firestore
+        //   cuando una pantalla administrativa la invalida;
+        // - V2 queda únicamente como respaldo si V3 no puede calcularse.
+        renderV3LoadingState()
+        addLoadingCard()
 
-                    // V2 se conserva únicamente como respaldo real si V3 falla.
-                    renderLegacyFallback()
-                    v3DeepContainer.removeAllViews()
-                    addSectionCard(
-                        title = "Análisis avanzado no disponible",
-                        subtitle = "Se muestran datos de respaldo. Detalle: ${e.message ?: "error desconocido"}",
-                        accent = "#B91C1C",
-                        background = "#FFF7F7"
-                    )
-                }
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val database = AppDatabase.getDatabase(requireContext().applicationContext)
+                val analysis = PredictiveV3Coordinator(
+                    firestore = FirebaseFirestore.getInstance(),
+                    dataSource = PredictiveV3RoomDataSource(database)
+                ).analyzeProduct(product.id)
+
+                if (!isAdded) return@launch
+                renderV3(analysis)
+            } catch (e: Exception) {
+                if (!isAdded) return@launch
+
+                renderLegacyFallback()
+                v3DeepContainer.removeAllViews()
+                addSectionCard(
+                    title = "Análisis avanzado no disponible",
+                    subtitle = "Se muestran datos de respaldo. Detalle: ${e.message ?: "error desconocido"}",
+                    accent = "#B91C1C",
+                    background = "#FFF7F7"
+                )
             }
-        } else {
-            // Mientras V3 siga validándose en DEV, producción conserva el comportamiento V2 actual.
-            renderLegacyFallback()
         }
     }
 
@@ -186,7 +185,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
         tvHighDemandScenario.text = "Preparando escenario de mayor consumo…"
         tvLowDemandScenario.text = "Preparando escenario de menor consumo…"
-        tvSeasonInsight.text = "Preparando análisis predictivo V3…"
+        tvSeasonInsight.text = "Preparando análisis predictivo…"
     }
 
     private fun renderLegacyFallback() {
