@@ -16,10 +16,10 @@ import com.cesar.bocana.data.model.Location
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.UserRole
 import com.cesar.bocana.databinding.ItemProductBinding
+import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.utils.NetworkStatus.isOnline
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.math.roundToInt
 
 interface ProductActionListener {
     fun onAddCompraClicked(product: Product)
@@ -38,6 +38,7 @@ class ProductAdapter(
 
     private var currentLocationContext: String = Location.MATRIZ
     private var isOnline: Boolean = true
+    private var predictiveSnapshots: Map<String, PredictiveV3Snapshot> = emptyMap()
 
     fun setCurrentUserRole(role: UserRole?) {
         if (role != currentUserRole) {
@@ -58,6 +59,20 @@ class ProductAdapter(
             currentLocationContext = newContext
             notifyDataSetChanged()
         }
+    }
+
+    /** Últimas fotografías V3 persistidas en Room. */
+    fun setPredictiveSnapshots(snapshots: List<PredictiveV3Snapshot>) {
+        val previous = predictiveSnapshots
+        predictiveSnapshots = snapshots.associateBy { it.productId }
+        currentList.forEachIndexed { index, product ->
+            if (previous[product.id] != predictiveSnapshots[product.id]) notifyItemChanged(index)
+        }
+    }
+
+    fun refreshPredictiveCoverage(productId: String) {
+        val position = currentList.indexOfFirst { it.id == productId }
+        if (position >= 0) notifyItemChanged(position)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ProductViewHolder {
@@ -82,24 +97,14 @@ class ProductAdapter(
             binding.textViewProductName.text = item.name.uppercase(Locale.ROOT)
             binding.textViewLocation.text = if (contextLocation == Location.MATRIZ) "Matriz" else "Congelador 04"
 
-            // --- CONSUMO PREDICTIVO ---
-            // La tarjeta exterior habla en DÍAS: es la lectura operativa rápida.
-            // Se usa primero la demanda semanal prevista ya guardada localmente y,
-            // si todavía no existe, se conserva el promedio semanal como respaldo.
-            val demandaSemanal = item.demandaSemanalPrevista
-                .takeIf { it > 0.0 }
-                ?: item.consumoSemanalPromedio
-            val stockTotal = item.totalStock.coerceAtLeast(0.0)
+            // --- CONSUMO PREDICTIVO V3 ---
+            // La tarjeta exterior sólo muestra el último V3 persistido.
+            // Nunca vuelve a calcular un promedio paralelo V2.
+            val snapshot = predictiveSnapshots[item.id]
+            val diasRestantes = snapshot?.coverageDays
 
-            if (demandaSemanal > 0.0) {
-                val diasRestantes = ((stockTotal / demandaSemanal) * 7.0)
-                    .coerceAtLeast(0.0)
-                    .roundToInt()
-
-                binding.textViewConsumoPredictivo.text =
-                    if (diasRestantes == 1) "1 día" else "$diasRestantes días"
-
-                // Mismos umbrales operativos que antes, expresados ahora en días.
+            if (diasRestantes != null) {
+                binding.textViewConsumoPredictivo.text = if (diasRestantes == 1) "1 día" else "$diasRestantes días"
                 when {
                     diasRestantes >= 28 -> {
                         binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#2E7D32"))
@@ -114,10 +119,14 @@ class ProductAdapter(
                         binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#D32F2F"))
                     }
                 }
-            } else {
-                binding.textViewConsumoPredictivo.text = "Sin consumo reciente"
+            } else if (snapshot != null) {
+                binding.textViewConsumoPredictivo.text = "Sin cobertura V3"
                 binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
                 binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))
+            } else {
+                binding.textViewConsumoPredictivo.text = "Calculando V3…"
+                binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#64748B"))
+                binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#64748B"))
             }
 
             binding.layoutConsumoPredictivo.setOnClickListener {

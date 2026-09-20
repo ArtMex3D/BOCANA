@@ -24,8 +24,18 @@ class PredictiveV3ConfigRepository(
         @Volatile
         private var memoryCache: CacheEntry? = null
 
+        @Volatile
+        private var memoryRevision: Long = 0L
+
+        /**
+         * Revisión de la configuración en memoria.
+         * Sirve para invalidar caches derivados (por ejemplo el popup V3) sin otra lectura a Firestore.
+         */
+        fun currentMemoryRevision(): Long = memoryRevision
+
         fun invalidateMemoryCache() {
             memoryCache = null
+            memoryRevision++
         }
 
         private data class CacheEntry(

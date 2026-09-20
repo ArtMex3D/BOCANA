@@ -13,6 +13,8 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.data.model.Supplier
+import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
+import com.cesar.bocana.predictive.v3.data.PredictiveV3SnapshotDao
 
 @Database(
     entities = [
@@ -21,9 +23,10 @@ import com.cesar.bocana.data.model.Supplier
         StockLot::class,
         Supplier::class,
         PendingPackagingTask::class,
-        DevolucionPendiente::class
+        DevolucionPendiente::class,
+        PredictiveV3Snapshot::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -35,6 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun supplierDao(): SupplierDao
     abstract fun packagingDao(): PackagingDao
     abstract fun devolucionDao(): DevolucionDao
+    abstract fun predictiveV3SnapshotDao(): PredictiveV3SnapshotDao
 
     companion object {
         @Volatile
@@ -190,6 +194,45 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Migración 9 -> 10: añade sólo la caché persistente V3. */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `predictive_v3_snapshots` (
+                        `productId` TEXT NOT NULL,
+                        `coverageDays` INTEGER,
+                        `probableMinDays` INTEGER,
+                        `probableMaxDays` INTEGER,
+                        `forecastWeeklyKg` REAL NOT NULL,
+                        `baselineWeeklyKg` REAL NOT NULL,
+                        `highScenarioWeeklyKg` REAL NOT NULL,
+                        `lowScenarioWeeklyKg` REAL NOT NULL,
+                        `primaryTotalStockKg` REAL NOT NULL,
+                        `c04CurrentKg` REAL NOT NULL,
+                        `dynamicC04TargetKg` REAL NOT NULL,
+                        `suggestedTransferKg` REAL NOT NULL,
+                        `regime` TEXT NOT NULL,
+                        `groupId` TEXT,
+                        `groupName` TEXT,
+                        `calculatedAtMillis` INTEGER NOT NULL,
+                        `dayKey` INTEGER NOT NULL,
+                        `productUpdatedAtMillis` INTEGER NOT NULL,
+                        `stockMatrizBits` INTEGER NOT NULL,
+                        `stockC04Bits` INTEGER NOT NULL,
+                        `totalStockBits` INTEGER NOT NULL,
+                        `latestMovementMillis` INTEGER NOT NULL,
+                        `packagingFingerprint` INTEGER NOT NULL,
+                        `returnsFingerprint` INTEGER NOT NULL,
+                        `configFingerprint` INTEGER NOT NULL,
+                        `engineRevision` INTEGER NOT NULL,
+                        PRIMARY KEY(`productId`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -197,7 +240,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bocana_database"
                 )
-                    .addMigrations(MIGRATION_8_9)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

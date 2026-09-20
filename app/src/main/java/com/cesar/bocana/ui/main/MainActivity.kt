@@ -28,6 +28,7 @@ import com.cesar.bocana.data.model.DevolucionStatus
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.User
 import com.cesar.bocana.data.repository.InventoryRepository
+import com.cesar.bocana.predictive.v3.PredictiveV3Manager
 import com.cesar.bocana.databinding.ActivityMainBinding
 import com.cesar.bocana.ui.auth.LoginActivity
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
@@ -50,6 +51,7 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private var currentUserName: String? = null
     private lateinit var repository: InventoryRepository
     private lateinit var connectivityObserver: ConnectivityObserver
+    private lateinit var predictiveV3Manager: PredictiveV3Manager
 
 
     private val NOTIFICATION_CHANNEL_ID = "bocana_alerts_channel"
@@ -90,6 +93,7 @@ class MainActivity : AppCompatActivity() {
 
         val database = AppDatabase.getDatabase(applicationContext)
         repository = InventoryRepository(database, db)
+        predictiveV3Manager = PredictiveV3Manager.getInstance(applicationContext, db)
 
         createNotificationChannel()
 
@@ -102,12 +106,34 @@ class MainActivity : AppCompatActivity() {
         connectivityObserver = ConnectivityObserver(applicationContext)
         observeNetworkStatus()
 
-        // Iniciar listeners y sincronización automática
+        // Sincronización + revisión silenciosa V3.
+        // Ya no se ejecuta el predictor legado como fuente principal.
         lifecycleScope.launch {
-            repository.syncNewMovements() // Sincronización inteligente al inicio
-            repository.calcularYActualizarPromediosSemanales() // <-- NUEVO: Calcula la predicción en silencio
+            try {
+                repository.syncNewMovements()
+            } catch (e: Exception) {
+                Log.w("MainActivity", "No se pudieron sincronizar movimientos antes de V3.", e)
+            }
 
+            try {
+                val result = predictiveV3Manager.refreshAllIfNeeded()
+                Log.d("PredictiveV3", "checked=${result.checked}, refreshed=${result.refreshed}, failed=${result.failed}")
+            } catch (e: Exception) {
+                Log.e("PredictiveV3", "Error en revisión silenciosa V3", e)
+            }
         }
+
+        // Si Bocana permanece abierta durante horas, una comprobación local por hora
+        // permite detectar el cambio de día sin depender de abrir popup/Traspasos.
+        // Mientras el snapshot siga vigente no vuelve a leer el histórico remoto.
+        lifecycleScope.launch {
+            while (true) {
+                delay(60L * 60L * 1000L)
+                runCatching { predictiveV3Manager.refreshAllIfNeeded() }
+                    .onFailure { Log.w("PredictiveV3", "Revisión horaria V3 no disponible.", it) }
+            }
+        }
+
         repository.startFirestoreListeners()
 
         setupBottomNavigation()
@@ -126,6 +152,13 @@ class MainActivity : AppCompatActivity() {
                     val currentFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main)
                     if (currentFragment is ProductListFragment) {
                         currentFragment.onNetworkStatusChanged(isOnline)
+                    }
+                }
+
+                if (isOnline && ::predictiveV3Manager.isInitialized) {
+                    lifecycleScope.launch {
+                        runCatching { predictiveV3Manager.refreshAllIfNeeded() }
+                            .onFailure { Log.w("PredictiveV3", "No se pudo refrescar V3 al recuperar red.", it) }
                     }
                 }
             }
@@ -149,6 +182,12 @@ class MainActivity : AppCompatActivity() {
         if (auth.currentUser != null) {
             lifecycleScope.launch { checkConditionsAndNotifyLocally() }
             fetchUserInfoOnly()
+            if (::predictiveV3Manager.isInitialized) {
+                lifecycleScope.launch {
+                    runCatching { predictiveV3Manager.refreshAllIfNeeded() }
+                        .onFailure { Log.w("PredictiveV3", "Revisión V3 en resume no disponible.", it) }
+                }
+            }
         }
     }
 

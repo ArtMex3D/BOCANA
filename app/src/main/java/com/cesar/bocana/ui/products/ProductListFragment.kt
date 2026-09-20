@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.ui.products
 
 import kotlinx.coroutines.async
@@ -98,6 +97,10 @@ import com.cesar.bocana.ui.dialogs.TraspasoMatrizC04DialogFragment
 import com.cesar.bocana.ui.dialogs.AddCompraDialogFragment
 import com.cesar.bocana.ui.ajustecompleto.AjusteCompletoFragment
 import com.cesar.bocana.ui.dialogs.TraspasoC04MatrizDialogFragment
+import com.cesar.bocana.ui.dialogs.ConsumoPredictivoBottomSheet
+import com.cesar.bocana.predictive.v3.PredictiveV3Manager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 
 class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, AjusteSubloteC04DialogFragment.AjusteSubloteC04Listener {
@@ -112,6 +115,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     private var productsListener: ListenerRegistration? = null
     private var currentUserRole: UserRole? = null
     private var isDialogOpen = false
+    private var lastPredictiveStockFingerprint: Int? = null
+    private var predictiveRefreshJob: Job? = null
     private val viewModel: ProductListViewModel by viewModels {
         ViewModelFactory(
             InventoryRepository(
@@ -151,6 +156,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
             setupRecyclerView()
             setupFab()
             setupTabLayoutListener()
+            observePredictiveSnapshots()
             observeViewModel()
         }
         return binding.root
@@ -167,12 +173,40 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         viewLifecycleOwner.lifecycleScope.launch {
             viewModel.products.collectLatest { products ->
                 showListLoading(false)
+
+                val newFingerprint = predictiveStockFingerprint(products)
+                val previousFingerprint = lastPredictiveStockFingerprint
+                val inventoryChanged = previousFingerprint != null && previousFingerprint != newFingerprint
+                lastPredictiveStockFingerprint = newFingerprint
+
                 productAdapter.submitList(products)
+                if (products.isNotEmpty() && (previousFingerprint == null || inventoryChanged)) {
+                    schedulePredictiveV3Refresh()
+                }
                 if (_binding != null) {
                     binding.textViewEmptyList.isVisible = products.isEmpty()
                     binding.recyclerViewProducts.isVisible = products.isNotEmpty()
                 }
             }
+        }
+    }
+
+    private fun observePredictiveSnapshots() {
+        val manager = PredictiveV3Manager.getInstance(requireContext().applicationContext, Firebase.firestore)
+        viewLifecycleOwner.lifecycleScope.launch {
+            manager.observeSnapshots().collectLatest { snapshots ->
+                if (::productAdapter.isInitialized) productAdapter.setPredictiveSnapshots(snapshots)
+            }
+        }
+    }
+
+    private fun schedulePredictiveV3Refresh() {
+        predictiveRefreshJob?.cancel()
+        predictiveRefreshJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(450)
+            val manager = PredictiveV3Manager.getInstance(requireContext().applicationContext, Firebase.firestore)
+            runCatching { manager.refreshAllIfNeeded() }
+                .onFailure { Log.w(TAG, "No se pudo refrescar V3 tras cambio de inventario.", it) }
         }
     }
 
@@ -210,6 +244,8 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
     }
 
     override fun onDestroyView() {
+        predictiveRefreshJob?.cancel()
+        predictiveRefreshJob = null
         super.onDestroyView()
         productsListener?.remove(); productsListener = null
         _binding = null
@@ -706,6 +742,20 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         }
     }
 
+    private fun predictiveStockFingerprint(products: List<Product>): Int {
+        return products
+            .sortedBy { it.id }
+            .fold(1) { acc, item ->
+                var value = 31 * acc + item.id.hashCode()
+                value = 31 * value + item.stockMatriz.toBits().hashCode()
+                value = 31 * value + item.stockCongelador04.toBits().hashCode()
+                value = 31 * value + item.totalStock.toBits().hashCode()
+                value = 31 * value + (item.updatedAt?.time ?: 0L).hashCode()
+                value = 31 * value + item.isActive.hashCode()
+                value
+            }
+    }
+
     override fun onConsumoPredictivoClicked(product: Product) {
         if (isDialogOpen) return
 
@@ -717,4 +767,5 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
         private const val TAG = "ProductListFragment"
     }
 }
+
 
