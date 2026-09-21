@@ -1,11 +1,9 @@
 package com.cesar.bocana.ui.printing
 
-/**
- * Define el FLUJO de trabajo que el usuario selecciona en el menú de etiquetas.
- * Esto ayuda a los fragmentos a decidir qué UI y lógica deben presentar.
- */
+/** Flujo de trabajo elegido en Etiquetas 2.0. */
 enum class LabelFlowType {
     SIMPLE,
+    COSTAL,
     FIXED_DETAILED,
     VARIABLE_DETAILED
 }

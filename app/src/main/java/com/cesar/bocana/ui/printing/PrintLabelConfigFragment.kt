@@ -1,8 +1,7 @@
 package com.cesar.bocana.ui.printing
 
 import android.app.DatePickerDialog
-import android.content.Context
-import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -13,68 +12,82 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.databinding.FragmentPrintLabelConfigBinding
 import com.cesar.bocana.ui.printing.pdf.PdfGenerator
-import com.cesar.bocana.utils.FirestoreCollections
-import com.cesar.bocana.utils.ProductFields
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class PrintLabelConfigFragment : Fragment() {
 
     private var _binding: FragmentPrintLabelConfigBinding? = null
     private val binding get() = _binding!!
 
-    private var labelType: LabelType? = null
+    private var labelType: LabelType = LabelType.SIMPLE
     private var preselectedTemplate: LabelTemplate? = null
+    private var initialData: LabelData? = null
+    private var editingActiveId: String? = null
     private val selectedDateCalendar = Calendar.getInstance()
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private var productsList = listOf<Product>()
     private var selectedProduct: Product? = null
-    private val units = listOf("Kg", "Pzas", "Cajas", "Bolsas")
+    private val units = listOf("Kg", "Pzas", "Cajas", "Bolsas", "Costales")
 
     companion object {
         private const val ARG_LABEL_TYPE = "label_type"
-        private const val ARG_PRESELECTED_TEMPLATE = "preselected_template"
+        private const val ARG_TEMPLATE = "template"
+        private const val ARG_INITIAL = "initial_data"
+        private const val ARG_EDITING_ID = "editing_active_id"
 
-        fun newInstance(labelType: LabelType, template: LabelTemplate? = null): PrintLabelConfigFragment {
-            val args = Bundle()
-            args.putSerializable(ARG_LABEL_TYPE, labelType)
-            template?.let { args.putParcelable(ARG_PRESELECTED_TEMPLATE, it) }
-            val fragment = PrintLabelConfigFragment()
-            fragment.arguments = args
-            return fragment
+        fun newInstance(
+            labelType: LabelType,
+            template: LabelTemplate? = null,
+            initialData: LabelData? = null,
+            editingActiveId: String? = null
+        ) = PrintLabelConfigFragment().apply {
+            arguments = Bundle().apply {
+                putSerializable(ARG_LABEL_TYPE, labelType)
+                template?.let { putParcelable(ARG_TEMPLATE, it) }
+                initialData?.let { putParcelable(ARG_INITIAL, it) }
+                editingActiveId?.let { putString(ARG_EDITING_ID, it) }
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        arguments?.let {
-            labelType = it.getSerializable(ARG_LABEL_TYPE) as? LabelType
-            preselectedTemplate = it.getParcelable(ARG_PRESELECTED_TEMPLATE)
+        arguments?.let { args ->
+            labelType = args.getSerializable(ARG_LABEL_TYPE) as? LabelType ?: LabelType.SIMPLE
+            preselectedTemplate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getParcelable(ARG_TEMPLATE, LabelTemplate::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getParcelable(ARG_TEMPLATE)
+            }
+            initialData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                args.getParcelable(ARG_INITIAL, LabelData::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                args.getParcelable(ARG_INITIAL)
+            }
+            editingActiveId = args.getString(ARG_EDITING_ID)
         }
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentPrintLabelConfigBinding.inflate(inflater, container, false)
         return binding.root
     }
@@ -82,224 +95,220 @@ class PrintLabelConfigFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setupToolbar()
-        setupUIForLabelType()
+        setupUi()
         setupListeners()
-        if (labelType == LabelType.DETAILED) {
-            loadProducts()
-        }
+        setupUnitSpinner()
+        if (labelType != LabelType.SIMPLE) loadProducts() else applyInitialDataIfAny()
         updatePreview()
-
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                parentFragmentManager.popBackStack()
-            }
+            override fun handleOnBackPressed() = parentFragmentManager.popBackStack()
         })
     }
 
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
-            title = "Configurar Etiqueta"
-            subtitle = preselectedTemplate?.description ?: "Ajusta los datos"
+            title = when (labelType) {
+                LabelType.SIMPLE -> "Etiqueta simple"
+                LabelType.COSTAL -> "Etiqueta de costal"
+                LabelType.DETAILED -> "Etiqueta para cajas"
+            }
+            subtitle = preselectedTemplate?.let { "${it.columns}x${it.rows} · ${it.totalLabels} por hoja" } ?: "Configura los datos"
             setDisplayHomeAsUpEnabled(true)
         }
     }
 
-    private fun setupUIForLabelType() {
-        binding.buttonSelectDate.text = dateFormat.format(Date())
+    private fun setupUi() {
         val isDetailed = labelType == LabelType.DETAILED
-
-        binding.textViewConfigTitle.text = if (isDetailed) "Etiqueta Detallada" else "Etiqueta Simple"
-        binding.buttonConfigContinue.text = if (preselectedTemplate != null) "Generar PDF" else "Continuar a Diseño"
-
-        binding.textFieldLayoutProduct.isVisible = isDetailed
+        val hasProduct = labelType != LabelType.SIMPLE
+        binding.textViewConfigTitle.text = when (labelType) {
+            LabelType.SIMPLE -> "Simple · proveedor y fecha"
+            LabelType.COSTAL -> "Costal · producto, proveedor y fecha"
+            LabelType.DETAILED -> "Cajas · producto y empaque"
+        }
+        binding.textFieldLayoutProduct.isVisible = hasProduct
+        binding.textViewSuggestion.isVisible = false
         binding.textFieldLayoutDetail.isVisible = isDetailed
         binding.textViewWeightLabel.isVisible = isDetailed
         binding.radioGroupWeightType.isVisible = isDetailed
-        binding.layoutWeightAndUnit.isVisible = false
-
-        setupUnitSpinner()
+        binding.layoutWeightAndUnit.isVisible = isDetailed
+        binding.textFieldLayoutWeight.isVisible = isDetailed && binding.radioButtonPredefinedWeight.isChecked
+        binding.buttonConfigContinue.text = if (preselectedTemplate == null) "Elegir cantidad por hoja" else "Generar etiquetas"
+        binding.buttonSelectDate.text = dateFormat.format(selectedDateCalendar.time)
     }
 
     private fun setupListeners() {
         binding.buttonSelectDate.setOnClickListener { showDatePicker() }
-
         binding.radioGroupWeightType.setOnCheckedChangeListener { _, checkedId ->
-            binding.layoutWeightAndUnit.isVisible = true
-            binding.textFieldLayoutWeight.isVisible = (checkedId == R.id.radioButtonPredefinedWeight)
-            if (checkedId != R.id.radioButtonPredefinedWeight) {
-                binding.editTextWeight.text = null
-            }
+            val predefined = checkedId == R.id.radioButtonPredefinedWeight
+            binding.layoutWeightAndUnit.isVisible = labelType == LabelType.DETAILED
+            binding.textFieldLayoutWeight.isVisible = predefined
+            if (!predefined) binding.editTextWeight.text = null
             updatePreview()
         }
-
         binding.autoCompleteProduct.setOnItemClickListener { parent, _, position, _ ->
-            val selectedName = parent.getItemAtPosition(position) as? String
-            selectedProduct = productsList.find { it.name == selectedName }
-            binding.autoCompleteUnit.setText(selectedProduct?.unit ?: "", false)
+            val name = parent.getItemAtPosition(position) as? String
+            selectedProduct = productsList.firstOrNull { it.name == name }
+            if (labelType == LabelType.DETAILED) binding.autoCompleteUnit.setText(selectedProduct?.unit ?: "", false)
+            selectedProduct?.let { suggestOldestPending(it.id) }
             updatePreview()
         }
-
-        val textWatcher = object : TextWatcher {
+        val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                updatePreview()
-            }
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = updatePreview()
             override fun afterTextChanged(s: Editable?) {}
         }
-        binding.editTextSupplier.addTextChangedListener(textWatcher)
-        binding.editTextDetail.addTextChangedListener(textWatcher)
-        binding.editTextWeight.addTextChangedListener(textWatcher)
-        binding.autoCompleteUnit.addTextChangedListener(textWatcher)
-
-        binding.buttonConfigContinue.setOnClickListener {
-            validateAndNavigate()
-        }
-    }
-
-    private fun loadProducts() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val snapshot = Firebase.firestore.collection(FirestoreCollections.PRODUCTS)
-                    .whereEqualTo(ProductFields.IS_ACTIVE, true)
-                    .orderBy(ProductFields.NAME)
-                    .get().await()
-
-                productsList = snapshot.documents.mapNotNull { doc -> doc.toObject(Product::class.java)?.copy(id = doc.id) }
-                val productNames = productsList.map { it.name }
-
-                withContext(Dispatchers.Main) {
-                    if (context != null) {
-                        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, productNames)
-                        binding.autoCompleteProduct.setAdapter(adapter)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("PrintLabelConfig", "Error cargando productos", e)
-            }
-        }
+        binding.editTextSupplier.addTextChangedListener(watcher)
+        binding.editTextDetail.addTextChangedListener(watcher)
+        binding.editTextWeight.addTextChangedListener(watcher)
+        binding.autoCompleteUnit.addTextChangedListener(watcher)
+        binding.buttonConfigContinue.setOnClickListener { validateAndContinue() }
     }
 
     private fun setupUnitSpinner() {
-        if (context != null) {
-            val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, units)
-            binding.autoCompleteUnit.setAdapter(adapter)
+        binding.autoCompleteUnit.setAdapter(ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, units))
+    }
+
+    private fun loadProducts() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                productsList = withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(requireContext().applicationContext).productDao().getAllActiveProductsStream().first()
+                }
+                if (_binding == null) return@launch
+                binding.autoCompleteProduct.setAdapter(ArrayAdapter(requireContext(), android.R.layout.simple_dropdown_item_1line, productsList.map { it.name }))
+                applyInitialDataIfAny()
+            } catch (e: Exception) {
+                Log.e("LabelConfig", "No se pudieron cargar productos", e)
+                applyInitialDataIfAny()
+            }
+        }
+    }
+
+    private fun applyInitialDataIfAny() {
+        val data = initialData ?: return
+        data.productName?.let { name ->
+            binding.autoCompleteProduct.setText(name, false)
+            selectedProduct = productsList.firstOrNull { it.id == data.productId } ?: productsList.firstOrNull { it.name == name }
+        }
+        binding.editTextSupplier.setText(data.supplierName.orEmpty())
+        binding.editTextDetail.setText(data.detail.orEmpty())
+        selectedDateCalendar.time = data.date
+        binding.buttonSelectDate.text = dateFormat.format(data.date)
+        if (labelType == LabelType.DETAILED) {
+            binding.autoCompleteUnit.setText(data.unit.orEmpty(), false)
+            if (data.weight == "Manual" || data.weight.isNullOrBlank()) {
+                binding.radioButtonManualWeight.isChecked = true
+            } else {
+                binding.radioButtonPredefinedWeight.isChecked = true
+                binding.editTextWeight.setText(data.weight)
+            }
+        }
+        updatePreview()
+    }
+
+    private fun suggestOldestPending(productId: String) {
+        if (initialData != null) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val task = withContext(Dispatchers.IO) {
+                runCatching {
+                    AppDatabase.getDatabase(requireContext().applicationContext)
+                        .packagingDao().getAllPackagingTasksStream().first()
+                        .filter { it.productId == productId }
+                        .minByOrNull { it.receivedAt?.time ?: Long.MAX_VALUE }
+                }.getOrNull()
+            } ?: return@launch
+            if (_binding == null) return@launch
+            task.supplierName?.takeIf { it.isNotBlank() }?.let { binding.editTextSupplier.setText(it) }
+            task.receivedAt?.let {
+                selectedDateCalendar.time = it
+                binding.buttonSelectDate.text = dateFormat.format(it)
+            }
+            binding.textViewSuggestion.text = "Sugerido por antigüedad · ${task.supplierName ?: "Sin proveedor"} · ${task.receivedAt?.let { d -> dateFormat.format(d) } ?: "sin fecha"}"
+            binding.textViewSuggestion.isVisible = true
+            updatePreview()
         }
     }
 
     private fun showDatePicker() {
-        val context = requireContext()
-        val dateSetListener = DatePickerDialog.OnDateSetListener { _, year, month, dayOfMonth ->
-            selectedDateCalendar.set(year, month, dayOfMonth)
-            binding.buttonSelectDate.text = dateFormat.format(selectedDateCalendar.time)
-            updatePreview()
-        }
-        DatePickerDialog(context, dateSetListener,
+        DatePickerDialog(
+            requireContext(),
+            { _, y, m, d ->
+                selectedDateCalendar.set(y, m, d)
+                binding.buttonSelectDate.text = dateFormat.format(selectedDateCalendar.time)
+                updatePreview()
+            },
             selectedDateCalendar.get(Calendar.YEAR),
             selectedDateCalendar.get(Calendar.MONTH),
             selectedDateCalendar.get(Calendar.DAY_OF_MONTH)
         ).show()
     }
 
-    private fun getCurrentLabelData(): LabelData {
-        var weight: String? = null
-        var unit: String? = null
-
-        if (labelType == LabelType.DETAILED) {
-            unit = binding.autoCompleteUnit.text.toString().trim()
-            weight = when (binding.radioGroupWeightType.checkedRadioButtonId) {
-                R.id.radioButtonManualWeight -> "Manual"
-                R.id.radioButtonPredefinedWeight -> binding.editTextWeight.text.toString().trim().ifEmpty { null }
-                else -> null
-            }
-        }
-
+    private fun currentData(): LabelData {
+        val detailed = labelType == LabelType.DETAILED
+        val weight = if (detailed) {
+            if (binding.radioButtonPredefinedWeight.isChecked) binding.editTextWeight.text?.toString()?.trim().takeUnless { it.isNullOrEmpty() } else "Manual"
+        } else null
         return LabelData(
-            labelType = labelType!!,
-            productName = selectedProduct?.name ?: binding.autoCompleteProduct.text.toString(),
-            supplierName = binding.editTextSupplier.text.toString().trim(),
+            labelType = labelType,
+            productId = selectedProduct?.id,
+            productName = selectedProduct?.name ?: binding.autoCompleteProduct.text.toString().trim().ifEmpty { null },
+            supplierName = binding.editTextSupplier.text?.toString()?.trim(),
             date = selectedDateCalendar.time,
             weight = weight,
-            unit = unit,
-            detail = binding.editTextDetail.text.toString().trim().ifEmpty { null }
+            unit = if (detailed) binding.autoCompleteUnit.text.toString().trim() else null,
+            detail = if (detailed) binding.editTextDetail.text?.toString()?.trim().takeUnless { it.isNullOrEmpty() } else null
         )
     }
 
     private fun updatePreview() {
         if (_binding == null) return
-        val data = getCurrentLabelData()
-        binding.previewView.updateView(data, null, null)
+        binding.previewView.updateView(currentData(), null, null)
     }
 
-    private fun validateAndNavigate() {
-        val data = getCurrentLabelData()
-        var isValid = true
-
-        if (data.supplierName.isNullOrEmpty()) {
-            binding.textFieldLayoutSupplier.error = "Proveedor es obligatorio"
-            isValid = false
-        } else {
-            binding.textFieldLayoutSupplier.error = null
+    private fun validateAndContinue() {
+        val data = currentData()
+        var valid = true
+        if (labelType != LabelType.SIMPLE && selectedProduct == null && data.productName.isNullOrBlank()) {
+            binding.textFieldLayoutProduct.error = "Selecciona un producto"; valid = false
+        } else binding.textFieldLayoutProduct.error = null
+        if (data.supplierName.isNullOrBlank()) {
+            binding.textFieldLayoutSupplier.error = "Proveedor requerido"; valid = false
+        } else binding.textFieldLayoutSupplier.error = null
+        if (labelType == LabelType.DETAILED) {
+            if (data.unit.isNullOrBlank()) { binding.textFieldLayoutUnit.error = "Unidad requerida"; valid = false } else binding.textFieldLayoutUnit.error = null
+            if (binding.radioButtonPredefinedWeight.isChecked && (data.weight?.toDoubleOrNull() ?: 0.0) <= 0.0) {
+                binding.textFieldLayoutWeight.error = "Cantidad inválida"; valid = false
+            } else binding.textFieldLayoutWeight.error = null
         }
+        if (!valid) return
 
-        if (data.labelType == LabelType.DETAILED) {
-            if (data.productName.isNullOrEmpty()) {
-                binding.textFieldLayoutProduct.error = "Producto es obligatorio"
-                isValid = false
-            } else {
-                binding.textFieldLayoutProduct.error = null
-            }
-            if (data.unit.isNullOrEmpty()) {
-                binding.textFieldLayoutUnit.error = "Unidad requerida"
-                isValid = false
-            } else {
-                binding.textFieldLayoutUnit.error = null
-            }
-            if (binding.radioGroupWeightType.checkedRadioButtonId == R.id.radioButtonPredefinedWeight) {
-                if (data.weight.isNullOrEmpty() || (data.weight.toDoubleOrNull() ?: 0.0) <= 0.0) {
-                    binding.textFieldLayoutWeight.error = "Peso inválido"
-                    isValid = false
-                } else {
-                    binding.textFieldLayoutWeight.error = null
-                }
-            }
-        }
-
-        if (!isValid) {
-            Toast.makeText(context, "Por favor, corrige los errores", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (preselectedTemplate != null) {
-            // CORRECCIÓN: Llamar a la función local para generar el PDF
-            generateAndSharePdf(data, preselectedTemplate!!)
-        } else {
-            val fragment = PrintLabelLayoutFragment.newInstance(data)
+        val template = preselectedTemplate
+        if (template == null) {
             parentFragmentManager.beginTransaction()
-                .replace(R.id.nav_host_fragment_content_main, fragment)
+                .replace(R.id.nav_host_fragment_content_main, PrintLabelLayoutFragment.newInstance(data))
                 .addToBackStack(null)
                 .commit()
-        }
+        } else generate(data, template)
     }
 
-    // --- NUEVAS FUNCIONES AÑADIDAS ---
-    private fun generateAndSharePdf(data: LabelData, template: LabelTemplate) {
-        val currentContext = context ?: return
-
+    private fun generate(data: LabelData, template: LabelTemplate) {
         binding.progressBarConfig.isVisible = true
         binding.buttonConfigContinue.isEnabled = false
-        Toast.makeText(currentContext, "Generando PDF...", Toast.LENGTH_SHORT).show()
-
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val pdfFile = withContext(Dispatchers.IO) {
-                    PdfGenerator.createSingleLabelPdf(currentContext, data, template)
+                val pdf = withContext(Dispatchers.IO) { PdfGenerator.createSingleLabelPdf(requireContext(), data, template) }
+                val flow = when (labelType) {
+                    LabelType.SIMPLE -> LabelFlowType.SIMPLE
+                    LabelType.COSTAL -> LabelFlowType.COSTAL
+                    LabelType.DETAILED -> LabelFlowType.FIXED_DETAILED
                 }
-                sharePdf(currentContext, pdfFile)
+                val record = ActiveLabelStore.saveSingle(requireContext(), pdf, flow, template, data, editingActiveId)
+                openViewer(record)
             } catch (e: Exception) {
-                Log.e("PDF_CRASH", "Error capturado al generar PDF", e)
-                showErrorDialog(currentContext, e)
+                Log.e("LabelConfig", "Error generando etiquetas", e)
+                Toast.makeText(context, "No se pudo generar el PDF: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {
-                if (isAdded && _binding != null) {
+                if (_binding != null) {
                     binding.progressBarConfig.isVisible = false
                     binding.buttonConfigContinue.isEnabled = true
                 }
@@ -307,31 +316,12 @@ class PrintLabelConfigFragment : Fragment() {
         }
     }
 
-    private fun sharePdf(context: Context, file: File) {
-        if (!isAdded || !file.exists()) return
-        try {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(shareIntent, "Compartir etiquetas PDF..."))
-        } catch (e: Exception) {
-            Log.e("SharePdf", "Error al compartir PDF", e)
-            Toast.makeText(context, "No se pudo compartir el archivo.", Toast.LENGTH_SHORT).show()
-        }
+    private fun openViewer(record: ActiveLabelRecord) {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.nav_host_fragment_content_main, PdfViewerFragment.newInstance(record.pdfPath, record.id, record.title))
+            .addToBackStack(null)
+            .commit()
     }
-
-    private fun showErrorDialog(context: Context, e: Exception) {
-        if (!isAdded) return
-        AlertDialog.Builder(context)
-            .setTitle("¡Oops! Ocurrió un error")
-            .setMessage(e.stackTraceToString())
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
-    }
-    // --- FIN DE FUNCIONES AÑADIDAS ---
 
     override fun onDestroyView() {
         super.onDestroyView()

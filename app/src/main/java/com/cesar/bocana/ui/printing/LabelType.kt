@@ -1,9 +1,8 @@
 package com.cesar.bocana.ui.printing
 
-/**
- * Define el DISEÑO específico de la etiqueta que se va a configurar y generar.
- */
+/** Diseño visual de la etiqueta. */
 enum class LabelType {
     SIMPLE,
+    COSTAL,
     DETAILED
 }

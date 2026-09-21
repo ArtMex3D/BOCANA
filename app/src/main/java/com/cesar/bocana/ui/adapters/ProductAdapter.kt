@@ -80,7 +80,14 @@ class ProductAdapter(
     }
 
     override fun onBindViewHolder(holder: ProductViewHolder, position: Int) {
-        holder.bind(getItem(position), actionListener, currentLocationContext, isOnline)
+        val item = getItem(position)
+        holder.bind(
+            item = item,
+            listener = actionListener,
+            contextLocation = currentLocationContext,
+            isOnline = isOnline,
+            predictiveSnapshot = predictiveSnapshots[item.id]
+        )
     }
 
     class ProductViewHolder private constructor(
@@ -88,7 +95,13 @@ class ProductAdapter(
         private val userRole: UserRole?
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: Product, listener: ProductActionListener, contextLocation: String, isOnline: Boolean) {
+        fun bind(
+            item: Product,
+            listener: ProductActionListener,
+            contextLocation: String,
+            isOnline: Boolean,
+            predictiveSnapshot: PredictiveV3Snapshot?
+        ) {
             val context = binding.root.context
             val format = Locale.getDefault()
             val canModify = userRole == UserRole.ADMIN
@@ -100,7 +113,7 @@ class ProductAdapter(
             // --- CONSUMO PREDICTIVO V3 ---
             // La tarjeta exterior sólo muestra el último V3 persistido.
             // Nunca vuelve a calcular un promedio paralelo V2.
-            val snapshot = predictiveSnapshots[item.id]
+            val snapshot = predictiveSnapshot
             val diasRestantes = snapshot?.coverageDays
 
             if (diasRestantes != null) {
@@ -120,11 +133,11 @@ class ProductAdapter(
                     }
                 }
             } else if (snapshot != null) {
-                binding.textViewConsumoPredictivo.text = "Sin cobertura V3"
+                binding.textViewConsumoPredictivo.text = "Sin cobertura "
                 binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#9E9E9E"))
                 binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#9E9E9E"))
             } else {
-                binding.textViewConsumoPredictivo.text = "Calculando V3…"
+                binding.textViewConsumoPredictivo.text = "Calculando …"
                 binding.textViewConsumoPredictivo.setTextColor(Color.parseColor("#64748B"))
                 binding.iconConsumoPredictivo.setColorFilter(Color.parseColor("#64748B"))
             }

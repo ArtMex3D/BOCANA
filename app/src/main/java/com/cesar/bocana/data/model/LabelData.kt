@@ -5,7 +5,6 @@ import com.cesar.bocana.ui.printing.LabelType
 import kotlinx.parcelize.Parcelize
 import java.util.Date
 
-
 @Parcelize
 data class LabelData(
     val labelType: LabelType,

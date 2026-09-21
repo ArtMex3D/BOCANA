@@ -1,31 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="24dp">
+
+        <View
+            android:layout_width="44dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:background="#D1D5DB" />
 
         <TextView
             android:id="@+id/textViewDialogTitle"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textAppearance="?attr/textAppearanceHeadline6"
-            tools:text="Configurar Etiqueta #1" />
+            android:layout_marginTop="16dp"
+            android:textColor="@color/Letras"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            tools:text="Etiqueta #1" />
+
+        <TextView
+            android:id="@+id/textViewSuggestion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#0F766E"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text="Sugerido por antigüedad · MobyDick · 14/05/26"
+            tools:visibility="visible" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutProduct"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="14dp"
             android:hint="Producto">
-
             <AutoCompleteTextView
                 android:id="@+id/autoCompleteProduct"
                 android:layout_width="match_parent"
@@ -40,7 +63,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:hint="Proveedor">
-
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/editTextSupplier"
                 android:layout_width="match_parent"
@@ -48,14 +70,22 @@
                 android:inputType="textCapWords" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonSelectDate"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Fecha de llegada"
+            app:icon="@android:drawable/ic_menu_today" />
+
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutDetail"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="Detalle (ej. 'Bolsa', 'Sin Bolsa')">
-
+            android:hint="Detalle opcional">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/editTextDetail"
                 android:layout_width="match_parent"
@@ -63,43 +93,31 @@
                 android:inputType="textCapSentences" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <Button
-            android:id="@+id/buttonSelectDate"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:paddingVertical="16dp"
-            tools:text="28/08/2025"
-            app:icon="@android:drawable/ic_menu_today" />
-
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Peso de la Etiqueta:"
-            android:textAppearance="?attr/textAppearanceSubtitle1"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="14dp"
+            android:text="Peso / anotación"
+            android:textColor="@color/Letras"
+            android:textStyle="bold" />
 
         <RadioGroup
             android:id="@+id/radioGroupWeightType"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="8dp">
-
+            android:orientation="horizontal">
             <RadioButton
                 android:id="@+id/radioButtonManualWeight"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Manual"
-                android:checked="true"/>
-
+                android:checked="true"
+                android:text="Manual" />
             <RadioButton
                 android:id="@+id/radioButtonPredefinedWeight"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="Predefinido"/>
+                android:layout_marginStart="18dp"
+                android:text="Predefinido" />
         </RadioGroup>
 
         <LinearLayout
@@ -107,32 +125,27 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:visibility="gone"
-            tools:visibility="visible">
-
+            android:visibility="gone">
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/textFieldLayoutWeight"
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="Peso">
-
+                android:hint="Cantidad">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/editTextWeight"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="numberDecimal" />
             </com.google.android.material.textfield.TextInputLayout>
-
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/textFieldLayoutUnit"
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-                android:layout_width="120dp"
+                android:layout_width="130dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:hint="Unidad">
-
                 <AutoCompleteTextView
                     android:id="@+id/autoCompleteUnit"
                     android:layout_width="match_parent"
@@ -146,16 +159,35 @@
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Cantidad de copias de esta etiqueta">
-
+            android:layout_marginTop="10dp"
+            android:hint="Cantidad de etiquetas">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/editTextCopies"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="number"
-                android:text="1"/>
+                android:text="1" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="end"
+            android:orientation="horizontal">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonCancel"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Cancelar" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonSave"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Aplicar"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>

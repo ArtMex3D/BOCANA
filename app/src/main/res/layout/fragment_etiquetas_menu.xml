@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="#F0F2FF"
+    android:background="#F4F5FA"
     tools:context=".ui.printing.EtiquetasMenuFragment">
 
     <LinearLayout
@@ -13,391 +13,174 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- ══════════════════════════════════════
-             HEADER BANNER
-             ══════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@color/Letras"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            android:paddingTop="20dp"
-            android:paddingBottom="20dp"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:padding="20dp">
 
             <TextView
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="46dp"
+                android:layout_height="46dp"
                 android:background="#33FFFFFF"
                 android:gravity="center"
+                android:includeFontPadding="false"
                 android:text="🏷️"
-                android:textSize="22sp"
-                android:includeFontPadding="false" />
+                android:textSize="22sp" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
                 android:layout_weight="1"
-                android:orientation="vertical"
-                android:layout_marginStart="14dp">
+                android:orientation="vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="MÓDULO DE IMPRESIÓN"
-                    android:textColor="#80FFFFFF"
-                    android:textSize="10sp"
-                    android:letterSpacing="0.15"
-                    android:textAllCaps="true" />
+                    android:letterSpacing="0.14"
+                    android:text="IMPRESIÓN"
+                    android:textColor="#99FFFFFF"
+                    android:textSize="10sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
                     android:text="Etiquetas"
                     android:textColor="@android:color/white"
-                    android:textSize="22sp"
-                    android:textStyle="bold"
-                    android:layout_marginTop="2dp" />
-
+                    android:textSize="23sp"
+                    android:textStyle="bold" />
             </LinearLayout>
-
         </LinearLayout>
 
-        <!-- Franja accent magenta -->
         <View
             android:layout_width="match_parent"
             android:layout_height="3dp"
             android:background="@color/brand_purple" />
 
-        <!-- ══════════════════════════════════════
-             GRID DE OPCIONES
-             ══════════════════════════════════════ -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="20dp"
-            android:paddingBottom="20dp">
+            android:padding="16dp">
 
-            <!-- Etiqueta de sección -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="SELECCIONA UN FORMATO"
+                android:layout_marginBottom="10dp"
+                android:text="CREAR ETIQUETAS"
                 android:textColor="@color/brand_purple"
                 android:textSize="10sp"
-                android:letterSpacing="0.12"
-                android:textAllCaps="true"
                 android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
+                android:letterSpacing="0.12" />
 
-            <!-- Fila 1 -->
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardEtiquetasSimples"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                app:cardBackgroundColor="@color/Letras"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="3dp">
 
-                <!-- Card: Etiquetas Simples -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_etiquetas_simples"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="3dp"
-                    app:cardBackgroundColor="@color/Letras"
-                    app:strokeColor="@color/Letras"
-                    app:strokeWidth="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
-
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#33FFFFFF"
-                            android:gravity="center"
-                            android:text="🖨️"
-                            android:textSize="20sp"
-                            android:includeFontPadding="false" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Etiquetas Simples"
-                            android:textAlignment="center"
-                            android:textColor="@android:color/white"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="16dp">
+                    <TextView android:layout_width="44dp" android:layout_height="44dp" android:gravity="center" android:text="S" android:textColor="@android:color/white" android:textSize="20sp" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="12dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Simples" android:textColor="@android:color/white" android:textSize="18sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Proveedor + fecha · 14 a 30 por hoja" android:textColor="#CCFFFFFF" android:textSize="12sp" />
                     </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textColor="@android:color/white" android:textSize="28sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- Card: Fijas x8 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_fijasx8"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="3dp"
-                    app:cardBackgroundColor="@color/brand_purple"
-                    app:strokeWidth="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
-
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#33FFFFFF"
-                            android:gravity="center"
-                            android:includeFontPadding="false"
-                            android:text="🖨️"
-                            android:textSize="20sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Fijas x8"
-                            android:textAlignment="center"
-                            android:textColor="@android:color/white"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                    </LinearLayout>
-
-                </com.google.android.material.card.MaterialCardView>
-
-            </LinearLayout>
-
-            <!-- Fila 2 -->
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCostales"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:strokeColor="#0F766E"
+                app:strokeWidth="2dp">
 
-                <!-- Card: Fijas x6 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_fijasx6"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="3dp"
-                    app:cardBackgroundColor="#FFFFFF"
-                    app:strokeColor="@color/Letras"
-                    app:strokeWidth="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
-
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#1A020961"
-                            android:gravity="center"
-                            android:text="🖨️"
-                            android:textSize="20sp"
-                            android:includeFontPadding="false" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Fijas x6"
-                            android:textAlignment="center"
-                            android:textColor="@color/Letras"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:padding="16dp">
+                    <TextView android:layout_width="44dp" android:layout_height="44dp" android:gravity="center" android:text="C" android:textColor="#0F766E" android:textSize="20sp" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="12dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Costales" android:textColor="#0F766E" android:textSize="18sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Producto + proveedor + fecha" android:textColor="#4B5563" android:textSize="12sp" />
                     </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textColor="#0F766E" android:textSize="28sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                </com.google.android.material.card.MaterialCardView>
-
-                <!-- Card: Variables x8 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_etiquetas_variables_x8"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="3dp"
-                    app:cardBackgroundColor="#FFFFFF"
-                    app:strokeColor="@color/brand_purple"
-                    app:strokeWidth="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
-
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#1AE8005E"
-                            android:gravity="center"
-                            android:text="🖨️"
-                            android:textSize="20sp"
-                            android:includeFontPadding="false" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Variables x8"
-                            android:textAlignment="center"
-                            android:textColor="@color/brand_purple"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                    </LinearLayout>
-
-                </com.google.android.material.card.MaterialCardView>
-
-            </LinearLayout>
-
-            <!-- Fila 3 -->
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardAvanzadas"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                app:cardBackgroundColor="#FFFFFF"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="2dp"
+                app:strokeColor="@color/brand_purple"
+                app:strokeWidth="2dp">
 
-                <!-- Card: Variables x6 -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_etiquetas_variables_x6"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="3dp"
-                    app:cardBackgroundColor="#FFFFFF"
-                    app:strokeColor="@color/Letras"
-                    app:strokeWidth="2dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
-
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#1A020961"
-                            android:gravity="center"
-                            android:text="🖨️"
-                            android:textSize="20sp"
-                            android:includeFontPadding="false" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Variables x6"
-                            android:textAlignment="center"
-                            android:textColor="@color/Letras"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:padding="16dp">
+                    <TextView android:layout_width="44dp" android:layout_height="44dp" android:gravity="center" android:text="C" android:textColor="@color/brand_purple" android:textSize="20sp" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="12dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Cajas" android:textColor="@color/brand_purple" android:textSize="18sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Idénticas o variables · 2x4 / 2x3" android:textColor="#4B5563" android:textSize="12sp" />
                     </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="›" android:textColor="@color/brand_purple" android:textSize="28sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                </com.google.android.material.card.MaterialCardView>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="22dp" android:layout_marginBottom="18dp" android:background="#D8DCE8" />
 
-                <!-- Card: Próximamente -->
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/card_editable_super_detalle"
-                    android:layout_width="0dp"
-                    android:layout_height="120dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:foreground="?attr/selectableItemBackground"
-                    app:cardCornerRadius="14dp"
-                    app:cardElevation="0dp"
-                    app:cardBackgroundColor="#F0F0F0"
-                    app:strokeColor="#CCCCCC"
-                    app:strokeWidth="1dp">
+            <TextView
+                android:id="@+id/textViewActiveTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ETIQUETAS ACTIVAS · 24 H"
+                android:textColor="@color/Letras"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.08" />
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical"
-                        android:padding="12dp">
+            <TextView
+                android:id="@+id/textViewNoActiveLabels"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:padding="16dp"
+                android:gravity="center"
+                android:text="Las etiquetas que generes hoy aparecerán aquí para verlas, corregirlas o reimprimirlas."
+                android:textColor="#6B7280"
+                android:textSize="12sp" />
 
-                        <TextView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:background="#22000000"
-                            android:gravity="center"
-                            android:text="⏳"
-                            android:textSize="20sp"
-                            android:includeFontPadding="false" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Próximamente..."
-                            android:textAlignment="center"
-                            android:textColor="#999999"
-                            android:textSize="12sp"
-                            android:textStyle="italic" />
-
-                    </LinearLayout>
-
-                </com.google.android.material.card.MaterialCardView>
-
-            </LinearLayout>
-
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recyclerViewActiveLabels"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:nestedScrollingEnabled="false"
+                tools:listitem="@layout/item_active_label" />
         </LinearLayout>
-
     </LinearLayout>
-
-</ScrollView>
+</androidx.core.widget.NestedScrollView>
