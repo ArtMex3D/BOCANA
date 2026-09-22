@@ -1,6 +1,7 @@
 package com.cesar.bocana.ui.adapters
 
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
@@ -52,22 +53,28 @@ class PackagingAdapter(private val listener: PackagingActionListener) :
             binding.textViewPackProductName.text = task.productName
             binding.textViewPackQuantityValue.text = "${formatQuantity(item.actualQuantityKg)} ${task.unit.ifBlank { "Kg" }} pendientes"
             binding.textViewPackSupplier.text = task.supplierName?.takeIf { it.isNotBlank() } ?: "Proveedor sin registrar"
-            binding.textViewPackDateValue.text = task.receivedAt?.let { "Llegó ${formatter.format(it)}" } ?: "Fecha de llegada no disponible"
+            binding.textViewPackDateValue.text = task.receivedAt?.let { "Llegó ${formatter.format(it)}" } ?: "Fecha no disponible"
             binding.textViewPackTimeElapsed.text = item.statusText
             binding.textViewPackInsight.text = item.insightText
 
             val palette = when (item.visualLevel) {
-                PackagingVisualLevel.BLUE -> Palette("#EEF5FF", "#315F9F", "#DCEBFF")
-                PackagingVisualLevel.GREEN -> Palette("#EDF8F0", "#2E7D32", "#DCF1E1")
-                PackagingVisualLevel.AMBER -> Palette("#FFF6E8", "#C26A00", "#FFE8C2")
-                PackagingVisualLevel.RED -> Palette("#FFF0F0", "#B3261E", "#FFDAD6")
+                PackagingVisualLevel.GREEN -> Palette("#EFF9F1", "#2E7D32", "#D8F0DC")
+                PackagingVisualLevel.BLUE -> Palette("#EEF5FF", "#2867A8", "#D7E9FF")
+                PackagingVisualLevel.AMBER -> Palette("#FFF4E3", "#C66A00", "#FFE0AD")
+                PackagingVisualLevel.RED -> Palette("#FFF0F0", "#B3261E", "#FFD5D1")
             }
 
             binding.packagingCardView.setCardBackgroundColor(Color.parseColor(palette.background))
             binding.packagingCardView.strokeColor = Color.parseColor(palette.accent)
+            binding.packagingCardView.strokeWidth = 2
             binding.textViewPackTimeElapsed.setTextColor(Color.parseColor(palette.accent))
-            binding.textViewPackTimeElapsed.setBackgroundColor(Color.parseColor(palette.badge))
-            binding.textViewPackInsight.setTextColor(Color.parseColor(palette.accent))
+            binding.textViewPackTimeElapsed.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 999f
+                setColor(Color.parseColor(palette.badge))
+            }
+            // El mensaje operativo informa; no compite visualmente con la antigüedad.
+            binding.textViewPackInsight.setTextColor(Color.parseColor("#555964"))
 
             binding.buttonLabels.setOnClickListener { listener.onLabelsClicked(task) }
             binding.buttonMarkPackaged.setOnClickListener { listener.onMarkPackagedClicked(task) }

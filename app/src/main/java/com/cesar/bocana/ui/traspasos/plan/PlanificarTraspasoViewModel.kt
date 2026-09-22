@@ -605,7 +605,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = product.id,
-            message = "Cantidad manual aplicada; V3 recalculó el resto del grupo."
+            message = "Cantidad manual aplicada"
         )
     }
 
@@ -620,7 +620,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Cantidad manual aplicada; V3 recalculó las demás sugerencias."
+            message = "Cantidad manual aplicada"
         )
     }
 

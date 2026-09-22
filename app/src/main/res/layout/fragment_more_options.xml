@@ -877,7 +877,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:layout_marginStart="14dp"
-                            android:text="Mantenimiento de Datos v3.0"
+                            android:text="Mantenimiento de Datos"
                             android:textColor="@android:color/holo_red_dark"
                             android:textSize="14sp"
                             android:textStyle="bold" />

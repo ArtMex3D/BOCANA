@@ -206,7 +206,7 @@ class ProductListFragment : Fragment(), ProductActionListener, MenuProvider, Aju
             delay(450)
             val manager = PredictiveV3Manager.getInstance(requireContext().applicationContext, Firebase.firestore)
             runCatching { manager.refreshAllIfNeeded() }
-                .onFailure { Log.w(TAG, "No se pudo refrescar V3 tras cambio de inventario.", it) }
+                .onFailure { Log.w(TAG, "No se pudo refrescar  tras cambio de inventario.", it) }
         }
     }
 

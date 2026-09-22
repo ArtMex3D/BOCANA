@@ -207,11 +207,13 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
                 it.suggestedTransferKg > 0.5 || ((it.coverageDays ?: Int.MAX_VALUE) <= 14)
             } == true
 
+            // La prioridad visual de Empaque depende SOLO de la antigüedad.
+            // La recomendación operativa informa, pero no cambia color ni orden.
             val visualLevel = when {
-                days >= 5L -> PackagingVisualLevel.RED
-                operationalAttention || days >= 3L -> PackagingVisualLevel.AMBER
-                days >= 1L -> PackagingVisualLevel.GREEN
-                else -> PackagingVisualLevel.BLUE
+                days >= 4L -> PackagingVisualLevel.RED
+                days == 3L -> PackagingVisualLevel.AMBER
+                days == 2L -> PackagingVisualLevel.BLUE
+                else -> PackagingVisualLevel.GREEN
             }
 
             val statusText = when {
@@ -234,11 +236,11 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
                 statusText = statusText,
                 insightText = insight,
                 visualLevel = visualLevel,
-                priority = operationalAttention
+                priority = days >= 3L
             )
         }.sortedWith(
-            compareByDescending<PackagingUiItem> { it.priority }
-                .thenBy { it.task.receivedAt?.time ?: Long.MAX_VALUE }
+            // PEPS visual: primero lo más antiguo, sin que el mensaje operativo reordene la cola.
+            compareBy<PackagingUiItem> { it.task.receivedAt?.time ?: Long.MAX_VALUE }
                 .thenBy { it.task.productName.lowercase(Locale.getDefault()) }
         )
 

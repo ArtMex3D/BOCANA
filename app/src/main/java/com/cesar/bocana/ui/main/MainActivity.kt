@@ -112,14 +112,14 @@ class MainActivity : AppCompatActivity() {
             try {
                 repository.syncNewMovements()
             } catch (e: Exception) {
-                Log.w("MainActivity", "No se pudieron sincronizar movimientos antes de V3.", e)
+                Log.w("MainActivity", "No se pudieron sincronizar movimientos.", e)
             }
 
             try {
                 val result = predictiveV3Manager.refreshAllIfNeeded()
                 Log.d("PredictiveV3", "checked=${result.checked}, refreshed=${result.refreshed}, failed=${result.failed}")
             } catch (e: Exception) {
-                Log.e("PredictiveV3", "Error en revisión silenciosa V3", e)
+                Log.e("PredictiveV3", "Error en revisión silenciosa ", e)
             }
         }
 
@@ -130,7 +130,7 @@ class MainActivity : AppCompatActivity() {
             while (true) {
                 delay(60L * 60L * 1000L)
                 runCatching { predictiveV3Manager.refreshAllIfNeeded() }
-                    .onFailure { Log.w("PredictiveV3", "Revisión horaria V3 no disponible.", it) }
+                    .onFailure { Log.w("PredictiveV3", "Revisión horaria no disponible.", it) }
             }
         }
 
@@ -158,7 +158,7 @@ class MainActivity : AppCompatActivity() {
                 if (isOnline && ::predictiveV3Manager.isInitialized) {
                     lifecycleScope.launch {
                         runCatching { predictiveV3Manager.refreshAllIfNeeded() }
-                            .onFailure { Log.w("PredictiveV3", "No se pudo refrescar V3 al recuperar red.", it) }
+                            .onFailure { Log.w("PredictiveV3", "No se pudo refrescar  al recuperar red.", it) }
                     }
                 }
             }
@@ -185,7 +185,7 @@ class MainActivity : AppCompatActivity() {
             if (::predictiveV3Manager.isInitialized) {
                 lifecycleScope.launch {
                     runCatching { predictiveV3Manager.refreshAllIfNeeded() }
-                        .onFailure { Log.w("PredictiveV3", "Revisión V3 en resume no disponible.", it) }
+                        .onFailure { Log.w("PredictiveV3", "Revisión  en resume no disponible.", it) }
                 }
             }
         }
