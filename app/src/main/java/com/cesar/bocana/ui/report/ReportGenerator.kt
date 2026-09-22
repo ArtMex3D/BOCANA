@@ -8,15 +8,13 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.ReportColumn
 import com.cesar.bocana.data.model.ReportConfig
-import com.cesar.bocana.util.CalculationUtils
-import com.google.firebase.firestore.FieldPath
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.firestore.ktx.toObjects
-import com.google.firebase.ktx.Firebase
-import com.itextpdf.kernel.colors.DeviceGray
+import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
+import com.itextpdf.kernel.colors.Color
+import com.itextpdf.kernel.colors.DeviceRgb
 import com.itextpdf.kernel.geom.PageSize
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfWriter
@@ -24,191 +22,339 @@ import com.itextpdf.layout.Document
 import com.itextpdf.layout.element.Cell
 import com.itextpdf.layout.element.Paragraph
 import com.itextpdf.layout.element.Table
+import com.itextpdf.layout.element.Text
 import com.itextpdf.layout.properties.TextAlignment
 import com.itextpdf.layout.properties.UnitValue
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.itextpdf.kernel.colors.DeviceRgb
-import com.itextpdf.kernel.colors.Color
+import kotlin.math.abs
+import kotlin.math.round
 
 object ReportGenerator {
 
     private const val TAG = "ReportGenerator"
-
-    private val db = Firebase.firestore
-    private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     private val dateTimeFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
 
+    private val darkBlue: Color = DeviceRgb(3, 4, 94)
+    private val lightBlue: Color = DeviceRgb(230, 240, 255)
+    private val veryLightBlue: Color = DeviceRgb(246, 249, 255)
+    private val softGray: Color = DeviceRgb(105, 112, 122)
+    private val pargosColor: Color = DeviceRgb(0, 105, 92)
+    private val filetesColor: Color = DeviceRgb(21, 101, 192)
+    private val genericGroupColor: Color = DeviceRgb(80, 92, 120)
+
+    private data class ReportRow(
+        val product: Product,
+        val snapshot: PredictiveV3Snapshot?
+    )
+
+    private data class ReportData(
+        val rows: List<ReportRow>,
+        val allProducts: List<Product>,
+        val allSnapshots: List<PredictiveV3Snapshot>
+    )
+
     suspend fun generatePdf(context: Context, config: ReportConfig) {
-        Log.d(TAG, "Iniciando generatePdf. IDs recibidos: ${config.productIds.joinToString()}")
         try {
-            val reportData = fetchReportData(config)
-            Log.d(TAG, "fetchReportData completado. Se obtuvieron ${reportData.size} filas de datos.")
-
-            if (reportData.isEmpty()){
-                throw IllegalStateException("La consulta a Firestore con los IDs seleccionados no devolvió ningún producto. Verifica que los IDs sean correctos y los documentos existan.")
+            val data = fetchReportData(context, config)
+            if (data.rows.isEmpty()) {
+                throw IllegalStateException("No hay productos locales disponibles para el reporte")
             }
-
-            val file = createPdfFile(context, config, reportData)
-            Log.d(TAG, "Archivo PDF creado en: ${file.absolutePath}")
+            val file = createPdfFile(context, config, data)
             sharePdf(context, file)
-        } catch(e: Exception) {
-            Log.e(TAG, "¡ERROR! Fallo en la generación de PDF.", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al generar el reporte", e)
             withContext(Dispatchers.Main) {
                 showErrorDialog(context, e, config)
             }
         }
     }
 
-    private suspend fun fetchReportData(config: ReportConfig): List<Map<ReportColumn, String>> {
-        if (config.productIds.isEmpty()) {
-            Log.w(TAG, "fetchReportData recibió una lista de IDs vacía.")
-            return emptyList()
+    private suspend fun fetchReportData(context: Context, config: ReportConfig): ReportData = withContext(Dispatchers.IO) {
+        val database = AppDatabase.getDatabase(context.applicationContext)
+        val allProducts = database.productDao()
+            .getAllActiveProductsStream()
+            .first()
+            .sortedBy { it.name.lowercase(Locale.getDefault()) }
+        val allSnapshots = database.predictiveV3SnapshotDao().getAllOnce()
+        val snapshotsByProduct = allSnapshots.associateBy { it.productId }
+        val selectedIds = config.productIds.toSet()
+        val rows = allProducts
+            .filter { it.id in selectedIds }
+            .map { ReportRow(it, snapshotsByProduct[it.id]) }
+        ReportData(rows, allProducts, allSnapshots)
+    }
+
+    private suspend fun createPdfFile(context: Context, config: ReportConfig, data: ReportData): File = withContext(Dispatchers.IO) {
+        val file = File(context.cacheDir, "Existencias.pdf")
+        val writer = PdfWriter(file)
+        val pdfDocument = PdfDocument(writer)
+        val document = Document(pdfDocument, PageSize.A4)
+        document.setMargins(26f, 24f, 28f, 24f)
+
+        document.add(
+            Paragraph(config.reportTitle)
+                .setTextAlignment(TextAlignment.CENTER)
+                .setBold()
+                .setFontColor(darkBlue)
+                .setFontSize(17f)
+                .setMarginBottom(2f)
+        )
+        document.add(
+            Paragraph("Generado el ${dateTimeFormat.format(Date())}")
+                .setTextAlignment(TextAlignment.CENTER)
+                .setFontColor(softGray)
+                .setFontSize(8.5f)
+                .setMarginBottom(14f)
+        )
+
+        val columns = orderedColumns(config.columns)
+        val table = Table(UnitValue.createPercentArray(columnWidths(columns))).useAllAvailableWidth()
+        table.setFontSize(tableFontSize(columns.size))
+
+        addHeader(table, "Producto", true)
+        columns.forEach { column -> addHeader(table, column.title, column == ReportColumn.STOCK_TOTAL) }
+
+        data.rows.forEachIndexed { index, row ->
+            val bg = if (index % 2 == 1) lightBlue else null
+            val productCell = Cell()
+                .setPadding(4f)
+                .add(
+                    Paragraph(row.product.name)
+                        .setBold()
+                        .setFontSize(tableFontSize(columns.size))
+                        .setMargin(0f)
+                )
+            bg?.let { productCell.setBackgroundColor(it) }
+            table.addCell(productCell)
+
+            columns.forEach { column ->
+                table.addCell(buildDataCell(row, column, bg, columns.size))
+            }
         }
 
-        Log.d(TAG, "Haciendo query a Firestore por ${config.productIds.size} IDs...")
-        val products = db.collection("products")
-            .whereIn(FieldPath.documentId(), config.productIds.take(30))
-            .get().await().toObjects<Product>()
-        Log.d(TAG, "Query a Firestore devolvió ${products.size} productos.")
+        document.add(table)
+        addGroupLegendIfNeeded(document, config, data)
+        document.close()
+        file
+    }
 
-        if (products.isEmpty() && config.productIds.isNotEmpty()) {
-            Log.e(TAG, "¡ALERTA! La consulta a Firestore no devolvió productos a pesar de recibir IDs. Revisa la colección 'products' y los IDs: [${config.productIds.joinToString()}]")
+    private fun orderedColumns(columns: List<ReportColumn>): List<ReportColumn> {
+        val order = listOf(
+            ReportColumn.STOCK_C04,
+            ReportColumn.STOCK_MATRIZ,
+            ReportColumn.STOCK_TOTAL,
+            ReportColumn.CONSUMO_SEMANAL,
+            ReportColumn.CONSUMO_MENSUAL,
+            ReportColumn.SE_AGOTA_EN,
+            ReportColumn.ULTIMA_ACTUALIZACION
+        )
+        return columns.filter { it in order }.sortedBy { order.indexOf(it) }
+    }
+
+    private fun columnWidths(columns: List<ReportColumn>): FloatArray {
+        val widths = mutableListOf(3.2f)
+        columns.forEach { column ->
+            widths += when (column) {
+                ReportColumn.ULTIMA_ACTUALIZACION -> 2.5f
+                ReportColumn.SE_AGOTA_EN -> 1.7f
+                ReportColumn.CONSUMO_SEMANAL, ReportColumn.CONSUMO_MENSUAL -> 1.55f
+                else -> 1.45f
+            }
         }
+        return widths.toFloatArray()
+    }
 
-        val consumptionData = if (config.columns.contains(ReportColumn.CONSUMO) && config.dateRange != null) {
-            Log.d(TAG, "Calculando consumo...")
-            CalculationUtils.getConsumptionForProducts(db, config.productIds, config.dateRange.first, config.dateRange.second)
+    private fun tableFontSize(dataColumnCount: Int): Float = when {
+        dataColumnCount >= 7 -> 6.9f
+        dataColumnCount >= 6 -> 7.3f
+        dataColumnCount >= 5 -> 7.8f
+        else -> 8.4f
+    }
+
+    private fun addHeader(table: Table, title: String, strong: Boolean) {
+        val cell = Cell()
+            .setPaddingTop(6f)
+            .setPaddingBottom(6f)
+            .setPaddingLeft(3f)
+            .setPaddingRight(3f)
+            .setTextAlignment(TextAlignment.CENTER)
+            .add(Paragraph(title).setBold().setMargin(0f))
+
+        if (strong) {
+            cell.setBackgroundColor(darkBlue).setFontColor(DeviceRgb(255, 255, 255))
         } else {
-            emptyMap()
+            cell.setBackgroundColor(DeviceRgb(225, 231, 246)).setFontColor(darkBlue)
         }
+        table.addHeaderCell(cell)
+    }
 
-        return products.sortedBy { it.name }.map { product ->
-            val row = mutableMapOf<ReportColumn, String>()
-            row[ReportColumn.PRODUCT_NAME] = product.name
-            config.columns.forEach { column ->
-                // --- CAMBIO AQUÍ: Se añade el caso para UNIT ---
-                when (column) {
-                    ReportColumn.STOCK_MATRIZ -> row[column] = "%.2f".format(product.stockMatriz)
-                    ReportColumn.STOCK_C04 -> row[column] = "%.2f".format(product.stockCongelador04)
-                    ReportColumn.STOCK_TOTAL -> row[column] = "%.2f".format(product.totalStock)
-                    ReportColumn.CONSUMO -> row[column] = "%.2f".format(consumptionData[product.id] ?: 0.0)
-                    ReportColumn.UNIT -> row[column] = product.unit // <-- AGREGADO
-                    ReportColumn.ULTIMA_ACTUALIZACION -> row[column] = product.updatedAt?.let { dateTimeFormat.format(it) } ?: "N/A"
-                    ReportColumn.PRODUCT_NAME -> { /* ya se agregó */ }
+    private fun buildDataCell(
+        row: ReportRow,
+        column: ReportColumn,
+        background: Color?,
+        dataColumnCount: Int
+    ): Cell {
+        val cell = Cell()
+            .setPaddingTop(4f)
+            .setPaddingBottom(4f)
+            .setPaddingLeft(2.5f)
+            .setPaddingRight(2.5f)
+            .setTextAlignment(TextAlignment.CENTER)
+        background?.let { cell.setBackgroundColor(it) }
+
+        when (column) {
+            ReportColumn.STOCK_C04 -> cell.add(quantityParagraph(row.product.stockCongelador04, row.product.unit, false, dataColumnCount))
+            ReportColumn.STOCK_MATRIZ -> cell.add(quantityParagraph(row.product.stockMatriz, row.product.unit, false, dataColumnCount))
+            ReportColumn.STOCK_TOTAL -> cell.add(quantityParagraph(row.product.totalStock, row.product.unit, true, dataColumnCount))
+            ReportColumn.CONSUMO_SEMANAL -> addPredictiveQuantity(cell, row, row.snapshot?.baselineWeeklyKg, dataColumnCount)
+            ReportColumn.CONSUMO_MENSUAL -> addPredictiveQuantity(
+                cell,
+                row,
+                row.snapshot?.baselineWeeklyKg?.times(30.4375 / 7.0),
+                dataColumnCount
+            )
+            ReportColumn.SE_AGOTA_EN -> addCoverage(cell, row, dataColumnCount)
+            ReportColumn.ULTIMA_ACTUALIZACION -> cell.add(
+                Paragraph(row.product.updatedAt?.let { dateTimeFormat.format(it) } ?: "—")
+                    .setFontSize((tableFontSize(dataColumnCount) - 0.3f).coerceAtLeast(6.2f))
+                    .setFontColor(softGray)
+                    .setMargin(0f)
+            )
+            else -> cell.add(Paragraph("—").setMargin(0f))
+        }
+        return cell
+    }
+
+    private fun quantityParagraph(value: Double, unit: String, bold: Boolean, dataColumnCount: Int): Paragraph {
+        val baseSize = tableFontSize(dataColumnCount)
+        val p = Paragraph().setMargin(0f).setTextAlignment(TextAlignment.CENTER)
+        val number = Text(formatNumber(value)).setFontSize(baseSize)
+        if (bold) number.setBold()
+        p.add(number)
+        if (unit.isNotBlank()) {
+            p.add(
+                Text(" ${unit.trim()}")
+                    .setFontSize((baseSize - 1.4f).coerceAtLeast(5.7f))
+                    .setFontColor(softGray)
+            )
+        }
+        return p
+    }
+
+    private fun addPredictiveQuantity(cell: Cell, row: ReportRow, value: Double?, dataColumnCount: Int) {
+        if (value == null || value <= 0.0) {
+            cell.add(Paragraph("—").setFontColor(softGray).setMargin(0f))
+            return
+        }
+        cell.add(quantityParagraph(value, row.product.unit, true, dataColumnCount))
+        addGroupTag(cell, row.snapshot)
+    }
+
+    private fun addCoverage(cell: Cell, row: ReportRow, dataColumnCount: Int) {
+        val days = row.snapshot?.coverageDays
+        if (days == null) {
+            cell.add(Paragraph("—").setFontColor(softGray).setMargin(0f))
+            return
+        }
+        val baseSize = tableFontSize(dataColumnCount)
+        cell.add(
+            Paragraph()
+                .setMargin(0f)
+                .setTextAlignment(TextAlignment.CENTER)
+                .add(Text(days.toString()).setBold().setFontSize(baseSize))
+                .add(Text(" días").setFontSize((baseSize - 1.4f).coerceAtLeast(5.7f)).setFontColor(softGray))
+        )
+        addGroupTag(cell, row.snapshot)
+    }
+
+    private fun addGroupTag(cell: Cell, snapshot: PredictiveV3Snapshot?) {
+        val name = snapshot?.groupName?.trim().orEmpty()
+        if (name.isBlank()) return
+        cell.add(
+            Paragraph(name.uppercase(Locale.getDefault()))
+                .setFontSize(5.7f)
+                .setBold()
+                .setFontColor(groupColor(name))
+                .setTextAlignment(TextAlignment.CENTER)
+                .setMarginTop(0f)
+                .setMarginBottom(0f)
+        )
+    }
+
+    private fun addGroupLegendIfNeeded(document: Document, config: ReportConfig, data: ReportData) {
+        val hasConsumption = config.columns.any {
+            it == ReportColumn.CONSUMO_SEMANAL || it == ReportColumn.CONSUMO_MENSUAL
+        }
+        val hasCoverage = config.columns.contains(ReportColumn.SE_AGOTA_EN)
+        if (!hasConsumption && !hasCoverage) return
+
+        val groups = data.rows.mapNotNull { row ->
+            val snapshot = row.snapshot ?: return@mapNotNull null
+            val name = snapshot.groupName?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val key = snapshot.groupId?.takeIf { it.isNotBlank() } ?: name.lowercase(Locale.getDefault())
+            key to name
+        }.distinctBy { it.first }
+
+        if (groups.isEmpty()) return
+
+        document.add(
+            Paragraph("Referencia de conjuntos")
+                .setBold()
+                .setFontColor(darkBlue)
+                .setFontSize(9f)
+                .setMarginTop(12f)
+                .setMarginBottom(4f)
+        )
+
+        val productsById = data.allProducts.associateBy { it.id }
+        groups.forEach { (groupKey, groupName) ->
+            val members = data.allSnapshots
+                .filter { snapshot ->
+                    val key = snapshot.groupId?.takeIf { it.isNotBlank() }
+                        ?: snapshot.groupName?.lowercase(Locale.getDefault())
+                    key == groupKey
                 }
+                .mapNotNull { productsById[it.productId]?.name }
+                .distinct()
+                .sortedBy { it.lowercase(Locale.getDefault()) }
+
+            val metricText = when {
+                hasConsumption && hasCoverage -> "El consumo promedio y la cobertura se calculan considerando el conjunto completo, no cada producto por separado."
+                hasConsumption -> "El consumo promedio se calcula considerando el conjunto completo, no cada producto por separado."
+                else -> "La cobertura estimada se calcula considerando el inventario y consumo del conjunto completo."
             }
-            row
+            val memberText = if (members.isNotEmpty()) " Integrantes: ${members.joinToString(", ")}." else ""
+
+            val paragraph = Paragraph().setFontSize(7.3f).setMarginTop(1f).setMarginBottom(3f)
+            paragraph.add(Text("${groupName.uppercase(Locale.getDefault())}: ").setBold().setFontColor(groupColor(groupName)))
+            paragraph.add(Text(metricText + memberText).setFontColor(softGray))
+            document.add(paragraph)
         }
     }
 
-
-    private suspend fun createPdfFile(context: Context, config: ReportConfig, data: List<Map<ReportColumn, String>>): File {
-        return withContext(Dispatchers.IO) {
-            val file = File(context.cacheDir, "Existencias.pdf")
-            val writer = PdfWriter(file)
-            val pdfDocument = PdfDocument(writer)
-            val document = Document(pdfDocument, PageSize.A4)
-            document.setMargins(36f, 36f, 36f, 36f)
-
-            // --- SECCIÓN DE PERSONALIZACIÓN DE COLORES ---
-            // Si quieres otro color, solo cambia los números RGB (Rojo, Verde, Azul) de 0 a 255
-            val productoHeaderBg: Color = DeviceRgb(3, 4, 94)      // Azul oscuro (#03045e)
-            val productoHeaderFont: Color = DeviceRgb(255, 255, 255) // Blanco
-
-            val totalHeaderBg: Color = DeviceRgb(3, 4, 94)          // Negro
-            val totalHeaderFont: Color = DeviceRgb(255, 255, 255)  // Verde brillante
-
-            val defaultHeaderBg: Color = DeviceGray(0.85f)         // Gris claro
-            val defaultHeaderFont: Color = DeviceRgb(0, 0, 0)      // Negro
-
-            // rosita tenue: val zebraColor: Color = DeviceRgb(255, 235, 240)
-            val zebraColor: Color = DeviceRgb(230, 240, 255)
-
-            // --- FIN DE SECCIÓN DE COLORES ---
-
-            document.add(Paragraph(config.reportTitle).setTextAlignment(TextAlignment.CENTER).setBold().setFontSize(18f))
-            document.add(Paragraph("Generado el: ${dateTimeFormat.format(Date())}").setTextAlignment(TextAlignment.CENTER).setFontSize(10f))
-            if(config.dateRange != null && config.columns.contains(ReportColumn.CONSUMO)) {
-                document.add(Paragraph("Período de Consumo: ${dateFormat.format(config.dateRange.first)} - ${dateFormat.format(config.dateRange.second)}").setTextAlignment(TextAlignment.CENTER).setFontSize(10f).setMarginBottom(20f))
-            } else {
-                document.add(Paragraph("").setMarginBottom(20f))
-            }
-
-            val columnOrder = listOf(
-                ReportColumn.STOCK_MATRIZ, ReportColumn.STOCK_C04, ReportColumn.STOCK_TOTAL,
-                ReportColumn.CONSUMO, ReportColumn.UNIT, ReportColumn.ULTIMA_ACTUALIZACION
-            )
-            val sortedColumns = config.columns.filter { it != ReportColumn.PRODUCT_NAME }.sortedBy { columnOrder.indexOf(it) }
-
-            val columnWidths = mutableListOf<Float>()
-            // Añadir siempre la columna de Producto primero
-            columnWidths.add(4f)
-            sortedColumns.forEach { column ->
-                when (column) {
-                    ReportColumn.UNIT -> columnWidths.add(1f)
-                    ReportColumn.ULTIMA_ACTUALIZACION -> columnWidths.add(3f)
-                    else -> columnWidths.add(2f)
-                }
-            }
-
-            val table = Table(UnitValue.createPercentArray(columnWidths.toFloatArray())).useAllAvailableWidth()
-
-            // --- LÓGICA DE DIBUJADO DE CABECERAS CON ESTILOS ---
-            // 1. Cabecera "Producto" (estilo especial)
-            table.addHeaderCell(
-                Cell().add(Paragraph(ReportColumn.PRODUCT_NAME.title))
-                    .setBackgroundColor(productoHeaderBg)
-                    .setFontColor(productoHeaderFont)
-                    .setBold()
-            )
-
-            // 2. Resto de las cabeceras
-            sortedColumns.forEach { column ->
-                val headerCell = Cell().add(Paragraph(column.title)).setBold()
-                if (column == ReportColumn.STOCK_TOTAL) {
-                    // Estilo especial para "Stock Total"
-                    headerCell.setBackgroundColor(totalHeaderBg)
-                    headerCell.setFontColor(totalHeaderFont)
-                } else {
-                    // Estilo por defecto para las demás
-                    headerCell.setBackgroundColor(defaultHeaderBg)
-                    headerCell.setFontColor(defaultHeaderFont)
-                }
-                table.addHeaderCell(headerCell)
-            }
-
-            // --- DIBUJADO DE FILAS CON CEBRA MEJORADA ---
-            var isZebra = false
-            data.forEach { rowData ->
-                val bgColor = if (isZebra) zebraColor else null
-
-                table.addCell(Cell().add(Paragraph(rowData[ReportColumn.PRODUCT_NAME] ?: "")).also { if(bgColor!=null) it.setBackgroundColor(bgColor) })
-
-                sortedColumns.forEach { columnType ->
-                    val cellText = rowData[columnType] ?: ""
-                    val cell = Cell().add(Paragraph(cellText))
-                    bgColor?.let { cell.setBackgroundColor(it) }
-
-                    if (columnType == ReportColumn.UNIT) {
-                        cell.setTextAlignment(TextAlignment.CENTER)
-                    } else if (cellText.matches(Regex("-?\\d+(\\.\\d+)?"))) {
-                        cell.setTextAlignment(TextAlignment.RIGHT)
-                    }
-                    table.addCell(cell)
-                }
-                isZebra = !isZebra
-            }
-            document.add(table)
-            document.close()
-            file
+    private fun groupColor(name: String): Color {
+        val normalized = name.uppercase(Locale.getDefault())
+        return when {
+            "PARGO" in normalized || "HUACHINANGO" in normalized -> pargosColor
+            "FILETE" in normalized || "LENGUA" in normalized || "CURVINA" in normalized -> filetesColor
+            else -> genericGroupColor
         }
     }
+
+    private fun formatNumber(value: Double): String {
+        return if (abs(value - round(value)) < 0.005) {
+            "%.0f".format(Locale.getDefault(), value)
+        } else {
+            "%.1f".format(Locale.getDefault(), value)
+        }
+    }
+
     private fun sharePdf(context: Context, file: File) {
         try {
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
@@ -217,28 +363,25 @@ object ReportGenerator {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "Compartir  PDF"))
-        } catch (e: Exception) {
-            Toast.makeText(context, "No se pudo compartir el archivo. ¿Tienes una app para ver PDFs?", Toast.LENGTH_LONG).show()
+            context.startActivity(Intent.createChooser(intent, "Compartir PDF"))
+        } catch (_: Exception) {
+            Toast.makeText(context, "No se pudo compartir el PDF", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun showErrorDialog(context: Context, e: Exception, config: ReportConfig) {
         val errorTrace = e.stackTraceToString()
-        val configDetails = "IDs intentados (${config.productIds.size}): ${config.productIds.joinToString()}"
-        val errorMessage = "Mensaje de Error:\n${e.localizedMessage}\n\nConfiguración:\n$configDetails\n\nDetalles Técnicos:\n$errorTrace"
+        val configDetails = "Productos (${config.productIds.size}): ${config.productIds.joinToString()}"
+        val errorMessage = "${e.localizedMessage}\n\n$configDetails\n\n$errorTrace"
 
         AlertDialog.Builder(context)
-            .setTitle("¡Error al Generar Reporte!")
-            .setMessage("No se pudo generar el reporte. Esto puede deberse a un problema con los datos o la conexión.")
-            .setPositiveButton("Cerrar") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .setNeutralButton("Copiar Detalles") { dialog, _ ->
+            .setTitle("Error al generar reporte")
+            .setMessage("No se pudo generar el reporte con los datos locales disponibles.")
+            .setPositiveButton("Cerrar") { dialog, _ -> dialog.dismiss() }
+            .setNeutralButton("Copiar detalles") { dialog, _ ->
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("Error Reporte ", errorMessage)
-                clipboard.setPrimaryClip(clip)
-                Toast.makeText(context, "Detalles del error copiados.", Toast.LENGTH_LONG).show()
+                clipboard.setPrimaryClip(ClipData.newPlainText("Error Reporte", errorMessage))
+                Toast.makeText(context, "Detalles copiados", Toast.LENGTH_LONG).show()
                 dialog.dismiss()
             }
             .setCancelable(false)

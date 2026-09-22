@@ -11,21 +11,18 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.cesar.bocana.R
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.ReportColumn
 import com.cesar.bocana.data.model.ReportConfig
 import com.cesar.bocana.databinding.FragmentReportConfigBinding
-import com.google.android.material.datepicker.MaterialDatePicker
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.firestore.ktx.toObjects
-import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 class ReportConfigFragment : Fragment() {
 
@@ -34,38 +31,42 @@ class ReportConfigFragment : Fragment() {
 
     private lateinit var productAdapter: ReportProductAdapter
     private var allProducts = listOf<Product>()
-    private var selectedDateRange: Pair<Date, Date>? = null
-    private val db = Firebase.firestore
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
         _binding = FragmentReportConfigBinding.inflate(inflater, container, false)
         return binding.root
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        (activity as? AppCompatActivity)?.supportActionBar?.title = "Configurar"
+        (activity as? AppCompatActivity)?.supportActionBar?.apply {
+            title = "Generar reporte"
+            subtitle = "Inventario y consumo"
+        }
 
         setupRecyclerView()
         setupListeners()
+        updateConsumptionOptions()
         loadProducts()
     }
 
     private fun setupRecyclerView() {
-        productAdapter = ReportProductAdapter { selectedIds ->
-            // Opcional: actualizar un contador de seleccionados si se desea
-        }
+        productAdapter = ReportProductAdapter { }
         binding.recyclerViewProducts.adapter = productAdapter
     }
 
     private fun setupListeners() {
         binding.editTextSearchProduct.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 filterProducts(s.toString())
             }
-            override fun afterTextChanged(s: Editable?) {}
+            override fun afterTextChanged(s: Editable?) = Unit
         })
 
         binding.buttonSelectAll.setOnClickListener {
@@ -76,125 +77,87 @@ class ReportConfigFragment : Fragment() {
             productAdapter.setSelectedIds(emptySet())
         }
 
-        binding.chipConsumo.setOnCheckedChangeListener { _, isChecked ->
-            binding.layoutDateRange.isVisible = isChecked
-            if (!isChecked) {
-                selectedDateRange = null
-                binding.buttonDateRange.text = "Seleccionar rango de fechas"
-            }
-        }
+        binding.chipConsumo.setOnCheckedChangeListener { _, _ -> updateConsumptionOptions() }
 
-        binding.buttonDateRange.setOnClickListener {
-            showDateRangePicker()
-        }
+        binding.fabGenerateReport.setOnClickListener { generateReport() }
+        binding.fabShareWhatsapp.setOnClickListener { shareToWhatsApp() }
+    }
 
-        binding.fabGenerateReport.setOnClickListener {
-            generateReport()
-        }
-        // 🔥 NUEVO: Clic para WhatsApp
-        binding.fabShareWhatsapp.setOnClickListener {
-            shareToWhatsApp()
+    private fun updateConsumptionOptions() {
+        binding.layoutConsumoOptions.isVisible = binding.chipConsumo.isChecked
+        if (!binding.chipConsumo.isChecked) {
+            binding.checkboxConsumoSemanal.isChecked = false
+            binding.checkboxConsumoMensual.isChecked = false
         }
     }
 
     private fun loadProducts() {
         showLoading(true)
-        db.collection("products")
-            .whereEqualTo("isActive", true)
-            .orderBy("name")
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (!isAdded) return@addOnSuccessListener
-                allProducts = snapshot.toObjects()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                allProducts = withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(requireContext().applicationContext)
+                        .productDao()
+                        .getAllActiveProductsStream()
+                        .first()
+                        .sortedBy { it.name.lowercase(Locale.getDefault()) }
+                }
+                if (_binding == null) return@launch
                 filterProducts("")
-                showLoading(false)
+            } catch (e: Exception) {
+                if (_binding != null) {
+                    Toast.makeText(requireContext(), "No se pudieron cargar los productos", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                if (_binding != null) showLoading(false)
             }
-            .addOnFailureListener {
-                if (!isAdded) return@addOnFailureListener
-                showLoading(false)
-                Toast.makeText(context, "Error al cargar productos", Toast.LENGTH_SHORT).show()
-            }
+        }
     }
 
     private fun filterProducts(query: String) {
-        val filteredList = if (query.isBlank()) {
+        val filtered = if (query.isBlank()) {
             allProducts
         } else {
             allProducts.filter { it.name.contains(query, ignoreCase = true) }
         }
-        productAdapter.submitList(filteredList)
-    }
-
-    // --- FUNCIÓN CORREGIDA ---
-    private fun showDateRangePicker() {
-        val datePicker = MaterialDatePicker.Builder.dateRangePicker()
-            .setTitleText("Selecciona un rango de fechas")
-            .setSelection(androidx.core.util.Pair(MaterialDatePicker.thisMonthInUtcMilliseconds(), MaterialDatePicker.todayInUtcMilliseconds()))
-            .build()
-
-        datePicker.addOnPositiveButtonClickListener { selection ->
-            // El picker devuelve UTC. Lo ajustamos para que abarque el día completo en la zona horaria local.
-            val tz = TimeZone.getDefault()
-
-            // Fecha de Inicio: al principio del día
-            val startCal = Calendar.getInstance(tz).apply {
-                timeInMillis = selection.first
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val startDate = startCal.time
-
-            // Fecha de Fin: al final del día
-            val endCal = Calendar.getInstance(tz).apply {
-                timeInMillis = selection.second
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-                set(Calendar.SECOND, 59)
-                set(Calendar.MILLISECOND, 999)
-            }
-            val endDate = endCal.time
-
-            selectedDateRange = Pair(startDate, endDate)
-            binding.buttonDateRange.text = "${dateFormat.format(startDate)} - ${dateFormat.format(endDate)}"
-        }
-
-        datePicker.show(parentFragmentManager, "DATE_PICKER")
+        productAdapter.submitList(filtered)
     }
 
     private fun generateReport() {
         val selectedProductIds = productAdapter.getSelectedIds().toList()
         if (selectedProductIds.isEmpty()) {
-            Toast.makeText(context, "Debes seleccionar al menos un producto", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Selecciona al menos un producto", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // --- CAMBIO AQUÍ: Se añade la lectura del chip de "Unidad" ---
         val selectedColumns = mutableListOf<ReportColumn>()
-        if(binding.chipStockMatriz.isChecked) selectedColumns.add(ReportColumn.STOCK_MATRIZ)
-        if(binding.chipStockC04.isChecked) selectedColumns.add(ReportColumn.STOCK_C04)
-        if(binding.chipStockTotal.isChecked) selectedColumns.add(ReportColumn.STOCK_TOTAL)
-        if(binding.checkboxColumnUnit.isChecked) selectedColumns.add(ReportColumn.UNIT) // <-- AGREGADO
-        if(binding.chipLastUpdate.isChecked) selectedColumns.add(ReportColumn.ULTIMA_ACTUALIZACION)
+        if (binding.chipStockC04.isChecked) selectedColumns.add(ReportColumn.STOCK_C04)
+        if (binding.chipStockMatriz.isChecked) selectedColumns.add(ReportColumn.STOCK_MATRIZ)
+        if (binding.chipStockTotal.isChecked) selectedColumns.add(ReportColumn.STOCK_TOTAL)
+        if (binding.chipLastUpdate.isChecked) selectedColumns.add(ReportColumn.ULTIMA_ACTUALIZACION)
 
         if (binding.chipConsumo.isChecked) {
-            if (selectedDateRange == null) {
-                Toast.makeText(context, "Debes seleccionar un rango de fechas para el consumo", Toast.LENGTH_SHORT).show()
+            val weekly = binding.checkboxConsumoSemanal.isChecked
+            val monthly = binding.checkboxConsumoMensual.isChecked
+            if (!weekly && !monthly) {
+                Toast.makeText(context, "Selecciona consumo semanal, mensual o ambos", Toast.LENGTH_SHORT).show()
                 return
             }
-            selectedColumns.add(ReportColumn.CONSUMO)
+            if (weekly) selectedColumns.add(ReportColumn.CONSUMO_SEMANAL)
+            if (monthly) selectedColumns.add(ReportColumn.CONSUMO_MENSUAL)
         }
 
-        if (selectedColumns.isEmpty()){
-            Toast.makeText(context, "Debes seleccionar al menos una columna de datos", Toast.LENGTH_SHORT).show()
+        if (binding.chipSeAgota.isChecked) selectedColumns.add(ReportColumn.SE_AGOTA_EN)
+
+        if (selectedColumns.isEmpty()) {
+            Toast.makeText(context, "Selecciona al menos un dato para el reporte", Toast.LENGTH_SHORT).show()
             return
         }
 
         val config = ReportConfig(
             productIds = selectedProductIds,
             columns = selectedColumns,
-            dateRange = selectedDateRange,
+            dateRange = null,
             reportTitle = "Existencias ${dateFormat.format(Date())}"
         )
 
@@ -205,71 +168,52 @@ class ReportConfigFragment : Fragment() {
             } catch (e: Exception) {
                 Toast.makeText(context, "Error al generar PDF: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {
-                if (isAdded) {
-                    showLoading(false)
-                }
+                if (_binding != null) showLoading(false)
             }
         }
     }
 
-    private fun showLoading(isLoading: Boolean){
+    private fun showLoading(isLoading: Boolean) {
         binding.progressBar.isVisible = isLoading
         binding.fabGenerateReport.isEnabled = !isLoading
+        binding.fabShareWhatsapp.isEnabled = !isLoading
     }
-    // 🔥 NUEVA FUNCIÓN INDEPENDIENTE PARA WHATSAPP 🔥
+
     private fun shareToWhatsApp() {
         val selectedProductIds = productAdapter.getSelectedIds().toList()
         if (selectedProductIds.isEmpty()) {
-            Toast.makeText(context, "Debes seleccionar al menos un producto", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Selecciona al menos un producto", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Leemos qué seleccionó el usuario en los chips
         val mostrarMatriz = binding.chipStockMatriz.isChecked
         val mostrarC04 = binding.chipStockC04.isChecked
         val mostrarTotal = binding.chipStockTotal.isChecked
-
-        // Filtramos de la lista original solo los productos seleccionados
         val productosSeleccionados = allProducts.filter { it.id in selectedProductIds }
-
         if (productosSeleccionados.isEmpty()) return
 
-        val sb = StringBuilder()
-        sb.append("*REPORTE DE STOCK*\n")
-
-        // Si activó la fecha, la ponemos en el encabezado
-        if (binding.chipLastUpdate.isChecked) {
-            val dateTimeFormat = SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault())
-            sb.append("_Generado: ${dateTimeFormat.format(Date())}_\n")
-        }
-        sb.append("\n")
-
-        for (producto in productosSeleccionados) {
-
-            // 🔥 TRUCO MAESTRO: Esta función inyecta el "espacio invisible" (\u200B) en el punto o coma decimal.
-            // Engaña a WhatsApp para que NUNCA lo convierta en un enlace subrayado.
-            fun numeroSeguro(valor: Double): String {
-                return "%.2f".format(valor).replace(".", ".\u200B").replace(",", ",\u200B")
+        fun numeroSeguro(valor: Double): String {
+            val rounded = if (kotlin.math.abs(valor - kotlin.math.round(valor)) < 0.005) {
+                "%.0f".format(valor)
+            } else {
+                "%.1f".format(valor)
             }
+            return rounded.replace(".", ".\u200B").replace(",", ",\u200B")
+        }
 
-            // Lógica inteligente con los números ya protegidos
+        val sb = StringBuilder("*REPORTE DE STOCK*\n\n")
+        productosSeleccionados.forEach { producto ->
             if (mostrarTotal && !mostrarMatriz && !mostrarC04) {
                 sb.append("- *${producto.name}* : ${numeroSeguro(producto.totalStock)} ${producto.unit}\n")
             } else {
                 sb.append("*${producto.name}*\n")
-                if (mostrarMatriz) {
-                    sb.append(" ├ Matriz : ${numeroSeguro(producto.stockMatriz)} ${producto.unit}\n")
-                }
-                if (mostrarC04) {
-                    sb.append(" ├ C-04 : ${numeroSeguro(producto.stockCongelador04)} ${producto.unit}\n")
-                }
-                if (mostrarTotal) {
-                    sb.append(" └ *TOTAL : ${numeroSeguro(producto.totalStock)} ${producto.unit}*\n")
-                }
+                if (mostrarC04) sb.append(" ├ C04 : ${numeroSeguro(producto.stockCongelador04)} ${producto.unit}\n")
+                if (mostrarMatriz) sb.append(" ├ Matriz : ${numeroSeguro(producto.stockMatriz)} ${producto.unit}\n")
+                if (mostrarTotal) sb.append(" └ *TOTAL : ${numeroSeguro(producto.totalStock)} ${producto.unit}*\n")
                 sb.append("\n")
             }
         }
-        // Lanzamos el intent a WhatsApp
+
         val sendIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(android.content.Intent.EXTRA_TEXT, sb.toString())
@@ -278,13 +222,12 @@ class ReportConfigFragment : Fragment() {
 
         try {
             startActivity(sendIntent)
-        } catch (e: Exception) {
-            // Plan B: Si no tiene el WhatsApp normal, intentamos con WhatsApp Business
+        } catch (_: Exception) {
             try {
                 sendIntent.setPackage("com.whatsapp.w4b")
                 startActivity(sendIntent)
-            } catch (e2: Exception) {
-                Toast.makeText(context, "No se encontró WhatsApp instalado.", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                Toast.makeText(context, "No se encontró WhatsApp instalado", Toast.LENGTH_SHORT).show()
             }
         }
     }
