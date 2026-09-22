@@ -1,17 +1,20 @@
 package com.cesar.bocana.ui.printing
 
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.cesar.bocana.R
+import com.cesar.bocana.data.model.LabelData
 import com.cesar.bocana.databinding.FragmentEtiquetasMenuBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
 
@@ -20,6 +23,32 @@ class EtiquetasMenuFragment : Fragment() {
     private var _binding: FragmentEtiquetasMenuBinding? = null
     private val binding get() = _binding!!
     private lateinit var activeAdapter: ActiveLabelAdapter
+    private var initialData: LabelData? = null
+    private var fromPackaging: Boolean = false
+
+    companion object {
+        private const val ARG_INITIAL_DATA = "initial_label_data"
+        private const val ARG_FROM_PACKAGING = "from_packaging"
+
+        fun newInstance(initialData: LabelData? = null, fromPackaging: Boolean = false) =
+            EtiquetasMenuFragment().apply {
+                arguments = Bundle().apply {
+                    initialData?.let { putParcelable(ARG_INITIAL_DATA, it) }
+                    putBoolean(ARG_FROM_PACKAGING, fromPackaging)
+                }
+            }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        initialData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arguments?.getParcelable(ARG_INITIAL_DATA, LabelData::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            arguments?.getParcelable(ARG_INITIAL_DATA)
+        }
+        fromPackaging = arguments?.getBoolean(ARG_FROM_PACKAGING, false) == true
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEtiquetasMenuBinding.inflate(inflater, container, false)
@@ -31,6 +60,7 @@ class EtiquetasMenuFragment : Fragment() {
         setupToolbar()
         setupActiveLabels()
         setupListeners()
+        applyPackagingContext()
     }
 
     override fun onResume() {
@@ -41,8 +71,16 @@ class EtiquetasMenuFragment : Fragment() {
     private fun setupToolbar() {
         (activity as? AppCompatActivity)?.supportActionBar?.apply {
             title = "Etiquetas"
-            subtitle = "Crear, revisar y reimprimir"
+            subtitle = if (fromPackaging) "Producto y llegada preparados" else "Crear, revisar y reimprimir"
             setDisplayHomeAsUpEnabled(false)
+        }
+    }
+
+    private fun applyPackagingContext() {
+        if (!fromPackaging) return
+        binding.cardEtiquetasSimples.alpha = 0.45f
+        binding.cardEtiquetasSimples.setOnClickListener {
+            Toast.makeText(requireContext(), "Simples se usa para producto ya empacado.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -69,8 +107,10 @@ class EtiquetasMenuFragment : Fragment() {
     }
 
     private fun setupListeners() {
-        binding.cardEtiquetasSimples.setOnClickListener {
-            navigateToConfig(LabelType.SIMPLE, null)
+        if (!fromPackaging) {
+            binding.cardEtiquetasSimples.setOnClickListener {
+                navigateToConfig(LabelType.SIMPLE, null)
+            }
         }
         binding.cardCostales.setOnClickListener {
             navigateToConfig(LabelType.COSTAL, null)
@@ -113,15 +153,23 @@ class EtiquetasMenuFragment : Fragment() {
     }
 
     private fun navigateToConfig(type: LabelType, template: LabelTemplate?) {
+        val seed = initialData?.copy(labelType = type)
         parentFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, PrintLabelConfigFragment.newInstance(type, template))
+            .replace(
+                R.id.nav_host_fragment_content_main,
+                PrintLabelConfigFragment.newInstance(type, template, seed)
+            )
             .addToBackStack(null)
             .commit()
     }
 
     private fun navigateToMulti(template: LabelTemplate) {
+        val seed = initialData?.copy(labelType = LabelType.DETAILED)
         parentFragmentManager.beginTransaction()
-            .replace(R.id.nav_host_fragment_content_main, PrintLabelMultiConfigFragment.newInstance(template))
+            .replace(
+                R.id.nav_host_fragment_content_main,
+                PrintLabelMultiConfigFragment.newInstance(template, initialData = seed)
+            )
             .addToBackStack(null)
             .commit()
     }

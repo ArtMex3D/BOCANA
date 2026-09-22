@@ -13,7 +13,7 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 
-object  LabelArtworkRenderer {
+object LabelArtworkRenderer {
     private val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     data class Content(
@@ -60,8 +60,8 @@ object  LabelArtworkRenderer {
         val inset = border.strokeWidth / 2f
 
         when (content.type) {
-            LabelType.SIMPLE -> drawSimple(canvas, width, height, content)
-            LabelType.COSTAL -> drawCostal(canvas, width, height, content)
+            LabelType.SIMPLE -> drawSimple(context, canvas, width, height, content)
+            LabelType.COSTAL -> drawCostal(context, canvas, width, height, content)
             LabelType.DETAILED -> drawDetailed(context, canvas, width, height, content)
         }
 
@@ -69,21 +69,27 @@ object  LabelArtworkRenderer {
         canvas.restore()
     }
 
-    private fun drawSimple(canvas: Canvas, w: Float, h: Float, c: Content) {
+    private fun drawSimple(context: Context, canvas: Canvas, w: Float, h: Float, c: Content) {
         val pad = w * 0.065f
-        val supplierArea = RectF(pad, h * 0.13f, w - pad, h * 0.64f)
-        drawFitMultiline(canvas, c.supplierName.uppercase(Locale.ROOT), supplierArea, h * 0.26f, h * 0.11f, 2, true)
-        drawFitSingle(canvas, c.dateText, RectF(pad, h * 0.68f, w - pad, h * 0.90f), h * 0.18f, h * 0.095f, true)
+        val logoSize = min(w, h) * 0.16f
+        val logoUsed = drawOptionalLogo(context, canvas, pad, h * 0.06f, logoSize)
+        val contentTop = if (logoUsed) h * 0.22f else h * 0.13f
+        val supplierArea = RectF(pad, contentTop, w - pad, h * 0.64f)
+        drawFitMultiline(canvas, c.supplierName.uppercase(Locale.ROOT), supplierArea, h * 0.25f, h * 0.11f, 2, true)
+        drawFitSingle(canvas, c.dateText, RectF(pad, h * 0.69f, w - pad, h * 0.91f), h * 0.18f, h * 0.095f, true)
     }
 
-    private fun drawCostal(canvas: Canvas, w: Float, h: Float, c: Content) {
+    private fun drawCostal(context: Context, canvas: Canvas, w: Float, h: Float, c: Content) {
         val pad = w * 0.06f
+        val logoSize = min(w, h) * 0.14f
+        val logoUsed = drawOptionalLogo(context, canvas, pad, h * 0.07f, logoSize)
+        val nameLeft = if (logoUsed) pad + logoSize + w * 0.03f else pad
         drawFitMultiline(
             canvas,
             c.productName.uppercase(Locale.ROOT),
-            RectF(pad, h * 0.08f, w - pad, h * 0.41f),
-            h * 0.22f,
-            h * 0.095f,
+            RectF(nameLeft, h * 0.08f, w - pad, h * 0.30f),
+            h * 0.19f,
+            h * 0.09f,
             2,
             true
         )
@@ -92,10 +98,10 @@ object  LabelArtworkRenderer {
             alpha = 95
             strokeWidth = max(1.1f, h * 0.005f)
         }
-        canvas.drawLine(pad, h * 0.46f, w - pad, h * 0.46f, divider)
-        canvas.drawLine(pad, h * 0.485f, w - pad, h * 0.485f, divider)
-        drawFitSingle(canvas, c.supplierName.uppercase(Locale.ROOT), RectF(pad, h * 0.50f, w - pad, h * 0.68f), h * 0.13f, h * 0.072f, true)
-        drawFitSingle(canvas, c.dateText, RectF(pad, h * 0.72f, w - pad, h * 0.90f), h * 0.13f, h * 0.072f, false)
+        canvas.drawLine(pad, h * 0.39f, w - pad, h * 0.39f, divider)
+        canvas.drawLine(pad, h * 0.415f, w - pad, h * 0.415f, divider)
+        drawFitSingle(canvas, c.supplierName.uppercase(Locale.ROOT), RectF(pad, h * 0.44f, w - pad, h * 0.62f), h * 0.12f, h * 0.068f, true)
+        drawFitSingle(canvas, c.dateText, RectF(pad, h * 0.70f, w - pad, h * 0.88f), h * 0.13f, h * 0.072f, false)
     }
 
     private fun drawDetailed(context: Context, canvas: Canvas, w: Float, h: Float, c: Content) {
@@ -110,7 +116,6 @@ object  LabelArtworkRenderer {
             strokeWidth = max(1.2f, min(w, h) * 0.006f)
         }
 
-        // Header area: logo + product name with vertical separator
         val logoSize = min(w, h) * 0.16f
         val headerTop = top
         val headerBottom = h * 0.23f
@@ -132,7 +137,6 @@ object  LabelArtworkRenderer {
             true
         )
 
-        // Supplier / date strip
         val stripTop = h * 0.275f
         val stripBottom = h * 0.43f
         canvas.drawLine(left, stripTop, right, stripTop, dividerPaint)
@@ -147,11 +151,10 @@ object  LabelArtworkRenderer {
             true
         )
 
-        // Main number / manual area
         val detail = c.detail.orEmpty().trim()
         val unit = c.unit.uppercase(Locale.ROOT)
         if (c.weight == "Manual" || c.weight.isNullOrBlank()) {
-            val lineY = h * 0.69f
+            val lineY = h * 0.77f
             val lineEnd = w * 0.72f
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.BLACK
@@ -161,7 +164,7 @@ object  LabelArtworkRenderer {
             drawFitSingle(
                 canvas,
                 unit,
-                RectF(lineEnd + w * 0.03f, h * 0.57f, right, h * 0.78f),
+                RectF(lineEnd + w * 0.03f, h * 0.66f, right, h * 0.84f),
                 h * 0.12f,
                 h * 0.05f,
                 true
@@ -186,7 +189,6 @@ object  LabelArtworkRenderer {
             )
         }
 
-        // Black footer bar with white text
         val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             style = Paint.Style.FILL

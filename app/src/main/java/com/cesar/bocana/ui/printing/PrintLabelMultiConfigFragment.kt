@@ -14,6 +14,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.IndividualLabelConfig
+import com.cesar.bocana.data.model.LabelData
+import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.databinding.FragmentPrintLabelMultiConfigBinding
 import com.cesar.bocana.ui.printing.pdf.PdfGenerator
 import kotlinx.coroutines.Dispatchers
@@ -28,14 +30,22 @@ class PrintLabelMultiConfigFragment : Fragment(), AssignLabelDialogFragment.OnLa
     private lateinit var labelSlots: MutableList<IndividualLabelConfig?>
     private lateinit var adapter: LabelSlotAdapter
     private var editingActiveId: String? = null
+    private var initialData: LabelData? = null
 
     companion object {
         private const val ARG_TEMPLATE = "template_arg"
         private const val ARG_EDITING_ID = "editing_active_id"
-        fun newInstance(template: LabelTemplate, editingActiveId: String? = null) = PrintLabelMultiConfigFragment().apply {
+        private const val ARG_INITIAL_DATA = "initial_label_data"
+
+        fun newInstance(
+            template: LabelTemplate,
+            editingActiveId: String? = null,
+            initialData: LabelData? = null
+        ) = PrintLabelMultiConfigFragment().apply {
             arguments = Bundle().apply {
                 putParcelable(ARG_TEMPLATE, template)
                 editingActiveId?.let { putString(ARG_EDITING_ID, it) }
+                initialData?.let { putParcelable(ARG_INITIAL_DATA, it) }
             }
         }
     }
@@ -48,6 +58,12 @@ class PrintLabelMultiConfigFragment : Fragment(), AssignLabelDialogFragment.OnLa
         } else {
             @Suppress("DEPRECATION")
             args.getParcelable(ARG_TEMPLATE)!!
+        }
+        initialData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            args.getParcelable(ARG_INITIAL_DATA, LabelData::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            args.getParcelable(ARG_INITIAL_DATA)
         }
         editingActiveId = args.getString(ARG_EDITING_ID)
     }
@@ -93,9 +109,28 @@ class PrintLabelMultiConfigFragment : Fragment(), AssignLabelDialogFragment.OnLa
     }
 
     private fun showAssign(position: Int, existing: IndividualLabelConfig?) {
-        AssignLabelDialogFragment.newInstance(position, existing).apply {
+        val prefilled = existing ?: buildInitialConfig()
+        AssignLabelDialogFragment.newInstance(position, prefilled).apply {
             setTargetFragment(this@PrintLabelMultiConfigFragment, 0)
         }.show(parentFragmentManager, "AssignLabelBottomSheet")
+    }
+
+    private fun buildInitialConfig(): IndividualLabelConfig? {
+        val seed = initialData ?: return null
+        val name = seed.productName?.takeIf { it.isNotBlank() } ?: return null
+        val product = Product(
+            id = seed.productId.orEmpty(),
+            name = name,
+            unit = seed.unit?.takeIf { it.isNotBlank() } ?: "Kg"
+        )
+        return IndividualLabelConfig(
+            product = product,
+            supplierName = seed.supplierName.orEmpty(),
+            date = seed.date,
+            weight = seed.weight ?: "Manual",
+            unit = seed.unit?.takeIf { it.isNotBlank() } ?: product.unit,
+            detail = seed.detail
+        )
     }
 
     override fun onLabelConfigured(position: Int, config: IndividualLabelConfig, copies: Int) {
