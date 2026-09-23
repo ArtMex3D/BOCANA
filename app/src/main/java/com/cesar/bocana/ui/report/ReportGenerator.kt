@@ -59,13 +59,18 @@ object ReportGenerator {
         val allSnapshots: List<PredictiveV3Snapshot>
     )
 
+    suspend fun generatePdfFile(context: Context, config: ReportConfig): File {
+        val data = fetchReportData(context, config)
+        if (data.rows.isEmpty()) {
+            throw IllegalStateException("No hay productos locales disponibles para el reporte")
+        }
+        return createPdfFile(context, config, data)
+    }
+
+    // Se conserva por compatibilidad con cualquier llamada anterior.
     suspend fun generatePdf(context: Context, config: ReportConfig) {
         try {
-            val data = fetchReportData(context, config)
-            if (data.rows.isEmpty()) {
-                throw IllegalStateException("No hay productos locales disponibles para el reporte")
-            }
-            val file = createPdfFile(context, config, data)
+            val file = generatePdfFile(context, config)
             sharePdf(context, file)
         } catch (e: Exception) {
             Log.e(TAG, "Error al generar el reporte", e)
@@ -95,7 +100,7 @@ object ReportGenerator {
         val writer = PdfWriter(file)
         val pdfDocument = PdfDocument(writer)
         val document = Document(pdfDocument, PageSize.A4)
-        document.setMargins(26f, 24f, 28f, 24f)
+        document.setMargins(24f, 18f, 26f, 18f)
 
         document.add(
             Paragraph(config.reportTitle)
@@ -123,11 +128,14 @@ object ReportGenerator {
         data.rows.forEachIndexed { index, row ->
             val bg = if (index % 2 == 1) lightBlue else null
             val productCell = Cell()
-                .setPadding(4f)
+                .setPaddingTop(4.8f)
+                .setPaddingBottom(4.8f)
+                .setPaddingLeft(2.0f)
+                .setPaddingRight(2.0f)
                 .add(
                     Paragraph(row.product.name)
                         .setBold()
-                        .setFontSize(tableFontSize(columns.size))
+                        .setFontSize(tableFontSize(columns.size) + 0.45f)
                         .setMargin(0f)
                 )
             bg?.let { productCell.setBackgroundColor(it) }
@@ -158,12 +166,13 @@ object ReportGenerator {
     }
 
     private fun columnWidths(columns: List<ReportColumn>): FloatArray {
-        val widths = mutableListOf(3.2f)
+        val widths = mutableListOf(2.05f)
         columns.forEach { column ->
             widths += when (column) {
-                ReportColumn.ULTIMA_ACTUALIZACION -> 2.5f
-                ReportColumn.SE_AGOTA_EN -> 1.7f
-                ReportColumn.CONSUMO_SEMANAL, ReportColumn.CONSUMO_MENSUAL -> 1.55f
+                ReportColumn.ULTIMA_ACTUALIZACION -> 1.75f
+                ReportColumn.SE_AGOTA_EN -> 1.45f
+                ReportColumn.CONSUMO_SEMANAL, ReportColumn.CONSUMO_MENSUAL -> 1.50f
+                ReportColumn.STOCK_TOTAL -> 1.55f
                 else -> 1.45f
             }
         }
@@ -171,20 +180,21 @@ object ReportGenerator {
     }
 
     private fun tableFontSize(dataColumnCount: Int): Float = when {
-        dataColumnCount >= 7 -> 6.9f
-        dataColumnCount >= 6 -> 7.3f
-        dataColumnCount >= 5 -> 7.8f
-        else -> 8.4f
+        dataColumnCount >= 7 -> 8.6f
+        dataColumnCount == 6 -> 9.0f
+        dataColumnCount == 5 -> 9.5f
+        dataColumnCount == 4 -> 10.2f
+        else -> 11.0f
     }
 
     private fun addHeader(table: Table, title: String, strong: Boolean) {
         val cell = Cell()
-            .setPaddingTop(6f)
-            .setPaddingBottom(6f)
-            .setPaddingLeft(3f)
-            .setPaddingRight(3f)
+            .setPaddingTop(5.5f)
+            .setPaddingBottom(5.5f)
+            .setPaddingLeft(1.5f)
+            .setPaddingRight(1.5f)
             .setTextAlignment(TextAlignment.CENTER)
-            .add(Paragraph(title).setBold().setMargin(0f))
+            .add(Paragraph(title).setBold().setFontSize(9.8f).setMargin(0f))
 
         if (strong) {
             cell.setBackgroundColor(darkBlue).setFontColor(DeviceRgb(255, 255, 255))
@@ -201,16 +211,16 @@ object ReportGenerator {
         dataColumnCount: Int
     ): Cell {
         val cell = Cell()
-            .setPaddingTop(4f)
-            .setPaddingBottom(4f)
-            .setPaddingLeft(2.5f)
-            .setPaddingRight(2.5f)
+            .setPaddingTop(4.8f)
+            .setPaddingBottom(4.8f)
+            .setPaddingLeft(1.0f)
+            .setPaddingRight(1.0f)
             .setTextAlignment(TextAlignment.CENTER)
         background?.let { cell.setBackgroundColor(it) }
 
         when (column) {
-            ReportColumn.STOCK_C04 -> cell.add(quantityParagraph(row.product.stockCongelador04, row.product.unit, false, dataColumnCount))
-            ReportColumn.STOCK_MATRIZ -> cell.add(quantityParagraph(row.product.stockMatriz, row.product.unit, false, dataColumnCount))
+            ReportColumn.STOCK_C04 -> cell.add(quantityParagraph(row.product.stockCongelador04, "", false, dataColumnCount))
+            ReportColumn.STOCK_MATRIZ -> cell.add(quantityParagraph(row.product.stockMatriz, "", false, dataColumnCount))
             ReportColumn.STOCK_TOTAL -> cell.add(quantityParagraph(row.product.totalStock, row.product.unit, true, dataColumnCount))
             ReportColumn.CONSUMO_SEMANAL -> addPredictiveQuantity(cell, row, row.snapshot?.baselineWeeklyKg, dataColumnCount)
             ReportColumn.CONSUMO_MENSUAL -> addPredictiveQuantity(
@@ -234,13 +244,14 @@ object ReportGenerator {
     private fun quantityParagraph(value: Double, unit: String, bold: Boolean, dataColumnCount: Int): Paragraph {
         val baseSize = tableFontSize(dataColumnCount)
         val p = Paragraph().setMargin(0f).setTextAlignment(TextAlignment.CENTER)
-        val number = Text(formatNumber(value)).setFontSize(baseSize)
-        if (bold) number.setBold()
+        val number = Text(formatNumber(value))
+            .setFontSize(if (bold) baseSize + 0.9f else baseSize + 0.25f)
+            .setBold()
         p.add(number)
         if (unit.isNotBlank()) {
             p.add(
                 Text(" ${unit.trim()}")
-                    .setFontSize((baseSize - 1.4f).coerceAtLeast(5.7f))
+                    .setFontSize((baseSize - 2.8f).coerceAtLeast(5.6f))
                     .setFontColor(softGray)
             )
         }
@@ -252,7 +263,7 @@ object ReportGenerator {
             cell.add(Paragraph("—").setFontColor(softGray).setMargin(0f))
             return
         }
-        cell.add(quantityParagraph(value, row.product.unit, true, dataColumnCount))
+        cell.add(quantityParagraph(value, "", true, dataColumnCount))
         addGroupTag(cell, row.snapshot)
     }
 
@@ -267,8 +278,8 @@ object ReportGenerator {
             Paragraph()
                 .setMargin(0f)
                 .setTextAlignment(TextAlignment.CENTER)
-                .add(Text(days.toString()).setBold().setFontSize(baseSize))
-                .add(Text(" días").setFontSize((baseSize - 1.4f).coerceAtLeast(5.7f)).setFontColor(softGray))
+                .add(Text(days.toString()).setBold().setFontSize(baseSize + 0.4f))
+                .add(Text(" días").setFontSize((baseSize - 2.4f).coerceAtLeast(5.6f)).setFontColor(softGray))
         )
         addGroupTag(cell, row.snapshot)
     }

@@ -58,16 +58,16 @@ class PackagingAdapter(private val listener: PackagingActionListener) :
             binding.textViewPackInsight.text = item.insightText
 
             val palette = when (item.visualLevel) {
-                PackagingVisualLevel.GREEN -> Palette("#EFF9F1", "#2E7D32", "#D8F0DC")
-                PackagingVisualLevel.BLUE -> Palette("#EEF5FF", "#2867A8", "#D7E9FF")
-                PackagingVisualLevel.AMBER -> Palette("#FFF4E3", "#C66A00", "#FFE0AD")
-                PackagingVisualLevel.RED -> Palette("#FFF0F0", "#B3261E", "#FFD5D1")
+                PackagingVisualLevel.GREEN -> Palette("#EFF9F1", "#2E7D32", "#2E7D32")
+                PackagingVisualLevel.BLUE -> Palette("#EEF5FF", "#2867A8", "#2867A8")
+                PackagingVisualLevel.AMBER -> Palette("#FFF4E3", "#C66A00", "#C66A00")
+                PackagingVisualLevel.RED -> Palette("#FBE3E3", "#B3261E", "#B3261E")
             }
 
             binding.packagingCardView.setCardBackgroundColor(Color.parseColor(palette.background))
             binding.packagingCardView.strokeColor = Color.parseColor(palette.accent)
-            binding.packagingCardView.strokeWidth = 2
-            binding.textViewPackTimeElapsed.setTextColor(Color.parseColor(palette.accent))
+            binding.packagingCardView.strokeWidth = 3
+            binding.textViewPackTimeElapsed.setTextColor(Color.WHITE)
             binding.textViewPackTimeElapsed.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 999f

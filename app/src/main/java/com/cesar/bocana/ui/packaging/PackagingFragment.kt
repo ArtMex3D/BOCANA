@@ -217,11 +217,10 @@ class PackagingFragment : Fragment(), PackagingActionListener, MenuProvider {
             }
 
             val statusText = when {
-                task.receivedAt == null -> "Fecha de llegada pendiente"
-                days == 0L -> "Recibido hoy"
-                days == 1L -> "Pendiente 1 día"
-                days == 2L -> "Pendiente 2 días"
-                else -> "Pendiente antiguo · $days días"
+                task.receivedAt == null -> "Fecha pendiente"
+                days == 0L -> "Pendiente de empacar hace: hoy"
+                days == 1L -> "Pendiente de empacar hace: 1 día"
+                else -> "Pendiente de empacar hace: $days días"
             }
 
             val insight = when {

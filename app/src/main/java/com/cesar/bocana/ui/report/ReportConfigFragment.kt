@@ -11,11 +11,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.cesar.bocana.R
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.ReportColumn
 import com.cesar.bocana.data.model.ReportConfig
 import com.cesar.bocana.databinding.FragmentReportConfigBinding
+import com.cesar.bocana.ui.printing.PdfViewerFragment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -164,7 +166,14 @@ class ReportConfigFragment : Fragment() {
         showLoading(true)
         lifecycleScope.launch {
             try {
-                ReportGenerator.generatePdf(requireContext(), config)
+                val pdfFile = ReportGenerator.generatePdfFile(requireContext(), config)
+                if (!isAdded) return@launch
+
+                val viewer = PdfViewerFragment.newInstance(pdfFile.absolutePath)
+                requireActivity().supportFragmentManager.beginTransaction()
+                    .replace(R.id.nav_host_fragment_content_main, viewer)
+                    .addToBackStack(null)
+                    .commit()
             } catch (e: Exception) {
                 Toast.makeText(context, "Error al generar PDF: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {

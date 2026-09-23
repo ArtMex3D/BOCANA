@@ -5,8 +5,8 @@ enum class ReportColumn(val title: String) {
     STOCK_C04("C04"),
     STOCK_MATRIZ("Matriz"),
     STOCK_TOTAL("Total"),
-    CONSUMO_SEMANAL("Sem."),
-    CONSUMO_MENSUAL("Mes"),
+    CONSUMO_SEMANAL("Consumo/sem"),
+    CONSUMO_MENSUAL("Consumo/mes"),
     SE_AGOTA_EN("Se agota"),
     ULTIMA_ACTUALIZACION("Actualizado"),
 

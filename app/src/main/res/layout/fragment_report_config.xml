@@ -341,7 +341,7 @@
                 android:layout_height="48dp"
                 android:layout_weight="1"
                 android:layout_marginStart="5dp"
-                android:text="Generar PDF"
+                android:text="Previsualizar PDF"
                 android:textColor="@android:color/white"
                 android:textStyle="bold"
                 app:backgroundTint="#03045E"
