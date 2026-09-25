@@ -240,6 +240,7 @@ class PlanificarTraspasoViewModel(
                     openLots = allOpenLots,
                     pendingPackaging = pendingPackaging,
                     checkpoints = checkpoints,
+                    productionAdvanceProductIds = config.productionAdvanceProductIds,
                     now = now
                 )
 
@@ -374,11 +375,10 @@ class PlanificarTraspasoViewModel(
 
                 batch.commit().await()
 
-                TraspasoPlanCache.limpiar()
-                manualOverridesKg.clear()
-                manualRequestedUnits.clear()
-                manualSelectedLots.clear()
-                manualExactBreakdowns.clear()
+                // Guardar un PDF no equivale a ejecutar el traspaso y tampoco debe
+                // borrar las decisiones humanas. El mismo plan queda congelado hasta que
+                // el usuario pulse explícitamente “Generar nuevamente sugerencias”.
+                guardarEnCache(currentItems)
 
                 _uiState.update {
                     it.copy(
@@ -442,10 +442,24 @@ class PlanificarTraspasoViewModel(
             } else if (isFixed) {
                 physicalUnit = getUnidadReal(product, lots)
 
-                val autoUnits = convertirKgAUnidades(
+                val autoUnitsRaw = convertirKgAUnidades(
                     kg = requestedKg,
                     lotesDisponibles = lots
                 ).first
+
+                // Margen inteligente de empaque: una diferencia mínima contra el objetivo
+                // no debe obligar a mover una caja completa. Sólo aplica a sugerencia automática;
+                // una edición humana siempre se respeta exactamente.
+                val kgPerUnit = representativeKgPerUnit(lots)
+                val tinyAutomaticGap =
+                    meta?.isManualOverride != true &&
+                    manualRequestedUnits[product.id] == null &&
+                    product.stockCongelador04 > 0.10 &&
+                    requestedKg > 0.01 &&
+                    kgPerUnit > 0.0 &&
+                    requestedKg < kgPerUnit * 0.50
+
+                val autoUnits = if (tinyAutomaticGap) 0 else autoUnitsRaw
 
                 val desiredUnits = manualRequestedUnits[product.id]
                     ?: autoUnits
@@ -605,7 +619,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = product.id,
-            message = "Cantidad manual aplicada"
+            message = "Cantidad manual aplicada. Las demás filas se conservaron."
         )
     }
 
@@ -620,7 +634,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Cantidad manual aplicada"
+            message = "Cantidad manual aplicada. Las demás filas se conservaron."
         )
     }
 
@@ -719,7 +733,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Desglose manual aplicado; V3 recalculó el resto."
+            message = "Desglose manual aplicado. Las demás filas se conservaron."
         )
     }
 
@@ -735,7 +749,21 @@ class PlanificarTraspasoViewModel(
         )
 
         lastPlanV3 = plan
-        val suggestions = buildSuggestionItems(plan)
+        val recalculated = buildSuggestionItems(plan)
+        val focused = recalculated.firstOrNull { it.product.id == focusedProductId }
+
+        val previous = _uiState.value.sugerencias
+        val suggestions = if (focused == null || previous.isEmpty()) {
+            recalculated
+        } else {
+            previous.map { oldItem ->
+                if (oldItem.product.id == focusedProductId) {
+                    focused.copy(incluidoEnPdf = oldItem.incluidoEnPdf || focused.sugerenciaKg > 0.0)
+                } else {
+                    oldItem
+                }
+            }
+        }
 
         _uiState.update {
             it.copy(
@@ -745,7 +773,7 @@ class PlanificarTraspasoViewModel(
         }
         guardarEnCache(suggestions)
 
-        Log.d(TAG, "V3 recalculado localmente por edición de $focusedProductId")
+        Log.d(TAG, "Edición local aplicada sin mover otras filas: $focusedProductId")
     }
 
     private fun guardarEnCache(

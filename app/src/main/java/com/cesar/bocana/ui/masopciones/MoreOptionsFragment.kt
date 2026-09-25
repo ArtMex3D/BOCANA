@@ -19,7 +19,6 @@ import com.cesar.bocana.R
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.repository.InventoryRepository
 import com.cesar.bocana.databinding.FragmentMoreOptionsBinding
-import com.cesar.bocana.maintenance.InventoryResidualRepair
 import com.cesar.bocana.ui.ajustes.AjustesFragment
 import com.cesar.bocana.ui.archived.ArchivedProductsFragment
 import com.cesar.bocana.ui.devoluciones.DevolucionesFragment
@@ -29,14 +28,11 @@ import com.cesar.bocana.ui.groups.PredictiveGroupsFragment
 import com.cesar.bocana.ui.groups.GroupStockFragment
 import com.cesar.bocana.ui.suppliers.SupplierListFragment
 import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
-import com.google.firebase.FirebaseApp
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -76,15 +72,8 @@ class MoreOptionsFragment : Fragment() {
 
 
 
-        // BOTONES OCULTOS (MANTENIMIENTO) CONECTADOS PARA EL FUTURO
+        // Sincronización forzada queda reservada/oculta como herramienta técnica.
         binding.buttonForceSync.setOnClickListener { showForceSyncConfirmationDialog() }
-        binding.buttonMigrateData.setOnClickListener { showMigrationConfirmationDialog() }
-        binding.buttonGenerateCheckpoints.setOnClickListener { showCheckpointConfirmationDialog() }
-
-        // Fase 5.1: la reparación física de residuos se expone únicamente en el laboratorio DEV.
-        // En PROD permanece oculta hasta que el procedimiento haya sido validado.
-        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
-        binding.buttonMigrateData.visibility = if (projectId == "testserver-89") View.VISIBLE else View.GONE
 
         // 🚀 INICIA EL BUSCADOR DE ACTUALIZACIONES
         checkForUpdates()
@@ -283,282 +272,6 @@ class MoreOptionsFragment : Fragment() {
                     progressDialog.dismiss()
                     Toast.makeText(context, "Error en la sincronización: ${e.message}", Toast.LENGTH_LONG).show()
                     binding.buttonForceSync.isEnabled = true
-                }
-            }
-        }
-    }
-
-    private fun showMigrationConfirmationDialog() {
-        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
-        if (projectId != "testserver-89") {
-            Toast.makeText(context, "Esta reparación está habilitada sólo en DEV.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        binding.buttonMigrateData.isEnabled = false
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val preview = withContext(Dispatchers.IO) {
-                    InventoryResidualRepair(firestore).preview()
-                }
-                if (!isAdded) return@launch
-
-                val residualText = if (preview.candidateCount > 0) {
-                    "\n\nAdemás se cerrarán ${preview.candidateCount} lotes residuales " +
-                        "(< 0.10 kg), equivalentes a ${String.format("%.3f", preview.totalResidualKg)} kg. " +
-                        "Esos lotes quedarán en 0.00 kg y agotados."
-                } else {
-                    "\n\nNo se detectaron lotes residuales menores a 0.10 kg."
-                }
-
-                AlertDialog.Builder(requireContext())
-                    .setTitle("Mantenimiento y reparación de inventario")
-                    .setMessage(
-                        "Esta herramienta administrativa revisará la estructura de productos/lotes y " +
-                            "reparará residuos físicos de inventario.\n\n" +
-                            "Regla Bocana: un lote con menos de 0.10 kg ya no existe operativamente." +
-                            residualText +
-                            "\n\nDespués se recalculará Matriz, C04 y Total de los productos afectados. " +
-                            "El motor predictivo NO ejecuta esta reparación; sólo ocurre si tú confirmas aquí.\n\n" +
-                            "Haz esta prueba primero en DEV."
-                    )
-                    .setPositiveButton("Sí, reparar") { _, _ -> runMigrationScript() }
-                    .setNegativeButton("Cancelar") { _, _ ->
-                        binding.buttonMigrateData.isEnabled = true
-                    }
-                    .setOnCancelListener { binding.buttonMigrateData.isEnabled = true }
-                    .show()
-            } catch (e: Exception) {
-                binding.buttonMigrateData.isEnabled = true
-                Toast.makeText(
-                    context,
-                    "No se pudo preparar la vista previa: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-    }
-
-    private fun runMigrationScript() {
-        // Blindaje doble: aunque alguien intente invocar este método por otro camino,
-        // la reparación física sólo puede ejecutarse en el laboratorio DEV.
-        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
-        if (projectId != "testserver-89") {
-            Toast.makeText(context, "Esta reparación está habilitada sólo en DEV.", Toast.LENGTH_LONG).show()
-            binding.buttonMigrateData.isEnabled = true
-            return
-        }
-
-        val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Reparando y Actualizando...")
-            .setMessage("Este proceso puede tardar unos minutos. Por favor, espera.")
-            .setCancelable(false)
-            .create()
-
-        progressDialog.show()
-        binding.buttonMigrateData.isEnabled = false
-
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                // Blindaje: NO borramos campos desconocidos. Sólo retiramos campos obsoletos
-                // que comprobamos que la app actual ya no usa. Esto evita destruir datos futuros.
-                val deprecatedFields = setOf("stability")
-                val productsCollection = firestore.collection("products")
-                val productsSnapshot = productsCollection.get().await()
-                var batch = firestore.batch()
-                var productsProcessed = 0
-                var batchCounter = 0
-
-                for (document in productsSnapshot.documents) {
-                    val productRef = document.reference
-                    val data = document.data ?: continue
-                    val updates = mutableMapOf<String, Any?>()
-
-                    deprecatedFields.forEach { key ->
-                        if (data.containsKey(key)) updates[key] = FieldValue.delete()
-                    }
-
-                    if (!data.containsKey("requiresPackaging")) updates["requiresPackaging"] = false
-                    if (!data.containsKey("stockIdealC04")) updates["stockIdealC04"] = 0.0
-
-                    if (updates.isNotEmpty()) {
-                        batch.update(productRef, updates)
-                        productsProcessed++
-                        batchCounter++
-                    }
-
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
-                }
-                if (batchCounter > 0) batch.commit().await()
-
-                batch = firestore.batch()
-                batchCounter = 0
-                val lotsCollection = firestore.collection("inventoryLots")
-                val lotsSnapshot = lotsCollection.get().await()
-                var lotsProcessed = 0
-
-                for (document in lotsSnapshot.documents) {
-                    val lotRef = document.reference
-                    val data = document.data ?: continue
-                    val lotUpdates = mutableMapOf<String, Any?>()
-
-                    if (!data.containsKey("unidadDeEmpaque")) lotUpdates["unidadDeEmpaque"] = null
-                    if (!data.containsKey("pesoPorUnidad")) lotUpdates["pesoPorUnidad"] = null
-                    if (!data.containsKey("cantidadInicialUnidades")) lotUpdates["cantidadInicialUnidades"] = null
-                    if (data.containsKey("stability")) lotUpdates["stability"] = FieldValue.delete()
-
-                    if (lotUpdates.isNotEmpty()) {
-                        batch.update(lotRef, lotUpdates)
-                        lotsProcessed++
-                        batchCounter++
-                    }
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
-                }
-                if (batchCounter > 0) batch.commit().await()
-
-                // Limpiar únicamente el campo obsoleto "stability" de tareas de empaque.
-                // No se borran otros campos desconocidos.
-                batch = firestore.batch()
-                batchCounter = 0
-                var packagingCleaned = 0
-                val packagingSnapshot = firestore.collection("pendingPackaging").get().await()
-                for (document in packagingSnapshot.documents) {
-                    if (document.data?.containsKey("stability") == true) {
-                        batch.update(document.reference, "stability", FieldValue.delete())
-                        packagingCleaned++
-                        batchCounter++
-                    }
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
-                }
-                if (batchCounter > 0) batch.commit().await()
-
-                // Reparación física explícita de residuos: < 0.10 kg = lote agotado.
-                // Esta escritura pertenece a MANTENIMIENTO ADMINISTRATIVO, no al motor predictivo.
-                val residualRepair = InventoryResidualRepair(firestore).repairExplicitly()
-
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    val message = buildString {
-                        append("Mantenimiento completado:\n")
-                        append("- $productsProcessed productos verificados/actualizados.\n")
-                        append("- $lotsProcessed lotes preparados para la versión actual.\n")
-                        append("- $packagingCleaned tareas de empaque con campo obsoleto limpiado.\n")
-                        append("- ${residualRepair.candidateCount} lotes residuales cerrados a 0.00 kg.\n")
-                        append("- ${String.format("%.3f", residualRepair.totalResidualKg)} kg residuales normalizados.\n")
-                        append("- ${residualRepair.reconciledProductCount} productos reconciliados con sus lotes.")
-                        if (residualRepair.invalidOrNegativeCount > 0) {
-                            append("\n- ${residualRepair.invalidOrNegativeCount} lote(s) con valor inválido/negativo también fueron cerrados.")
-                        }
-                    }
-                    AlertDialog.Builder(requireContext())
-                        .setTitle("¡Éxito!")
-                        .setMessage(message)
-                        .setPositiveButton("Aceptar", null)
-                        .show()
-                    binding.buttonMigrateData.isEnabled = true
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    Toast.makeText(context, "Error crítico durante el mantenimiento: ${e.message}", Toast.LENGTH_LONG).show()
-                    binding.buttonMigrateData.isEnabled = true
-                }
-            }
-        }
-    }
-
-    private fun showCheckpointConfirmationDialog() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Generar Historial de Consumo")
-            .setMessage("Este script leerá todos los movimientos pasados y creará los 'Checkpoints' semanales para la predicción de consumo.\n\n¿Deseas continuar?")
-            .setPositiveButton("Sí, Generar") { _, _ ->
-                runCheckpointScript()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-    }
-
-    private fun runCheckpointScript() {
-        val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Analizando Consumos...")
-            .setMessage("Creando checkpoints semanales. Por favor, espera.")
-            .setCancelable(false)
-            .create()
-
-        progressDialog.show()
-        binding.buttonGenerateCheckpoints.isEnabled = false
-
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                // 1. Obtener todos los movimientos de consumo
-                val movementsSnapshot = firestore.collection("stockMovements")
-                    .whereIn("type", listOf("SALIDA_CONSUMO", "SALIDA_CONSUMO_C04", "AJUSTE_STOCK_C04"))
-                    .get().await()
-
-                // Mapa para agrupar: "ProductoID_Año_Semana" -> Kilos Consumidos
-                val checkpointsMap = mutableMapOf<String, Double>()
-                val calendar = java.util.Calendar.getInstance()
-
-                for (doc in movementsSnapshot.documents) {
-                    val productId = doc.getString("productId") ?: continue
-                    val quantity = doc.getDouble("quantity") ?: 0.0
-                    val timestamp = doc.getDate("timestamp") ?: continue
-
-                    calendar.time = timestamp
-                    val year = calendar.get(java.util.Calendar.YEAR)
-                    val week = calendar.get(java.util.Calendar.WEEK_OF_YEAR)
-
-                    val checkpointId = "${productId}_${year}_${week}"
-                    val currentQty = checkpointsMap.getOrDefault(checkpointId, 0.0)
-                    checkpointsMap[checkpointId] = currentQty + quantity
-                }
-
-                // 2. Guardar en Firestore usando Batches (límite 500 por batch)
-                var batch = firestore.batch()
-                var batchCounter = 0
-                var checkpointsCreated = 0
-
-                for ((checkpointId, totalKg) in checkpointsMap) {
-                    val ref = firestore.collection("consumption_history").document(checkpointId)
-                    batch.set(ref, mapOf("consumedKg" to totalKg), com.google.firebase.firestore.SetOptions.merge())
-
-                    checkpointsCreated++
-                    batchCounter++
-
-                    if (batchCounter >= 400) {
-                        batch.commit().await()
-                        batch = firestore.batch()
-                        batchCounter = 0
-                    }
-                }
-                if (batchCounter > 0) batch.commit().await()
-
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    AlertDialog.Builder(requireContext())
-                        .setTitle("¡Éxito!")
-                        .setMessage("Se crearon $checkpointsCreated checkpoints semanales correctamente.")
-                        .setPositiveButton("Aceptar", null)
-                        .show()
-                    binding.buttonGenerateCheckpoints.isEnabled = true
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    Toast.makeText(context, "Error en el script: ${e.message}", Toast.LENGTH_LONG).show()
-                    binding.buttonGenerateCheckpoints.isEnabled = true
                 }
             }
         }

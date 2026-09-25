@@ -95,6 +95,7 @@ object PredictiveTransferPlannerV3 {
         val openLots: List<StockLot>,
         val pendingPackaging: List<PendingPackagingTask>,
         val checkpoints: Map<String, Double>,
+        val productionAdvanceProductIds: Set<String> = emptySet(),
         val now: Date = Date()
     )
 
@@ -178,7 +179,8 @@ object PredictiveTransferPlannerV3 {
                     generalReserveKg = groupReserve,
                     legacyC04ReferenceKg = habitualGroupTarget,
                     seasonalReferenceWeeklyKg = seasonalReference,
-                    regime = regime
+                    regime = regime,
+                    productionAdvanceMode = historicalIds.any(snapshot.productionAdvanceProductIds::contains)
                 )
             )
 
@@ -196,7 +198,8 @@ object PredictiveTransferPlannerV3 {
                     targetWindowDays = targetWindowDays,
                     elapsedDays = elapsedDays,
                     regime = regime,
-                    checkpoints = snapshot.checkpoints
+                    checkpoints = snapshot.checkpoints,
+                    productionAdvanceProductIds = snapshot.productionAdvanceProductIds
                 )
             } ?: groupForecast.forecastWeeklyKg
 
@@ -351,7 +354,8 @@ object PredictiveTransferPlannerV3 {
                     checkpoints = snapshot.checkpoints,
                     targetWindowDays = targetWindowDays,
                     elapsedDays = elapsedDays,
-                    regime = regime
+                    regime = regime,
+                    productionAdvanceMode = snapshot.productionAdvanceProductIds.contains(product.id)
                 )
 
                 val dynamicTarget = adaptiveTarget(
@@ -437,14 +441,6 @@ object PredictiveTransferPlannerV3 {
         }
 
         var remaining = max(0.0, groupNeedKg - allocated.values.sum())
-        if (remaining <= 0.01) {
-            return GroupAllocation(
-                byProduct = allocated,
-                originalByProduct = allocated.toMap(),
-                codesByProduct = codes,
-                remainingKg = 0.0
-            )
-        }
 
         val capacities = members.associate { product ->
             product.id to availableMatrizWithinReserve(
@@ -464,26 +460,34 @@ object PredictiveTransferPlannerV3 {
         val primaryId = group.primaryProductId
         val primary = primaryId?.let(membersById::get)
 
-        // El rector puede saltar a una fecha posterior únicamente para proteger su mínimo operativo.
-        if (primary != null && !overridesKg.containsKey(primary.id) && remaining > 0.01) {
+        // El rector conserva su mínimo operativo siempre que haya mercancía transferible,
+        // incluso si un override manual de H.M./V.J./otro miembro ya cubrió o superó
+        // el objetivo grupal. La única excepción es cuando el usuario editó directamente
+        // al rector: en ese caso su cantidad manual se respeta exactamente.
+        //
+        // Por eso este refuerzo NO se limita por `remaining`: una decisión humana sobre otro
+        // miembro puede dejar el total por encima del objetivo dinámico, pero no debe sacrificar
+        // el mínimo de H.O. a escondidas.
+        if (primary != null && !overridesKg.containsKey(primary.id)) {
             val missingPrimary = max(
                 0.0,
                 group.primaryMinimumC04Kg.coerceAtLeast(0.0) -
                     primary.stockCongelador04.coerceAtLeast(0.0)
             )
-            val forced = min(
-                remaining,
-                min(missingPrimary, capacities[primary.id] ?: 0.0)
-            )
+            val forced = min(missingPrimary, capacities[primary.id] ?: 0.0)
             if (forced > 0.01) {
                 allocated[primary.id] = (allocated[primary.id] ?: 0.0) + forced
                 capacities[primary.id] = max(0.0, (capacities[primary.id] ?: 0.0) - forced)
                 codes.getOrPut(primary.id) { mutableListOf() } += TransferReasonCode.PRIMARY_MINIMUM
-                remaining -= forced
             }
             if (missingPrimary > forced + 0.1) {
                 codes.getOrPut(primary.id) { mutableListOf() } += TransferReasonCode.PRIMARY_SHORTAGE
             }
+
+            // Recalcular después de proteger al rector. Si la edición manual + mínimo H.O.
+            // ya exceden el objetivo del grupo, no quitamos kilos de ninguna fila: el usuario
+            // podrá volver a editar y V3 recalculará de nuevo.
+            remaining = max(0.0, groupNeedKg - allocated.values.sum())
         }
 
         if (remaining <= 0.01) {
@@ -632,7 +636,8 @@ object PredictiveTransferPlannerV3 {
         checkpoints: Map<String, Double>,
         targetWindowDays: Double,
         elapsedDays: Double,
-        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
+        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
+        productionAdvanceMode: Boolean
     ): ForecastResultV3 {
         return PredictiveV3Engine.forecast(
             ForecastContext(
@@ -648,7 +653,8 @@ object PredictiveTransferPlannerV3 {
                 generalReserveKg = matrixReserveForCommitment(product),
                 legacyC04ReferenceKg = product.stockIdealC04,
                 seasonalReferenceWeeklyKg = averageExisting(product.id, seasonalWeeks, checkpoints),
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = productionAdvanceMode
             )
         )
     }
@@ -663,7 +669,8 @@ object PredictiveTransferPlannerV3 {
         targetWindowDays: Double,
         elapsedDays: Double,
         regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
-        checkpoints: Map<String, Double>
+        checkpoints: Map<String, Double>,
+        productionAdvanceProductIds: Set<String>
     ): Double {
         val anchorIds = relation.effectiveAnchorProductIds()
         val anchors = anchorIds.mapNotNull(productsById::get)
@@ -688,7 +695,8 @@ object PredictiveTransferPlannerV3 {
                 stockTotalKg = anchors.sumOf { it.totalStock },
                 generalReserveKg = anchors.sumOf(::matrixReserveForCommitment),
                 seasonalReferenceWeeklyKg = null,
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = anchorHistoryIds.any(productionAdvanceProductIds::contains)
             )
         )
 
@@ -908,7 +916,7 @@ object TransferMessageFactory {
                 "El lote más antiguo no alcanzó; se completó con la siguiente fecha disponible."
 
             set.contains(TransferReasonCode.USER_OVERRIDE) ->
-                "Cantidad ajustada por ti; V3 recalculó el resto sin cambiar esta decisión."
+                "Cantidad ajustada por ti; esta decisión se conserva exactamente."
 
             set.contains(TransferReasonCode.C04_COVERED) ->
                 "C04 ya cubre la necesidad estimada hasta el próximo traspaso."

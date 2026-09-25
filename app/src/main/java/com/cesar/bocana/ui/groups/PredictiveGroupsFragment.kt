@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
@@ -183,7 +184,7 @@ class PredictiveGroupsFragment : Fragment() {
             cardElevation = dp(1).toFloat()
             strokeWidth = dp(1)
             strokeColor = Color.parseColor("#D7DCEF")
-            setCardBackgroundColor(Color.WHITE)
+            setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.bocana_surface))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT

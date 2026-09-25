@@ -24,18 +24,8 @@ class PredictiveV3ConfigRepository(
         @Volatile
         private var memoryCache: CacheEntry? = null
 
-        @Volatile
-        private var memoryRevision: Long = 0L
-
-        /**
-         * Revisión de la configuración en memoria.
-         * Sirve para invalidar caches derivados (por ejemplo el popup V3) sin otra lectura a Firestore.
-         */
-        fun currentMemoryRevision(): Long = memoryRevision
-
         fun invalidateMemoryCache() {
             memoryCache = null
-            memoryRevision++
         }
 
         private data class CacheEntry(
@@ -45,7 +35,8 @@ class PredictiveV3ConfigRepository(
 
     data class ConfigBundle(
         val groups: List<PredictiveGroupConfig>,
-        val services: List<PredictiveServiceRelation>
+        val services: List<PredictiveServiceRelation>,
+        val productionAdvanceProductIds: Set<String> = emptySet()
     )
 
     suspend fun load(forceRefresh: Boolean = false): ConfigBundle {
@@ -57,11 +48,17 @@ class PredictiveV3ConfigRepository(
         val snapshot = firestore.collection(COLLECTION).get().await()
         val groups = mutableListOf<PredictiveGroupConfig>()
         val services = mutableListOf<PredictiveServiceRelation>()
+        val productionAdvanceProductIds = linkedSetOf<String>()
 
         snapshot.documents.forEach { doc ->
             val type = doc.getString("configType")?.uppercase() ?: "GROUP"
 
-            if (type == "SERVICE" || type == "BALANCE") {
+            if (type == "PRODUCT_MODE") {
+                (doc.get("productionAdvanceProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    ?.filter { it.isNotBlank() }
+                    ?.let(productionAdvanceProductIds::addAll)
+            } else if (type == "SERVICE" || type == "BALANCE") {
                 val anchorIds = (doc.get("anchorProductIds") as? List<*>)
                     ?.mapNotNull { it as? String }
                     ?.filter { it.isNotBlank() }
@@ -126,7 +123,8 @@ class PredictiveV3ConfigRepository(
 
         val bundle = ConfigBundle(
             groups = groups.filter { it.enabled },
-            services = services.filter { it.enabled }
+            services = services.filter { it.enabled },
+            productionAdvanceProductIds = productionAdvanceProductIds
         )
         memoryCache = CacheEntry(bundle)
         return bundle

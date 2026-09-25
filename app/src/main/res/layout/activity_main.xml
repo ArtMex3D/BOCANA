@@ -4,7 +4,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".ui.main.MainActivity">
+    tools:context=".ui.main.MainActivity"
+    android:background="@color/bocana_screen_background">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
@@ -19,8 +20,8 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="@color/brand_purple"
-            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
+            android:background="@color/bocana_toolbar"
+            app:popupTheme="@style/ThemeOverlay.AppCompat" />
 
         <!-- Banner para mostrar cuando no hay conexión -->
         <TextView
@@ -76,8 +77,8 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:menu="@menu/bottom_nav_menu"
-        app:itemTextColor="@color/pending_item_yellow"
-        app:itemIconTint="@color/purple_700"
-        android:background="@color/brand_purple"
+        app:itemTextColor="@color/bottom_nav_item"
+        app:itemIconTint="@color/bottom_nav_item"
+        android:background="@color/bocana_surface"
         app:labelVisibilityMode="labeled" />
 </androidx.constraintlayout.widget.ConstraintLayout>

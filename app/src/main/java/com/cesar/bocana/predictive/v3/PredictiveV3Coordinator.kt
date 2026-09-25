@@ -132,7 +132,8 @@ class PredictiveV3Coordinator(
             checkpoints = checkpoints,
             targetWindowDays = targetWindowDays,
             elapsedDays = elapsedDays,
-            regime = regime
+            regime = regime,
+            productionAdvanceMode = config.productionAdvanceProductIds.contains(selected.id)
         )
 
         var individualOperational = operationalFromForecast(
@@ -157,7 +158,8 @@ class PredictiveV3Coordinator(
                 targetWindowDays = targetWindowDays,
                 elapsedDays = elapsedDays,
                 regime = regime,
-                effectiveWeeklyOverride = null
+                effectiveWeeklyOverride = null,
+                productionAdvanceProductIds = config.productionAdvanceProductIds
             )
         }
 
@@ -173,7 +175,8 @@ class PredictiveV3Coordinator(
                 checkpoints = checkpoints,
                 targetWindowDays = targetWindowDays,
                 elapsedDays = elapsedDays,
-                regime = regime
+                regime = regime,
+                productionAdvanceProductIds = config.productionAdvanceProductIds
             )
         }
 
@@ -196,7 +199,8 @@ class PredictiveV3Coordinator(
                     targetWindowDays = targetWindowDays,
                     elapsedDays = elapsedDays,
                     regime = regime,
-                    effectiveWeeklyOverride = serviceAnalysis.allocation.linkedGroupWeeklyKg
+                    effectiveWeeklyOverride = serviceAnalysis.allocation.linkedGroupWeeklyKg,
+                    productionAdvanceProductIds = config.productionAdvanceProductIds
                 )
             }
         }
@@ -322,7 +326,8 @@ class PredictiveV3Coordinator(
         checkpoints: Map<String, Double>,
         targetWindowDays: Double,
         elapsedDays: Double,
-        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
+        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
+        productionAdvanceMode: Boolean
     ) = PredictiveV3Engine.forecast(
         ForecastContext(
             entityId = product.id,
@@ -337,7 +342,8 @@ class PredictiveV3Coordinator(
             generalReserveKg = matrixReserveForCommitment(product),
             legacyC04ReferenceKg = product.stockIdealC04,
             seasonalReferenceWeeklyKg = averageExisting(product.id, seasonalWeeks, checkpoints),
-            regime = regime
+            regime = regime,
+            productionAdvanceMode = productionAdvanceMode
         )
     )
 
@@ -352,7 +358,8 @@ class PredictiveV3Coordinator(
         targetWindowDays: Double,
         elapsedDays: Double,
         regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
-        effectiveWeeklyOverride: Double?
+        effectiveWeeklyOverride: Double?,
+        productionAdvanceProductIds: Set<String>
     ): GroupAnalysisV3 {
         val members = group.memberProductIds.mapNotNull { productsById[it] }
         val memberSeries = members.associate { product ->
@@ -386,7 +393,8 @@ class PredictiveV3Coordinator(
                 generalReserveKg = matrixReserve,
                 legacyC04ReferenceKg = legacyC04,
                 seasonalReferenceWeeklyKg = averageGroupExisting(historicalGroupIds, seasonalWeeks, checkpoints),
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = historicalGroupIds.any(productionAdvanceProductIds::contains)
             )
         )
 
@@ -452,7 +460,8 @@ class PredictiveV3Coordinator(
         checkpoints: Map<String, Double>,
         targetWindowDays: Double,
         elapsedDays: Double,
-        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
+        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
+        productionAdvanceProductIds: Set<String>
     ): ServiceAnalysisV3? {
         val anchors = relation.effectiveAnchorProductIds().mapNotNull { productsById[it] }
         val groupMembers = linkedGroup.memberProductIds.mapNotNull { productsById[it] }
@@ -492,7 +501,8 @@ class PredictiveV3Coordinator(
                 stockTotalKg = anchors.sumOf { it.totalStock },
                 generalReserveKg = anchors.sumOf(::matrixReserveForCommitment),
                 seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = anchorHistoryIds.any(productionAdvanceProductIds::contains)
             )
         )
 
@@ -511,7 +521,8 @@ class PredictiveV3Coordinator(
                 legacyC04ReferenceKg = linkedGroup.c04GroupTargetKg.takeIf { it > 0.0 }
                     ?: groupMembers.sumOf { it.stockIdealC04 },
                 seasonalReferenceWeeklyKg = averageGroupExisting(groupHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = groupHistoryIds.any(productionAdvanceProductIds::contains)
             )
         )
 
@@ -531,7 +542,8 @@ class PredictiveV3Coordinator(
                 generalReserveKg = anchors.sumOf(::matrixReserveForCommitment) +
                     groupMembers.sumOf(::matrixReserveForCommitment),
                 seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds + groupHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime
+                regime = regime,
+                productionAdvanceMode = (anchorHistoryIds + groupHistoryIds).any(productionAdvanceProductIds::contains)
             )
         )
 

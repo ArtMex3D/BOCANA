@@ -93,6 +93,29 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchProductionAdvance"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Producción adelantada"
+            android:textAppearance="?attr/textAppearanceBody1"
+            app:layout_constraintTop_toBottomOf="@id/helperTextRequiresPackaging"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/helperTextProductionAdvance"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="Actívalo cuando se procesa mercancía por adelantado. El predictor suaviza picos y semanas sin salida usando ventanas de 4 semanas; no requiere capturar producción adicional."
+            android:textAppearance="?attr/textAppearanceCaption"
+            app:layout_constraintTop_toBottomOf="@id/switchProductionAdvance"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <!-- INICIO: CAMPOS DE CATEGORÍA (FASE 1 - TITÁN V1) -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/textFieldLayoutCategoria"
@@ -101,7 +124,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:hint="Categoría del Producto"
-            app:layout_constraintTop_toBottomOf="@id/helperTextRequiresPackaging"
+            app:layout_constraintTop_toBottomOf="@id/helperTextProductionAdvance"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent">
 

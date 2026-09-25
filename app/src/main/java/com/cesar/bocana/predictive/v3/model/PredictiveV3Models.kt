@@ -49,7 +49,8 @@ data class ForecastContext(
     val legacyC04ReferenceKg: Double = 0.0,
     val seasonalReferenceWeeklyKg: Double? = null,
     val regime: SeasonRegime = SeasonRegime.NORMAL,
-    val regimeMultiplier: Double = 1.0
+    val regimeMultiplier: Double = 1.0,
+    val productionAdvanceMode: Boolean = false
 )
 
 data class ForecastResultV3(

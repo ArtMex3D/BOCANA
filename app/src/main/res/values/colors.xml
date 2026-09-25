@@ -13,7 +13,7 @@
     <color name="completed_item_grey">#E0E0E0</color>
     <color name="pending_item_yellow">#FFFDE7</color>
     <color name="stock_ok">#097801</color>
-     <color name="low_stock_red_background">#FFEBEE</color>
+    <color name="low_stock_red_background">#FFEBEE</color>
     <color name="pending_item_background">#FFBED9</color>
     <color name="positive_green">#2E7D32</color>
     <color name="negative_red">#C62828</color>
@@ -21,9 +21,27 @@
     <color name="gray_400">#BDBDBD</color>
     <color name="brand_purple">#E8005E</color>
     <color name="intense_black">#000000</color>
-    <!-- zebra de traspasos-->
     <color name="zebra_oscuro">@color/low_stock_red_background</color>
     <color name="zebra_claro">@color/pending_item_background</color>
     <color name="Letras">#020961</color>
 
+    <color name="bocana_screen_background">#F7F8FC</color>
+    <color name="bocana_surface">#FFFFFF</color>
+    <color name="bocana_surface_alt">#F1F4FA</color>
+    <color name="bocana_text_primary">#111827</color>
+    <color name="bocana_text_secondary">#667085</color>
+    <color name="bocana_divider">#E4E7EC</color>
+    <color name="bocana_toolbar">#E8005E</color>
+    <color name="bocana_neon_blue">#0D47A1</color>
+    <color name="bocana_neon_cyan">#018786</color>
+    <color name="bocana_neon_purple">#7C3AED</color>
+    <color name="bocana_neon_green">#07833D</color>
+    <color name="bocana_neon_orange">#C66A00</color>
+    <color name="bocana_neon_red">#C62828</color>
+    <color name="bocana_tint_red">#FFF0F3</color>
+    <color name="bocana_tint_orange">#FFF3E0</color>
+    <color name="bocana_tint_blue">#EEF6FF</color>
+    <color name="bocana_tint_purple">#F5F3FF</color>
+    <color name="bocana_tint_green">#EAF8EF</color>
+    <color name="bocana_tint_yellow">#FFF8E8</color>
 </resources>

@@ -10,8 +10,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.cesar.bocana.R
 import com.cesar.bocana.databinding.FragmentGroupStockBinding
 import com.cesar.bocana.predictive.v3.data.PredictiveGroupAdminRepository
 import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
@@ -109,7 +111,7 @@ class GroupStockFragment : Fragment() {
             val card = MaterialCardView(requireContext()).apply {
                 radius = dp(14).toFloat()
                 cardElevation = dp(1).toFloat()
-                setCardBackgroundColor(Color.WHITE)
+                setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.bocana_surface))
                 strokeWidth = dp(1)
                 strokeColor = Color.parseColor("#E2E8F0")
                 layoutParams = LinearLayout.LayoutParams(

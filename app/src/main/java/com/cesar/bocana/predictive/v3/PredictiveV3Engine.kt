@@ -19,7 +19,7 @@ import kotlin.math.sqrt
  */
 object PredictiveV3Engine {
 
-    const val MODEL_VERSION = 3002
+    const val MODEL_VERSION = 3003
 
     data class Tuning(
         val maxCompleteWeeks: Int = 16,
@@ -51,7 +51,16 @@ object PredictiveV3Engine {
             .takeLast(tuning.maxCompleteWeeks)
             .map { sanitize(it.consumedKg) }
 
-        val robustHistory = winsorizeByMad(rawHistory)
+        val demandInput = if (context.productionAdvanceMode) {
+            productionAdvanceDemand(
+                completeWeeks = rawHistory,
+                currentWeekConsumedKg = context.currentWeekConsumedKg
+            )
+        } else {
+            ProductionDemandInput(rawHistory, sanitize(context.currentWeekConsumedKg))
+        }
+
+        val robustHistory = winsorizeByMad(demandInput.completeWeeks)
         val longBaseline = robustHistory.averageOrZero()
         val recentHistory = robustHistory.takeLast(tuning.recentWeeks)
         val recentBaseline = exponentialAverage(recentHistory, tuning.recencyDecay)
@@ -62,8 +71,14 @@ object PredictiveV3Engine {
             else -> longBaseline
         }
 
-        val elapsedDays = context.currentWeekElapsedDays.coerceIn(0.0, 7.0)
-        val currentConsumed = sanitize(context.currentWeekConsumedKg)
+        val elapsedDays = if (context.productionAdvanceMode) {
+            // La salida física puede ser producción de varias semanas; no la extrapolamos
+            // como si todo hubiera sido demanda ocurrida en uno o dos días.
+            7.0
+        } else {
+            context.currentWeekElapsedDays.coerceIn(0.0, 7.0)
+        }
+        val currentConsumed = demandInput.currentWeekEquivalentKg
         val liveWeekly = calculateLiveWeeklyPace(
             currentWeekConsumedKg = currentConsumed,
             elapsedDays = elapsedDays,
@@ -150,6 +165,9 @@ object PredictiveV3Engine {
 
         val reasons = buildList {
             add("Base robusta: ${format1(baseline)} kg/sem")
+            if (context.productionAdvanceMode) {
+                add("Producción adelantada: demanda suavizada en ventanas móviles de 4 semanas")
+            }
             if (elapsedDays > 0.0) add("Ritmo vivo: ${format1(liveWeekly)} kg/sem")
             if (seasonal != null) add("Referencia estacional activa: ${format1(seasonal)} kg/sem")
             if (trendSignal == TrendSignal.SURGE) add("Aceleración fuerte detectada")
@@ -180,6 +198,45 @@ object PredictiveV3Engine {
             limitedByMatrizReserve = limitedByReserve,
             legacyC04ReferenceKg = context.legacyC04ReferenceKg,
             reasons = reasons
+        )
+    }
+
+
+    private data class ProductionDemandInput(
+        val completeWeeks: List<Double>,
+        val currentWeekEquivalentKg: Double
+    )
+
+    /**
+     * Para mercancía que se procesa por adelantado, una salida física grande no equivale
+     * a demanda instantánea. Una ventana móvil de cuatro semanas conserva los kilos del
+     * periodo pero reparte picos/valles de producción sin pedir capturas adicionales.
+     * Si el nivel alto se sostiene varias semanas, la propia ventana sube y la tendencia
+     * termina reconociéndolo como demanda real.
+     */
+    private fun productionAdvanceDemand(
+        completeWeeks: List<Double>,
+        currentWeekConsumedKg: Double
+    ): ProductionDemandInput {
+        val raw = completeWeeks.map(::sanitize)
+        if (raw.isEmpty()) {
+            return ProductionDemandInput(emptyList(), sanitize(currentWeekConsumedKg))
+        }
+
+        val window = 4
+        val smoothed = raw.indices.map { index ->
+            val from = max(0, index - (window - 1))
+            val values = raw.subList(from, index + 1)
+            values.averageOrZero()
+        }
+
+        val carryWeeks = raw.takeLast(window - 1)
+        val currentWindow = carryWeeks + sanitize(currentWeekConsumedKg)
+        val currentEquivalent = currentWindow.averageOrZero()
+
+        return ProductionDemandInput(
+            completeWeeks = smoothed,
+            currentWeekEquivalentKg = currentEquivalent
         )
     }
 

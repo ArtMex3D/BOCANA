@@ -1,5 +1,6 @@
 package com.cesar.bocana.ui.dialogs
 
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -12,13 +13,8 @@ import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
-import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.predictive.v3.PredictiveV3Coordinator
-import com.cesar.bocana.predictive.v3.PredictiveV3Manager
-import com.cesar.bocana.predictive.v3.data.PredictiveV3ConfigRepository
-import com.cesar.bocana.predictive.v3.data.PredictiveV3HybridDataSource
-import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.predictive.v3.model.BacktestSignal
 import com.cesar.bocana.predictive.v3.model.ConfidenceLevel
 import com.cesar.bocana.predictive.v3.model.GroupAnalysisV3
@@ -31,13 +27,13 @@ import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
+import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -50,86 +46,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
     companion object {
         const val TAG = "ConsumoPredictivoBottomSheet"
-        const val RESULT_KEY = "predictive_v3_result_available"
-        const val RESULT_PRODUCT_ID = "predictive_v3_product_id"
-
-        /**
-         * Cache de sesión: vive mientras el proceso de la app siga vivo.
-         * Al cerrar la app por completo Android libera este mapa naturalmente.
-         */
-        private val sessionAnalysisCache = ConcurrentHashMap<String, AnalysisCacheEntry>()
-
-        private data class AnalysisCacheEntry(
-            val revision: PopupDataRevision,
-            val analysis: PredictiveV3Analysis
-        )
-
-        private data class PopupDataRevision(
-            val dayKey: Int,
-            val productUpdatedAtMillis: Long,
-            val stockMatrizBits: Long,
-            val stockC04Bits: Long,
-            val totalStockBits: Long,
-            val latestMovementMillis: Long,
-            val packagingFingerprint: Int,
-            val returnsFingerprint: Int,
-            val configRevision: Long
-        )
-
-        /**
-         * Devuelve la MISMA cobertura V3 que ya calculó el popup durante esta sesión.
-         * La tarjeta de Stocks puede reutilizarla sin otra lectura ni otro cálculo remoto.
-         *
-         * Si el producto cambió, cambió el día o cambió la configuración predictiva,
-         * no se reutiliza el dato y la lista vuelve temporalmente a su fotografía local.
-         */
-        fun cachedCoverageDays(product: Product): Int? {
-            val cached = sessionAnalysisCache[product.id] ?: return null
-            val calendar = Calendar.getInstance()
-            val dayKey = calendar.get(Calendar.YEAR) * 1000 + calendar.get(Calendar.DAY_OF_YEAR)
-            val revision = cached.revision
-
-            val stillValid = revision.dayKey == dayKey &&
-                revision.productUpdatedAtMillis == (product.updatedAt?.time ?: 0L) &&
-                revision.stockMatrizBits == product.stockMatriz.toBits() &&
-                revision.stockC04Bits == product.stockCongelador04.toBits() &&
-                revision.totalStockBits == product.totalStock.toBits() &&
-                revision.configRevision == PredictiveV3ConfigRepository.currentMemoryRevision()
-
-            if (!stillValid) return null
-            return primaryCoverageDays(cached.analysis)
-        }
-
-        /** Invalida la fotografía V3 de sesión cuando cambia el inventario real. */
-        fun invalidateSessionCache() {
-            sessionAnalysisCache.clear()
-        }
-
-        /**
-         * Replica exactamente la cobertura PRINCIPAL que el popup muestra:
-         * grupo cuando existe; producto individual cuando no pertenece a grupo.
-         */
-        private fun primaryCoverageDays(analysis: PredictiveV3Analysis): Int? {
-            val group = analysis.groupAnalysis
-            val operational = group?.operational ?: analysis.individualOperational
-
-            val coverage = if (group != null) {
-                val totalGroupStock = analysis.groupInventory?.let { inventory ->
-                    inventory.matrizByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) } +
-                        inventory.c04ByMonth.sumOf { it.totalKg.coerceAtLeast(0.0) }
-                }
-
-                if (totalGroupStock != null && operational.effectiveWeeklyKg > 0.01) {
-                    totalGroupStock / (operational.effectiveWeeklyKg / 7.0)
-                } else {
-                    group.forecast.coverageDays
-                }
-            } else {
-                analysis.effectiveCoverageDays
-            }
-
-            return coverage?.coerceAtLeast(0.0)?.roundToInt()
-        }
+        private const val DEV_PROJECT_ID = "testserver-89"
     }
 
     private lateinit var progressGauge: ProgressBar
@@ -190,96 +107,40 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             isFillViewport = true
         }
 
-        // El popup consume el mismo V3 central que se revisa en silencio al iniciar la app.
-        renderV3LoadingState()
-        addLoadingCard()
+        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
+        if (projectId == DEV_PROJECT_ID) {
+            // En DEV no mostramos primero una predicción V2 que luego cambie a V3.
+            // Mientras V3 analiza, la UI queda en estado neutro para evitar datos contradictorios.
+            renderV3LoadingState()
+            addLoadingCard()
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    // El popup vuelve a usar la fuente V3 probada para conservar
+                    // el historial/checkpoints completos. La única diferencia visual
+                    // es que V2 ya no aparece antes: queda sólo como respaldo si V3 falla.
+                    val analysis = PredictiveV3Coordinator(
+                        FirebaseFirestore.getInstance()
+                    ).analyzeProduct(product.id)
+                    if (!isAdded) return@launch
+                    renderV3(analysis)
+                } catch (e: Exception) {
+                    if (!isAdded) return@launch
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            val manager = PredictiveV3Manager.getInstance(
-                requireContext().applicationContext,
-                FirebaseFirestore.getInstance()
-            )
-
-            try {
-                val analysis = manager.getAnalysis(product.id)
-                if (!isAdded) return@launch
-                renderV3(analysis)
-                publishV3ResultAvailable()
-            } catch (e: Exception) {
-                if (!isAdded) return@launch
-                val snapshot = runCatching { manager.getSnapshot(product.id) }.getOrNull()
-                if (snapshot != null) {
-                    renderPersistedV3Snapshot(snapshot, e.message)
-                } else {
-                    renderV3LoadingState()
+                    // V2 se conserva únicamente como respaldo real si V3 falla.
+                    renderLegacyFallback()
                     v3DeepContainer.removeAllViews()
                     addSectionCard(
-                        title = "V3 todavía no disponible",
-                        subtitle = "No existe aún una fotografía V3 guardada. Detalle: ${e.message ?: "error desconocido"}",
+                        title = "Análisis avanzado no disponible",
+                        subtitle = "Se muestran datos de respaldo. Detalle: ${e.message ?: "error desconocido"}",
                         accent = "#B91C1C",
                         background = "#FFF7F7"
                     )
                 }
             }
+        } else {
+            // Mientras V3 siga validándose en DEV, producción conserva el comportamiento V2 actual.
+            renderLegacyFallback()
         }
-    }
-
-    private fun publishV3ResultAvailable() {
-        if (!isAdded) return
-        parentFragmentManager.setFragmentResult(
-            RESULT_KEY,
-            Bundle().apply { putString(RESULT_PRODUCT_ID, product.id) }
-        )
-    }
-
-    /**
-     * Firma local muy ligera para saber si el análisis de sesión sigue siendo reutilizable.
-     * No consulta Firestore.
-     *
-     * latestMovement invalida ante compras/consumos/traspasos/ajustes;
-     * packagingFingerprint invalida cuando cambia pendiente de empaque;
-     * returnsFingerprint invalida cambios de devoluciones;
-     * configRevision cambia cuando Gestión modifica grupos/stock grupal;
-     * dayKey evita conservar una ventana operativa del día anterior si la app quedó abierta.
-     */
-    private suspend fun buildPopupDataRevision(database: AppDatabase): PopupDataRevision {
-        val calendar = Calendar.getInstance()
-        val dayKey = calendar.get(Calendar.YEAR) * 1000 + calendar.get(Calendar.DAY_OF_YEAR)
-
-        val latestMovement = database.stockMovementDao().getLatestTimestamp() ?: 0L
-
-        val packagingFingerprint = database.packagingDao()
-            .getAllPackagingTasksOnce()
-            .fold(1) { acc, task ->
-                var value = 31 * acc + task.id.hashCode()
-                value = 31 * value + task.productId.hashCode()
-                value = 31 * value + task.quantityReceived.toBits().hashCode()
-                value = 31 * value + (task.receivedAt?.time ?: 0L).hashCode()
-                value
-            }
-
-        val returnsFingerprint = database.devolucionDao()
-            .getAllDevolucionesOnce()
-            .fold(1) { acc, item ->
-                var value = 31 * acc + item.id.hashCode()
-                value = 31 * value + item.productId.hashCode()
-                value = 31 * value + item.quantity.toBits().hashCode()
-                value = 31 * value + item.status.name.hashCode()
-                value = 31 * value + (item.completedAt?.time ?: 0L).hashCode()
-                value
-            }
-
-        return PopupDataRevision(
-            dayKey = dayKey,
-            productUpdatedAtMillis = product.updatedAt?.time ?: 0L,
-            stockMatrizBits = product.stockMatriz.toBits(),
-            stockC04Bits = product.stockCongelador04.toBits(),
-            totalStockBits = product.totalStock.toBits(),
-            latestMovementMillis = latestMovement,
-            packagingFingerprint = packagingFingerprint,
-            returnsFingerprint = returnsFingerprint,
-            configRevision = PredictiveV3ConfigRepository.currentMemoryRevision()
-        )
     }
 
     override fun onStart() {
@@ -310,7 +171,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         progressGauge.progress = 0
 
         cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F1F5F9"))
-        tvStatusBadge.setTextColor(Color.parseColor("#64748B"))
+        tvStatusBadge.setTextColor(uiTextColor(primary = false))
         tvStatusBadge.text = "Analizando inventario"
 
         tvMainPrediction.text = "Calculando cobertura…"
@@ -324,55 +185,6 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         tvHighDemandScenario.text = "Preparando escenario de mayor consumo…"
         tvLowDemandScenario.text = "Preparando escenario de menor consumo…"
         tvSeasonInsight.text = "Preparando análisis predictivo…"
-    }
-
-    private fun renderPersistedV3Snapshot(snapshot: PredictiveV3Snapshot, errorDetail: String?) {
-        val coverage = snapshot.coverageDays
-        val groupName = snapshot.groupName ?: snapshot.groupId
-
-        tvForecastWeekly.text = formatQuantity(snapshot.forecastWeeklyKg, product.unit)
-        tvForecast30Days.text = formatQuantity(snapshot.forecastWeeklyKg * 30.0 / 7.0, product.unit)
-        tvAverageWeekly.text = formatQuantity(snapshot.baselineWeeklyKg, product.unit)
-        tvAverageMonthly.text = formatQuantity(snapshot.baselineWeeklyKg * 30.0 / 7.0, product.unit)
-
-        val title = if (coverage != null) {
-            if (!groupName.isNullOrBlank()) {
-                "Cobertura conjunta de $groupName\nStock estimado para ${PredictiveConsumptionEngine.formatDuration(coverage)}"
-            } else {
-                "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(coverage)}"
-            }
-        } else "Cobertura no calculable"
-
-        val range = if (snapshot.probableMinDays != null && snapshot.probableMaxDays != null) {
-            "Rango probable: ${PredictiveConsumptionEngine.formatDuration(snapshot.probableMinDays)} a ${PredictiveConsumptionEngine.formatDuration(snapshot.probableMaxDays)}"
-        } else "Rango probable no disponible"
-
-        renderCoverage(coverage, title, range)
-        tvHighDemandScenario.text = snapshot.probableMinDays?.let {
-            "Si aumenta el consumo, la cobertura podría acercarse a ${PredictiveConsumptionEngine.formatDuration(it)}."
-        } ?: "Sin escenario alto guardado."
-        tvLowDemandScenario.text = snapshot.probableMaxDays?.let {
-            "Si baja el consumo, la cobertura podría extenderse a ${PredictiveConsumptionEngine.formatDuration(it)}."
-        } ?: "Sin escenario bajo guardado."
-
-        val regime = runCatching { SeasonRegime.valueOf(snapshot.regime) }.getOrDefault(SeasonRegime.NORMAL)
-        tvSeasonInsight.text = seasonExplanation(regime)
-
-        v3DeepContainer.removeAllViews()
-        addSectionCard(
-            title = "Último V3 guardado",
-            subtitle = "La actualización no pudo completarse; se conserva la última revisión válida.",
-            rows = listOf(
-                "Demanda estimada" to "${format1(snapshot.forecastWeeklyKg)} kg/semana",
-                "Cobertura" to (coverage?.let { "$it días" } ?: "Sin dato"),
-                "C04 actual" to "${format1(snapshot.c04CurrentKg)} kg",
-                "Objetivo C04" to "${format1(snapshot.dynamicC04TargetKg)} kg",
-                "Traspaso sugerido" to "${format1(snapshot.suggestedTransferKg)} kg"
-            ),
-            note = errorDetail?.let { "Detalle de actualización: $it" },
-            accent = "#7C3AED",
-            background = "#FAF5FF"
-        )
     }
 
     private fun renderLegacyFallback() {
@@ -739,7 +551,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             cardElevation = 0f
             strokeWidth = dp(1)
             strokeColor = Color.parseColor("#CBD5E1")
-            setCardBackgroundColor(Color.WHITE)
+            setCardBackgroundColor(if (isNightMode()) Color.parseColor("#0B1220") else Color.WHITE)
             layoutParams = sectionLayoutParams(top = 12)
         }
         val wrapper = LinearLayout(requireContext()).apply {
@@ -748,14 +560,14 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
         val header = TextView(requireContext()).apply {
             text = "Información avanzada  ▾"
-            setTextColor(Color.parseColor("#334155"))
+            setTextColor(uiTextColor(primary = true))
             textSize = 14f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(4))
         }
         val body = TextView(requireContext()).apply {
             text = bodyLines.joinToString("\n") { "• $it" }
-            setTextColor(Color.parseColor("#475569"))
+            setTextColor(uiTextColor(primary = false))
             textSize = 12f
             setLineSpacing(0f, 1.12f)
             setPadding(0, dp(10), 0, 0)
@@ -809,8 +621,8 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             radius = dp(16).toFloat()
             cardElevation = 0f
             strokeWidth = dp(1)
-            strokeColor = Color.parseColor(lightenStroke(accent))
-            setCardBackgroundColor(Color.parseColor(background))
+            strokeColor = if (isNightMode()) Color.parseColor(accent) else Color.parseColor(lightenStroke(accent))
+            setCardBackgroundColor(if (isNightMode()) Color.parseColor("#0B1220") else Color.parseColor(background))
             layoutParams = sectionLayoutParams(top = 12)
         }
 
@@ -850,7 +662,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
         val arrow = if (collapsible) {
             TextView(requireContext()).apply {
-                setTextColor(Color.parseColor("#64748B"))
+                setTextColor(uiTextColor(primary = false))
                 textSize = 13f
                 setPadding(dp(8), 0, 0, 0)
             }.also(titleRow::addView)
@@ -865,7 +677,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         subtitle?.let {
             body.addView(TextView(requireContext()).apply {
                 text = it
-                setTextColor(Color.parseColor("#64748B"))
+                setTextColor(uiTextColor(primary = false))
                 textSize = 12f
                 setPadding(0, dp(5), 0, 0)
             })
@@ -880,7 +692,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             body.addView(spacer(dp(8)))
             body.addView(TextView(requireContext()).apply {
                 text = bullets.joinToString("\n") { "• $it" }
-                setTextColor(Color.parseColor("#475569"))
+                setTextColor(uiTextColor(primary = false))
                 textSize = 11.5f
                 setLineSpacing(0f, 1.1f)
             })
@@ -889,7 +701,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         note?.takeIf { it.isNotBlank() }?.let {
             body.addView(TextView(requireContext()).apply {
                 text = it
-                setTextColor(Color.parseColor("#64748B"))
+                setTextColor(uiTextColor(primary = false))
                 textSize = 10.5f
                 setPadding(0, dp(8), 0, 0)
             })
@@ -918,17 +730,28 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             setPadding(0, dp(4), 0, dp(4))
             addView(TextView(requireContext()).apply {
                 text = label
-                setTextColor(Color.parseColor("#64748B"))
+                setTextColor(uiTextColor(primary = false))
                 textSize = 11.5f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(requireContext()).apply {
                 text = value
-                setTextColor(Color.parseColor("#0F172A"))
+                setTextColor(uiTextColor(primary = true))
                 textSize = 12.5f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 gravity = android.view.Gravity.END
             })
+        }
+    }
+
+    private fun isNightMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    private fun uiTextColor(primary: Boolean): Int {
+        return if (isNightMode()) {
+            Color.parseColor(if (primary) "#F5F7FF" else "#A8B3C7")
+        } else {
+            Color.parseColor(if (primary) "#0F172A" else "#64748B")
         }
     }
 
@@ -943,7 +766,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             progressGauge.progressDrawable.setTint(gray)
             progressGauge.progress = 0
             cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F1F5F9"))
-            tvStatusBadge.setTextColor(Color.parseColor("#64748B"))
+            tvStatusBadge.setTextColor(uiTextColor(primary = false))
             tvStatusBadge.text = "Historial insuficiente"
             tvMainPrediction.text = mainText
             tvProbableRange.text = rangeText

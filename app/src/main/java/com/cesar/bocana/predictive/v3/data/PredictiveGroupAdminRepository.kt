@@ -55,7 +55,9 @@ class PredictiveGroupAdminRepository(
         snapshot.documents.forEach { doc ->
             val type = doc.getString("configType")?.uppercase() ?: "GROUP"
 
-            if (type == "SERVICE" || type == "BALANCE") {
+            if (type == "PRODUCT_MODE") {
+                return@forEach
+            } else if (type == "SERVICE" || type == "BALANCE") {
                 val legacyAnchor = doc.getString("anchorProductId").orEmpty()
                 val stored = (doc.get("anchorProductIds") as? List<*>)
                     ?.mapNotNull { it as? String }
@@ -374,7 +376,9 @@ class PredictiveGroupAdminRepository(
         snapshot.documents.forEach { doc ->
             val type = doc.getString("configType")?.uppercase() ?: "GROUP"
 
-            if (type == "SERVICE" || type == "BALANCE") {
+            if (type == "PRODUCT_MODE") {
+                return@forEach
+            } else if (type == "SERVICE" || type == "BALANCE") {
                 val legacyAnchor = doc.getString("anchorProductId").orEmpty()
                 val anchors = ((doc.get("anchorProductIds") as? List<*>)
                     ?.mapNotNull { it as? String }

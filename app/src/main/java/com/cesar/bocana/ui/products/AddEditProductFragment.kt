@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.repository.InventoryRepository
+import com.cesar.bocana.predictive.v3.data.PredictiveV3ConfigRepository
 import com.cesar.bocana.databinding.FragmentAddEditProductBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
@@ -19,6 +20,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import java.util.Date
@@ -40,6 +42,7 @@ class AddEditProductFragment : Fragment() {
     companion object {
         private const val TAG = "AddEditProductFragment"
         private const val ARG_PRODUCT_ID = "product_id"
+        private const val PRODUCT_MODE_DOC_ID = "_product_modes"
 
         fun newInstance(productId: String? = null): AddEditProductFragment {
             return AddEditProductFragment().apply {
@@ -84,6 +87,7 @@ class AddEditProductFragment : Fragment() {
         binding.switchActive.visibility = View.GONE
         binding.buttonDeleteProduct.visibility = View.GONE
         binding.switchRequiresPackaging.isChecked = false // Valor por defecto
+        binding.switchProductionAdvance.isChecked = false
         showLoading(false)
     }
 
@@ -111,6 +115,7 @@ class AddEditProductFragment : Fragment() {
                         binding.editTextStockIdealC04.setText(String.format(Locale.getDefault(), "%.2f", product.stockIdealC04))
                         binding.switchActive.isChecked = product.isActive
                         binding.switchRequiresPackaging.isChecked = product.requiresPackaging
+                        loadProductionAdvanceMode(product.id)
                         configureUiForEditMode(product)
                     } else {
                         handleLoadError("Error al procesar datos del producto.")
@@ -181,10 +186,22 @@ class AddEditProductFragment : Fragment() {
 
         if (isEditing) {
             val productId = editingProductId ?: return
-            firestore.collection("products").document(productId)
-                .update(productDataMap)
+            val productRef = firestore.collection("products").document(productId)
+            val modeRef = firestore.collection(PredictiveV3ConfigRepository.COLLECTION)
+                .document(PRODUCT_MODE_DOC_ID)
+
+            val batch = firestore.batch()
+            batch.update(productRef, productDataMap)
+            batch.set(
+                modeRef,
+                productionModePayload(productId, binding.switchProductionAdvance.isChecked),
+                SetOptions.merge()
+            )
+
+            batch.commit()
                 .addOnSuccessListener {
                     if (!isAdded) return@addOnSuccessListener
+                    PredictiveV3ConfigRepository.invalidateMemoryCache()
                     showLoading(false)
                     view?.let { Snackbar.make(it, "Producto actualizado con éxito.", Snackbar.LENGTH_SHORT).show() }
                     parentFragmentManager.popBackStack()
@@ -195,25 +212,33 @@ class AddEditProductFragment : Fragment() {
                     view?.let { Snackbar.make(it, "Error al actualizar: ${e.message}", Snackbar.LENGTH_LONG).show() }
                 }
         } else {
-            // ***** INICIO DE LA SOLUCIÓN *****
-            // Al crear un producto nuevo, 'modoManualPDF' se establece automáticamente.
-            // Si 'requiresPackaging' es true (Granel), 'modoManualPDF' también será true.
             val requiresPackaging = binding.switchRequiresPackaging.isChecked
             val newProduct = Product(
                 name = binding.editTextProductName.text.toString().trim(),
                 minStock = binding.editTextMinStock.text.toString().toDoubleOrNull() ?: 0.0,
                 stockIdealC04 = binding.editTextStockIdealC04.text.toString().toDoubleOrNull() ?: 0.0,
                 requiresPackaging = requiresPackaging,
-                modoManualPDF = requiresPackaging, // Se establece el valor por defecto aquí.
+                modoManualPDF = requiresPackaging,
                 lastUpdatedByName = currentUserName,
                 createdAt = Date(),
                 updatedAt = Date()
             )
-            // ***** FIN DE LA SOLUCIÓN *****
 
-            firestore.collection("products").add(newProduct)
+            val productRef = firestore.collection("products").document()
+            val modeRef = firestore.collection(PredictiveV3ConfigRepository.COLLECTION)
+                .document(PRODUCT_MODE_DOC_ID)
+            val batch = firestore.batch()
+            batch.set(productRef, newProduct)
+            batch.set(
+                modeRef,
+                productionModePayload(productRef.id, binding.switchProductionAdvance.isChecked),
+                SetOptions.merge()
+            )
+
+            batch.commit()
                 .addOnSuccessListener {
                     if (!isAdded) return@addOnSuccessListener
+                    PredictiveV3ConfigRepository.invalidateMemoryCache()
                     showLoading(false)
                     view?.let { Snackbar.make(it, "Producto guardado. Para editarlo, mantén presionado el item.", Snackbar.LENGTH_LONG).show() }
                     parentFragmentManager.popBackStack()
@@ -224,6 +249,37 @@ class AddEditProductFragment : Fragment() {
                     view?.let { Snackbar.make(it, "Error al guardar: ${e.message}", Snackbar.LENGTH_LONG).show() }
                 }
         }
+    }
+
+    private fun loadProductionAdvanceMode(productId: String) {
+        firestore.collection(PredictiveV3ConfigRepository.COLLECTION)
+            .document(PRODUCT_MODE_DOC_ID)
+            .get()
+            .addOnSuccessListener { doc ->
+                if (!isAdded || _binding == null) return@addOnSuccessListener
+                val ids = (doc.get("productionAdvanceProductIds") as? List<*>)
+                    ?.mapNotNull { it as? String }
+                    .orEmpty()
+                binding.switchProductionAdvance.isChecked = ids.contains(productId)
+            }
+            .addOnFailureListener {
+                if (isAdded && _binding != null) {
+                    binding.switchProductionAdvance.isChecked = false
+                }
+            }
+    }
+
+    private fun productionModePayload(productId: String, enabled: Boolean): Map<String, Any> {
+        val idsValue = if (enabled) {
+            FieldValue.arrayUnion(productId)
+        } else {
+            FieldValue.arrayRemove(productId)
+        }
+        return mapOf(
+            "configType" to "PRODUCT_MODE",
+            "productionAdvanceProductIds" to idsValue,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
     }
 
     private fun updateProductSingleField(newStatus: Boolean, fieldName: String, message: String) {
