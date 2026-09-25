@@ -142,21 +142,13 @@ class PlanTraspasoAdapter(
 
             binding.btnDeleteFilaVacia.apply {
                 isVisible = true
-                text = if (count > 1) "−1" else "✕"
-                contentDescription = if (count > 1) {
-                    "Quitar una fila para notas"
-                } else {
-                    "Eliminar la fila para notas"
-                }
+                text = "✕"
+                contentDescription = "Eliminar filas para notas"
                 setTextColor(Color.parseColor("#8B1E1E"))
             }
 
             binding.btnDeleteFilaVacia.setOnClickListener {
-                if (count > 1) {
-                    viewModel.actualizarCantidadFilaVacia(count - 1)
-                } else {
-                    viewModel.eliminarFilaVacia()
-                }
+                viewModel.eliminarFilaVacia()
             }
         }
 
@@ -308,7 +300,7 @@ class PlanTraspasoAdapter(
             binding.textV3Reason.isVisible = shouldShow
 
             if (shouldShow) {
-                binding.textV3Reason.text = "💡 $text"
+                binding.textV3Reason.text = "💡 Sugerencia: $text"
             }
         }
 
@@ -320,7 +312,7 @@ class PlanTraspasoAdapter(
             binding.textV3Reason.isVisible = text != null
 
             if (text != null) {
-                binding.textV3Reason.text = "💡 $text"
+                binding.textV3Reason.text = "💡 Sugerencia: $text"
             }
         }
 
@@ -341,7 +333,7 @@ class PlanTraspasoAdapter(
             return trimmed
                 .replace(
                     "Cantidad ajustada por ti; V3 recalculó el resto sin cambiar esta decisión.",
-                    "Cantidad modificada. Se ajustaron las demás sugerencias.",
+                    "Cantidad modificada. Se conserva tu decisión.",
                     ignoreCase = false
                 )
                 .replace("V3 sugería ", "Sugerencia original: ", ignoreCase = false)
@@ -714,8 +706,10 @@ class PlanTraspasoAdapter(
                 item.cantidadSolicitadaUnidades
                     ?: item.cantidadEditadaUnidades
 
+            // Si existe necesidad matemática pero hoy no hay nada físicamente transferible,
+            // la tarjeta arranca compacta. La razón y el aviso de empaque siguen visibles y
+            // el usuario puede tocar la tarjeta para expandirla y capturar una decisión manual.
             return item.v3ManualOverride ||
-                item.v3RequestedKg > 0.01 ||
                 item.sugerenciaKg > 0.01 ||
                 units > 0
         }

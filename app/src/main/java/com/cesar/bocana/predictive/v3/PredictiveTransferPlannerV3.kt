@@ -337,8 +337,15 @@ object PredictiveTransferPlannerV3 {
                         productName = product.name,
                         codes = codes.distinct(),
                         pendingPackagingKg = pending,
-                        availablePackagedKg = packaged
-                    )
+                        availablePackagedKg = packaged,
+                        currentC04Kg = groupStockC04,
+                        targetC04Kg = groupDynamicTarget,
+                        habitualC04Kg = habitualGroupTarget,
+                        baselineWeeklyKg = groupForecast.baselineWeeklyKg,
+                        forecastWeeklyKg = serviceAdjustedWeekly,
+                        regimeName = regime.name,
+                        groupName = group.name
+                    ) ?: groupMessage.takeIf { index == 0 }
                 )
             }
         }
@@ -403,7 +410,14 @@ object PredictiveTransferPlannerV3 {
                         productName = product.name,
                         codes = codes.distinct(),
                         pendingPackagingKg = pending,
-                        availablePackagedKg = packaged
+                        availablePackagedKg = packaged,
+                        currentC04Kg = product.stockCongelador04.coerceAtLeast(0.0),
+                        targetC04Kg = dynamicTarget,
+                        habitualC04Kg = product.stockIdealC04.coerceAtLeast(0.0),
+                        baselineWeeklyKg = forecast.baselineWeeklyKg,
+                        forecastWeeklyKg = forecast.forecastWeeklyKg,
+                        regimeName = regime.name,
+                        groupName = null
                     )
                 )
             }
@@ -533,11 +547,14 @@ object PredictiveTransferPlannerV3 {
             } ?: break
 
             val startTime = first.date?.time
+            val balancedSameDateGroup = isBalancedSameDateGroup(group)
             val cohort = candidates.filter { candidate ->
                 if (consumedLots.contains(candidate.lot.id)) return@filter false
                 if ((capacities[candidate.productId] ?: 0.0) <= 0.01) return@filter false
 
-                if (startTime == null || candidate.date == null) {
+                if (balancedSameDateGroup) {
+                    sameOperationalDay(first.date, candidate.date)
+                } else if (startTime == null || candidate.date == null) {
                     candidate.lot.id == first.lot.id
                 } else {
                     val days = abs(candidate.date.time - startTime) / 86_400_000.0
@@ -571,44 +588,85 @@ object PredictiveTransferPlannerV3 {
             val totalCohort = availableByProduct.values.sum()
             val takeThisCohort = min(remaining, totalCohort)
 
-            val weighted = availableByProduct.mapValues { (productId, kg) ->
-                val role = when {
-                    productId == group.primaryProductId -> 1.12
-                    group.secondaryProductIds.contains(productId) -> 1.06
-                    else -> 1.0
-                }
-                kg * role
-            }
-            val scoreTotal = weighted.values.sum().takeIf { it > 0.0 } ?: 1.0
-
             var roundTaken = 0.0
-            val ordered = availableByProduct.keys.sortedByDescending { weighted[it] ?: 0.0 }
 
-            ordered.forEachIndexed { index, productId ->
-                if (remaining <= 0.01) return@forEachIndexed
-                val capacity = capacities[productId] ?: 0.0
-                if (capacity <= 0.01) return@forEachIndexed
+            if (balancedSameDateGroup && availableByProduct.size > 1) {
+                // FILETES: si la fecha efectiva es la misma, no hay razón PEPS para cargar
+                // todo a Lengua o todo a Curvina. Repartimos lo más parejo posible y sólo
+                // dejamos que la disponibilidad rompa el equilibrio. Si las fechas difieren,
+                // el bucle de cohortes ya hace que mande primero la fecha más antigua.
+                val cohortCaps = availableByProduct.toMutableMap()
+                val activeIds = cohortCaps.keys.toMutableList()
+                var leftInCohort = takeThisCohort
 
-                val cohortCapacity = availableByProduct[productId] ?: 0.0
-                val target = if (index == ordered.lastIndex) {
-                    max(0.0, takeThisCohort - roundTaken)
-                } else {
-                    takeThisCohort * ((weighted[productId] ?: 0.0) / scoreTotal)
+                while (leftInCohort > 0.01 && activeIds.isNotEmpty()) {
+                    val share = leftInCohort / activeIds.size.toDouble()
+                    var takenThisPass = 0.0
+                    val exhausted = mutableListOf<String>()
+
+                    activeIds.forEach { productId ->
+                        val generalCap = capacities[productId] ?: 0.0
+                        val cohortCap = cohortCaps[productId] ?: 0.0
+                        val kg = min(share, min(generalCap, cohortCap))
+                        if (kg > 0.01) {
+                            allocated[productId] = (allocated[productId] ?: 0.0) + kg
+                            capacities[productId] = max(0.0, generalCap - kg)
+                            cohortCaps[productId] = max(0.0, cohortCap - kg)
+                            remaining -= kg
+                            leftInCohort -= kg
+                            roundTaken += kg
+                            takenThisPass += kg
+                            codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.FIFO_OLDEST
+                        }
+                        if ((cohortCaps[productId] ?: 0.0) <= 0.01 ||
+                            (capacities[productId] ?: 0.0) <= 0.01
+                        ) {
+                            exhausted += productId
+                        }
+                    }
+
+                    activeIds.removeAll(exhausted.toSet())
+                    if (takenThisPass <= 0.001) break
                 }
-                val kg = min(capacity, min(cohortCapacity, target.coerceAtLeast(0.0)))
-                if (kg > 0.01) {
-                    allocated[productId] = (allocated[productId] ?: 0.0) + kg
-                    capacities[productId] = max(0.0, capacity - kg)
-                    remaining -= kg
-                    roundTaken += kg
+            } else {
+                val weighted = availableByProduct.mapValues { (productId, kg) ->
+                    val role = when {
+                        productId == group.primaryProductId -> 1.12
+                        group.secondaryProductIds.contains(productId) -> 1.06
+                        else -> 1.0
+                    }
+                    kg * role
+                }
+                val scoreTotal = weighted.values.sum().takeIf { it > 0.0 } ?: 1.0
 
-                    codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.FIFO_OLDEST
-                    val maxAvailable = availableByProduct.maxByOrNull { it.value }
-                    if (maxAvailable?.key == productId &&
-                        availableByProduct.size > 1 &&
-                        cohortCapacity > (totalCohort / availableByProduct.size) * 1.35
-                    ) {
-                        codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.SAME_COHORT_ABUNDANCE
+                val ordered = availableByProduct.keys.sortedByDescending { weighted[it] ?: 0.0 }
+
+                ordered.forEachIndexed { index, productId ->
+                    if (remaining <= 0.01) return@forEachIndexed
+                    val capacity = capacities[productId] ?: 0.0
+                    if (capacity <= 0.01) return@forEachIndexed
+
+                    val cohortCapacity = availableByProduct[productId] ?: 0.0
+                    val target = if (index == ordered.lastIndex) {
+                        max(0.0, takeThisCohort - roundTaken)
+                    } else {
+                        takeThisCohort * ((weighted[productId] ?: 0.0) / scoreTotal)
+                    }
+                    val kg = min(capacity, min(cohortCapacity, target.coerceAtLeast(0.0)))
+                    if (kg > 0.01) {
+                        allocated[productId] = (allocated[productId] ?: 0.0) + kg
+                        capacities[productId] = max(0.0, capacity - kg)
+                        remaining -= kg
+                        roundTaken += kg
+
+                        codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.FIFO_OLDEST
+                        val maxAvailable = availableByProduct.maxByOrNull { it.value }
+                        if (maxAvailable?.key == productId &&
+                            availableByProduct.size > 1 &&
+                            cohortCapacity > (totalCohort / availableByProduct.size) * 1.35
+                        ) {
+                            codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.SAME_COHORT_ABUNDANCE
+                        }
                     }
                 }
             }
@@ -867,6 +925,19 @@ object PredictiveTransferPlannerV3 {
         return values.takeIf { it.isNotEmpty() }?.average()
     }
 
+    private fun isBalancedSameDateGroup(group: PredictiveGroupConfig): Boolean {
+        val key = "${group.id} ${group.name}".uppercase()
+        return key.contains("FILETE")
+    }
+
+    private fun sameOperationalDay(first: Date?, second: Date?): Boolean {
+        if (first == null || second == null) return false
+        val a = Calendar.getInstance().apply { time = first }
+        val b = Calendar.getInstance().apply { time = second }
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
+            a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+    }
+
     private fun effectiveDate(lot: StockLot): Date? =
         lot.originalReceivedAt ?: lot.receivedAt
 
@@ -895,31 +966,73 @@ object TransferMessageFactory {
         productName: String,
         codes: List<TransferReasonCode>,
         pendingPackagingKg: Double,
-        availablePackagedKg: Double
+        availablePackagedKg: Double,
+        currentC04Kg: Double? = null,
+        targetC04Kg: Double? = null,
+        habitualC04Kg: Double? = null,
+        baselineWeeklyKg: Double? = null,
+        forecastWeeklyKg: Double? = null,
+        regimeName: String? = null,
+        groupName: String? = null
     ): String? {
         val set = codes.toSet()
+        val current = currentC04Kg?.coerceAtLeast(0.0)
+        val target = targetC04Kg?.coerceAtLeast(0.0)
+        val deficit = if (current != null && target != null) max(0.0, target - current) else null
+        val demandHigh = baselineWeeklyKg != null && baselineWeeklyKg > 0.01 &&
+            forecastWeeklyKg != null && forecastWeeklyKg > baselineWeeklyKg * 1.15
+        val specialSeason = regimeName in setOf("LENT", "DECEMBER", "HOLIDAY", "HIGH_SEASON")
+
         return when {
             set.contains(TransferReasonCode.PACKAGING_SHORTAGE) &&
                 set.contains(TransferReasonCode.PACKAGING_PENDING_AVAILABLE) ->
-                "Disponible empacado: ${format1(availablePackagedKg)} kg. Hay ${format1(pendingPackagingKg)} kg pendientes de empacar."
+                "Faltan mercancía empacada para completar la sugerencia. " +
+                    "Disponible: ${format1(availablePackagedKg)} kg; pendiente de empacar: ${format1(pendingPackagingKg)} kg."
 
             set.contains(TransferReasonCode.PRIMARY_SHORTAGE) ->
-                "$productName está por debajo del mínimo del rector con el stock disponible."
-
-            set.contains(TransferReasonCode.SAME_COHORT_ABUNDANCE) ->
-                "Se priorizó $productName por mayor existencia en la mercancía más antigua."
+                "$productName está por debajo de su mínimo operativo y no hay suficiente mercancía transferible para recuperarlo."
 
             set.contains(TransferReasonCode.PRIMARY_MINIMUM) ->
-                "Se conservó el mínimo operativo de $productName en C04."
+                "$productName está bajo su mínimo operativo en C04; por eso se prioriza su reposición."
 
-            set.contains(TransferReasonCode.NEXT_COHORT_USED) ->
-                "El lote más antiguo no alcanzó; se completó con la siguiente fecha disponible."
+            deficit != null && deficit > 0.10 && specialSeason -> {
+                val season = when (regimeName) {
+                    "LENT" -> "Cuaresma"
+                    "DECEMBER" -> "diciembre"
+                    "HOLIDAY" -> "periodo festivo"
+                    "HIGH_SEASON" -> "temporada alta"
+                    else -> "temporada especial"
+                }
+                val scope = groupName?.let { "El grupo $it" } ?: "C04"
+                "$season está activa. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+            }
+
+            deficit != null && deficit > 0.10 && demandHigh -> {
+                val scope = groupName?.let { "El grupo $it" } ?: "C04"
+                "La demanda reciente está por arriba de lo habitual. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+            }
+
+            deficit != null && deficit > 0.10 -> {
+                val scope = groupName?.let { "El grupo $it" } ?: "C04"
+                val habitual = habitualC04Kg?.takeIf { it > 0.01 }
+                if (habitual != null && kotlin.math.abs((target ?: 0.0) - habitual) > 0.10) {
+                    "Stock bajo: $scope tiene ${format1(current ?: 0.0)} kg. Objetivo habitual ${format1(habitual)} kg; objetivo actual ${format1(target ?: 0.0)} kg."
+                } else {
+                    "Stock bajo: $scope tiene ${format1(current ?: 0.0)} kg y el objetivo para este traspaso es ${format1(target ?: 0.0)} kg."
+                }
+            }
 
             set.contains(TransferReasonCode.USER_OVERRIDE) ->
-                "Cantidad ajustada por ti; esta decisión se conserva exactamente."
+                "Cantidad modificada. Se conserva tu decisión."
 
             set.contains(TransferReasonCode.C04_COVERED) ->
                 "C04 ya cubre la necesidad estimada hasta el próximo traspaso."
+
+            set.contains(TransferReasonCode.NEXT_COHORT_USED) ->
+                "PEPS: el lote más antiguo no alcanzó y se completó con la siguiente fecha disponible."
+
+            set.contains(TransferReasonCode.SAME_COHORT_ABUNDANCE) ->
+                "PEPS: se priorizó $productName por mayor existencia disponible en la fecha más antigua."
 
             else -> null
         }
@@ -935,24 +1048,25 @@ object TransferMessageFactory {
         val set = codes.toSet()
         return when {
             set.contains(TransferReasonCode.SUPPORT_PRODUCT_LOW) ->
-                "$groupName aumentó porque el producto de apoyo está por debajo de su nivel habitual."
+                "$groupName necesita más apoyo porque el producto directo está por debajo de su nivel habitual."
 
             set.contains(TransferReasonCode.GROUP_DYNAMIC_UP) ->
-                "Objetivo habitual ${format1(habitualKg)} kg; V3 sugiere ${format1(dynamicKg)} kg hoy."
+                "$groupName requiere más cobertura: objetivo habitual ${format1(habitualKg)} kg; objetivo actual ${format1(dynamicKg)} kg."
 
             set.contains(TransferReasonCode.GROUP_DYNAMIC_DOWN) ->
-                "V3 redujo temporalmente el objetivo por menor demanda reciente."
+                "La demanda reciente de $groupName es menor; el objetivo actual bajó a ${format1(dynamicKg)} kg."
 
             set.contains(TransferReasonCode.NO_NEARBY_MEMBER) ->
-                "No hay suficiente mercancía empacada de fechas cercanas para completar el objetivo."
+                "No hay suficiente mercancía empacada de las fechas disponibles para completar el objetivo del grupo."
 
             primaryName != null && habitualKg > 0.0 ->
-                "$primaryName rige el equilibrio; el resto se reparte por FIFO y existencia."
+                "$primaryName rige el equilibrio; el resto se distribuye respetando PEPS y disponibilidad."
 
             else -> null
         }
     }
 
     private fun format1(value: Double): String =
-        String.format(java.util.Locale.US, "%.1f", value)
+        String.format(java.util.Locale.getDefault(), "%.1f", value)
 }
+

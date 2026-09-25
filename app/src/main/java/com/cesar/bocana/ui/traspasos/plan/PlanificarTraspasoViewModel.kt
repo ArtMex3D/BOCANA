@@ -533,9 +533,9 @@ class PlanificarTraspasoViewModel(
 
                 manual && kotlin.math.abs(requestedKg - originalKg) > 0.01 ->
                     buildString {
-                        append("V3 sugería $originalPhysicalText")
+                        append("Sugerencia original: $originalPhysicalText")
                         if (baselineReason != null) append(". $baselineReason")
-                        else append(". El resto se recalculó respetando tu cantidad.")
+                        else append(". Buscaba cubrir la necesidad estimada hasta el próximo traspaso.")
                     }
 
                 else -> baseReason
@@ -619,7 +619,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = product.id,
-            message = "Cantidad manual aplicada. Las demás filas se conservaron."
+            message = "Cambio realizado"
         )
     }
 
@@ -634,7 +634,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Cantidad manual aplicada. Las demás filas se conservaron."
+            message = "Cambio realizado"
         )
     }
 
@@ -657,7 +657,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Lotes manuales conservados."
+            message = "Cambio realizado"
         )
     }
 
@@ -733,7 +733,7 @@ class PlanificarTraspasoViewModel(
 
         recalculatePure(
             focusedProductId = productId,
-            message = "Desglose manual aplicado. Las demás filas se conservaron."
+            message = "Cambio realizado"
         )
     }
 
