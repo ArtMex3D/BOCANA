@@ -13,6 +13,7 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.data.model.Supplier
+import com.cesar.bocana.data.model.TransferPdfConfig
 import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.predictive.v3.data.PredictiveV3SnapshotDao
 
@@ -24,9 +25,10 @@ import com.cesar.bocana.predictive.v3.data.PredictiveV3SnapshotDao
         Supplier::class,
         PendingPackagingTask::class,
         DevolucionPendiente::class,
-        PredictiveV3Snapshot::class
+        PredictiveV3Snapshot::class,
+        TransferPdfConfig::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -39,6 +41,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun packagingDao(): PackagingDao
     abstract fun devolucionDao(): DevolucionDao
     abstract fun predictiveV3SnapshotDao(): PredictiveV3SnapshotDao
+    abstract fun transferPdfConfigDao(): TransferPdfConfigDao
 
     companion object {
         @Volatile
@@ -233,6 +236,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Migración 10 -> 11: caché local de la configuración global del PDF. */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `transfer_pdf_config` (
+                        `id` TEXT NOT NULL,
+                        `titleText` TEXT NOT NULL,
+                        `headerBackgroundHex` TEXT NOT NULL,
+                        `headerTextHex` TEXT NOT NULL,
+                        `zebraHex` TEXT NOT NULL,
+                        `updatedAtMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -240,7 +262,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "bocana_database"
                 )
-                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

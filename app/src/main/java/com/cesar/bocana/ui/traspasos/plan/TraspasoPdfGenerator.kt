@@ -2,8 +2,9 @@ package com.cesar.bocana.ui.traspasos.plan
 
 import android.content.Context
 import android.graphics.Color as AndroidColor
+import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.TraspasoSugerenciaItem
-import com.cesar.bocana.ui.traspasos.config.ConfiguracionTraspasoFragment
+import com.cesar.bocana.data.model.TransferPdfConfig
 import com.itextpdf.kernel.colors.Color
 import com.itextpdf.kernel.colors.DeviceRgb
 import com.itextpdf.kernel.geom.PageSize
@@ -28,13 +29,14 @@ object TraspasoPdfGenerator {
 
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
-    private fun getAndroidColor(context: Context, key: String, defaultColor: Int): Int {
-        val prefs = context.getSharedPreferences(ConfiguracionTraspasoFragment.PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getInt(key, defaultColor)
-    }
-
     private fun toItextColor(androidColor: Int): Color {
         return DeviceRgb(AndroidColor.red(androidColor), AndroidColor.green(androidColor), AndroidColor.blue(androidColor))
+    }
+
+    private fun parseAndroidColor(hex: String, fallback: String): Int {
+        return runCatching {
+            AndroidColor.parseColor(TransferPdfConfig.normalizeHex(hex, fallback))
+        }.getOrElse { AndroidColor.parseColor(fallback) }
     }
 
     suspend fun createTraspasoPdf(
@@ -43,9 +45,24 @@ object TraspasoPdfGenerator {
         fechaTraspaso: Date
     ): File = withContext(Dispatchers.IO) {
 
-        val headerBgColorInt = getAndroidColor(context, ConfiguracionTraspasoFragment.KEY_HEADER_BG, AndroidColor.DKGRAY)
-        val headerFontColorInt = getAndroidColor(context, ConfiguracionTraspasoFragment.KEY_HEADER_FONT, AndroidColor.WHITE)
-        val zebraColorInt = getAndroidColor(context, ConfiguracionTraspasoFragment.KEY_ZEBRA, AndroidColor.parseColor("#E6F0FF"))
+        val pdfConfig = AppDatabase.getDatabase(context.applicationContext)
+            .transferPdfConfigDao()
+            .getOnce()
+            ?.normalized()
+            ?: TransferPdfConfig.defaults()
+
+        val headerBgColorInt = parseAndroidColor(
+            pdfConfig.headerBackgroundHex,
+            TransferPdfConfig.DEFAULT_HEADER_BACKGROUND
+        )
+        val headerFontColorInt = parseAndroidColor(
+            pdfConfig.headerTextHex,
+            TransferPdfConfig.DEFAULT_HEADER_TEXT
+        )
+        val zebraColorInt = parseAndroidColor(
+            pdfConfig.zebraHex,
+            TransferPdfConfig.DEFAULT_ZEBRA
+        )
 
         val headerBgColor = toItextColor(headerBgColorInt)
         val headerFontColor = toItextColor(headerFontColorInt)
@@ -59,12 +76,14 @@ object TraspasoPdfGenerator {
 
         val headerTable = Table(UnitValue.createPercentArray(floatArrayOf(1f, 1f))).useAllAvailableWidth()
         headerTable.addCell(
-            Cell().add(Paragraph("Traspaso Matriz a Congelador"))
+            Cell().add(Paragraph(pdfConfig.titleText))
                 .setBold().setFontSize(14f).setBorder(null)
+                .setPadding(8f)
         )
         headerTable.addCell(
             Cell().add(Paragraph("FECHA: ${dateFormat.format(fechaTraspaso)}"))
                 .setTextAlignment(TextAlignment.RIGHT).setBold().setFontSize(12f).setBorder(null)
+                .setPadding(8f)
         )
         document.add(headerTable)
         document.add(Paragraph("\n"))

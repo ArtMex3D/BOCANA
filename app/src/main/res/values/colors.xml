@@ -21,17 +21,16 @@
     <color name="gray_400">#BDBDBD</color>
     <color name="brand_purple">#E8005E</color>
     <color name="intense_black">#000000</color>
-    <color name="zebra_oscuro">@color/low_stock_red_background</color>
-    <color name="zebra_claro">@color/pending_item_background</color>
+    <color name="zebra_oscuro">#FFEBEE</color>
+    <color name="zebra_claro">#FFBED9</color>
     <color name="Letras">#020961</color>
 
     <color name="bocana_screen_background">#F7F8FC</color>
     <color name="bocana_surface">#FFFFFF</color>
     <color name="bocana_surface_alt">#F1F4FA</color>
-    <color name="bocana_text_primary">#111827</color>
+    <color name="bocana_text_primary">#020961</color>
     <color name="bocana_text_secondary">#667085</color>
     <color name="bocana_divider">#E4E7EC</color>
-    <color name="bocana_toolbar">#E8005E</color>
     <color name="bocana_neon_blue">#0D47A1</color>
     <color name="bocana_neon_cyan">#018786</color>
     <color name="bocana_neon_purple">#7C3AED</color>

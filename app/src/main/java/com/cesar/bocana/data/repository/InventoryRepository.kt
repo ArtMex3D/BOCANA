@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.data.repository
 
 import android.util.Log
@@ -15,7 +14,9 @@ import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.data.model.StockMovement
 import com.cesar.bocana.data.model.Supplier
+import com.cesar.bocana.data.model.TransferPdfConfig
 import com.cesar.bocana.util.PredictiveConsumptionEngine
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.ktx.toObjects
@@ -37,12 +38,14 @@ class InventoryRepository(
     private val supplierDao = db.supplierDao()
     private val packagingDao = db.packagingDao()
     private val devolucionDao = db.devolucionDao()
+    private val transferPdfConfigDao = db.transferPdfConfigDao()
 
     private var productsListener: ListenerRegistration? = null
     private var suppliersListener: ListenerRegistration? = null
     private var stockLotsListener: ListenerRegistration? = null
     private var packagingListener: ListenerRegistration? = null
     private var devolucionesListener: ListenerRegistration? = null
+    private var transferPdfConfigListener: ListenerRegistration? = null
 
     fun getActiveProductsStream(): Flow<List<Product>> = productDao.getAllActiveProductsStream()
     fun getArchivedProductsStream(): Flow<List<Product>> = productDao.getAllArchivedProductsStream()
@@ -133,6 +136,28 @@ class InventoryRepository(
                     devolucionDao.insertAll(firestoreDevoluciones)
                 }
             }
+
+        transferPdfConfigListener = firestore
+            .collection(TransferPdfConfig.COLLECTION)
+            .document(TransferPdfConfig.DOCUMENT_ID)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("InventoryRepository", "Error en listener de configuración PDF", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || !snapshot.exists()) {
+                    Log.d(
+                        "InventoryRepository",
+                        "Configuración PDF remota aún no creada; se conserva Room/default."
+                    )
+                    return@addSnapshotListener
+                }
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    transferPdfConfigDao.upsert(snapshot.toTransferPdfConfig())
+                    Log.d("InventoryRepository", "Configuración PDF sincronizada en Room.")
+                }
+            }
     }
 
     suspend fun deleteProductById(productId: String) {
@@ -148,6 +173,7 @@ class InventoryRepository(
         stockLotsListener?.remove()
         packagingListener?.remove()
         devolucionesListener?.remove()
+        transferPdfConfigListener?.remove()
     }
 
     suspend fun syncNewMovements() {
@@ -219,12 +245,36 @@ class InventoryRepository(
                 devolucionDao.insertAll(devoluciones)
                 Log.d("InventoryRepository", "${devoluciones.size} devoluciones descargadas.")
 
+                val transferPdfConfigSnapshot = firestore
+                    .collection(TransferPdfConfig.COLLECTION)
+                    .document(TransferPdfConfig.DOCUMENT_ID)
+                    .get()
+                    .await()
+                if (transferPdfConfigSnapshot.exists()) {
+                    transferPdfConfigDao.upsert(transferPdfConfigSnapshot.toTransferPdfConfig())
+                    Log.d("InventoryRepository", "Configuración PDF descargada.")
+                }
+
                 Log.d("InventoryRepository", "Sincronización Forzada completada.")
             } catch (e: Exception) {
                 Log.e("InventoryRepository", "Error durante la Sincronización Forzada", e)
                 throw e
             }
         }
+    }
+
+    private fun DocumentSnapshot.toTransferPdfConfig(): TransferPdfConfig {
+        return TransferPdfConfig(
+            titleText = getString("titleText") ?: TransferPdfConfig.DEFAULT_TITLE,
+            headerBackgroundHex = getString("headerBackgroundHex")
+                ?: TransferPdfConfig.DEFAULT_HEADER_BACKGROUND,
+            headerTextHex = getString("headerTextHex")
+                ?: TransferPdfConfig.DEFAULT_HEADER_TEXT,
+            zebraHex = getString("zebraHex") ?: TransferPdfConfig.DEFAULT_ZEBRA,
+            updatedAtMillis = getTimestamp("updatedAt")?.toDate()?.time
+                ?: getLong("updatedAtMillis")
+                ?: System.currentTimeMillis()
+        ).normalized()
     }
 
     suspend fun getLotById(lotId: String): StockLot? = withContext(Dispatchers.IO) {

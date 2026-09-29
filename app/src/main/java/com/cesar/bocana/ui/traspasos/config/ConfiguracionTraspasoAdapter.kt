@@ -3,6 +3,7 @@ package com.cesar.bocana.ui.traspasos.config
 import android.content.Context
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
@@ -10,137 +11,176 @@ import android.widget.EditText
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.databinding.ItemConfiguracionTraspasoBinding
+import java.text.DecimalFormat
 import java.util.Collections
 
 class ConfiguracionTraspasoAdapter(
-    private val viewModel: ConfiguracionTraspasoViewModel
-) : ListAdapter<Product, ConfiguracionTraspasoAdapter.ConfigViewHolder>(ProductDiffCallback()) {
+    private val viewModel: ConfiguracionTraspasoViewModel,
+    private val onDragStart: (RecyclerView.ViewHolder) -> Unit
+) : RecyclerView.Adapter<ConfiguracionTraspasoAdapter.ConfigViewHolder>() {
 
-    private val productList: MutableList<Product> = mutableListOf()
-    private var expandedPosition = -1
+    private val products = mutableListOf<Product>()
+    private var expandedProductId: String? = null
+    private var orderChanged = false
 
-    override fun submitList(list: List<Product>?) {
-        super.submitList(list?.let { ArrayList(it) })
-        productList.clear()
-        if (list != null) {
-            productList.addAll(list)
+    init {
+        setHasStableIds(true)
+    }
+
+    fun setProducts(newProducts: List<Product>) {
+        // Mientras hay un orden local pendiente no permitimos que una emisión
+        // antigua haga brincar visualmente la lista antes de guardar el drag.
+        if (orderChanged && newProducts.map { it.id }.toSet() == products.map { it.id }.toSet()) {
+            val byId = newProducts.associateBy { it.id }
+            products.indices.forEach { index ->
+                products[index] = byId[products[index].id] ?: products[index]
+            }
+            notifyItemRangeChanged(0, products.size)
+            return
         }
-    }
 
-    fun moveItem(fromPosition: Int, toPosition: Int) {
-        if (fromPosition < productList.size && toPosition < productList.size) {
-            Collections.swap(productList, fromPosition, toPosition)
-            notifyItemMoved(fromPosition, toPosition)
+        val old = products.toList()
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize(): Int = old.size
+            override fun getNewListSize(): Int = newProducts.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                old[oldItemPosition].id == newProducts[newItemPosition].id
+
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                old[oldItemPosition] == newProducts[newItemPosition]
+        })
+        products.clear()
+        products.addAll(newProducts)
+        if (expandedProductId != null && products.none { it.id == expandedProductId }) {
+            expandedProductId = null
         }
+        diff.dispatchUpdatesTo(this)
     }
 
-    fun getFinalOrder(): List<Product> {
-        return productList
+    fun moveItem(fromPosition: Int, toPosition: Int): Boolean {
+        if (fromPosition !in products.indices || toPosition !in products.indices) return false
+        if (fromPosition == toPosition) return true
+        Collections.swap(products, fromPosition, toPosition)
+        orderChanged = true
+        notifyItemMoved(fromPosition, toPosition)
+        return true
     }
+
+    fun consumeFinalOrder(): List<Product>? {
+        if (!orderChanged) return null
+        orderChanged = false
+        return products.toList()
+    }
+
+    override fun getItemId(position: Int): Long = products[position].id.hashCode().toLong()
+
+    override fun getItemCount(): Int = products.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ConfigViewHolder {
-        val binding = ItemConfiguracionTraspasoBinding.inflate(
-            LayoutInflater.from(parent.context),
-            parent,
-            false
+        return ConfigViewHolder(
+            ItemConfiguracionTraspasoBinding.inflate(
+                LayoutInflater.from(parent.context),
+                parent,
+                false
+            )
         )
-        return ConfigViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: ConfigViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(products[position])
     }
 
-    inner class ConfigViewHolder(private val binding: ItemConfiguracionTraspasoBinding) :
-        RecyclerView.ViewHolder(binding.root) {
+    inner class ConfigViewHolder(
+        private val binding: ItemConfiguracionTraspasoBinding
+    ) : RecyclerView.ViewHolder(binding.root) {
 
         fun bind(product: Product) {
-            binding.textViewProductName.text = product.name
-            binding.editTextStockIdeal.setText(product.stockIdealC04.toString())
-
-            val tipoEmpaqueText = if (product.requiresPackaging) "GRANEL" else "PESO FIJO (${product.unit})"
-            binding.textViewTipoEmpaque.text = "Tipo: $tipoEmpaqueText"
-            binding.editTextEspacioExtra.setText(product.espacioExtraPDF.toString())
-
             val context = binding.root.context
-            if (bindingAdapterPosition % 2 == 0) {
-                binding.root.setCardBackgroundColor(ContextCompat.getColor(context, R.color.zebra_claro))
+            binding.textViewProductName.text = product.name
+            binding.textViewOrder.text = (bindingAdapterPosition + 1).toString()
+            binding.editTextStockIdeal.setText(formatNumber(product.stockIdealC04))
+            binding.editTextEspacioExtra.setText(formatNumber(product.espacioExtraPDF))
+
+            binding.textViewTipoEmpaque.text = if (product.requiresPackaging) {
+                "Empaque: granel"
             } else {
-                binding.root.setCardBackgroundColor(ContextCompat.getColor(context, R.color.zebra_oscuro))
+                "Empaque: peso fijo (${product.unit})"
             }
 
-            val isExpanded = bindingAdapterPosition == expandedPosition
+            val rowColor = if (bindingAdapterPosition % 2 == 0) {
+                R.color.bocana_surface
+            } else {
+                R.color.bocana_surface_alt
+            }
+            binding.root.setCardBackgroundColor(ContextCompat.getColor(context, rowColor))
+
+            val isExpanded = expandedProductId == product.id
             binding.expandableLayout.isVisible = isExpanded
+            binding.arrowIcon.animate().cancel()
             binding.arrowIcon.rotation = if (isExpanded) 180f else 0f
 
-            binding.root.setOnClickListener {
-                val previousExpandedPosition = expandedPosition
-                expandedPosition = if (isExpanded) -1 else bindingAdapterPosition
-
-                if (previousExpandedPosition != -1) {
-                    notifyItemChanged(previousExpandedPosition)
-                }
-                notifyItemChanged(bindingAdapterPosition)
+            binding.headerContainer.setOnClickListener {
+                val previousId = expandedProductId
+                val previousPosition = products.indexOfFirst { it.id == previousId }
+                expandedProductId = if (expandedProductId == product.id) null else product.id
+                if (previousPosition >= 0) notifyItemChanged(previousPosition)
+                val currentPosition = bindingAdapterPosition
+                if (currentPosition != RecyclerView.NO_POSITION) notifyItemChanged(currentPosition)
             }
 
-            addTextWatcher(binding.editTextStockIdeal) {
-                val stockIdeal = it.toDoubleOrNull() ?: 0.0
-                if (stockIdeal != product.stockIdealC04) {
-                    viewModel.updateProductConfig(product.id, "stockIdealC04", stockIdeal)
+            binding.dragHandle.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    onDragStart(this)
+                }
+                false
+            }
+
+            addCommitListener(binding.editTextStockIdeal) { raw ->
+                raw.toDoubleOrNull()?.coerceAtLeast(0.0)?.let { stockIdeal ->
+                    if (stockIdeal != product.stockIdealC04) {
+                        viewModel.updateProductConfig(product.id, "stockIdealC04", stockIdeal)
+                    }
                 }
             }
 
-            addTextWatcher(binding.editTextEspacioExtra) {
-                val espacioExtra = it.toDoubleOrNull() ?: 0.0
-                if (espacioExtra != product.espacioExtraPDF) {
-                    viewModel.updateProductConfig(product.id, "espacioExtraPDF", espacioExtra)
+            addCommitListener(binding.editTextEspacioExtra) { raw ->
+                raw.toDoubleOrNull()?.coerceIn(0.0, 10.0)?.let { extra ->
+                    if (extra != product.espacioExtraPDF) {
+                        viewModel.updateProductConfig(product.id, "espacioExtraPDF", extra)
+                    }
                 }
             }
 
-            // ***** INICIO DE LA SOLUCIÓN ROBUSTA PARA EL SWITCH *****
-            // 1. Quita cualquier listener anterior para evitar que se dispare al reciclar la vista.
             binding.switchModoManual.setOnCheckedChangeListener(null)
-            // 2. Asigna el estado correcto basado en los datos del producto actual.
             binding.switchModoManual.isChecked = product.modoManualPDF
-            // 3. Vuelve a asignar el listener para capturar solo las interacciones del usuario.
-            binding.switchModoManual.setOnCheckedChangeListener { _, isChecked ->
-                // Solo se actualiza si el estado realmente ha cambiado para evitar escrituras innecesarias.
-                if (isChecked != product.modoManualPDF) {
-                    viewModel.updateProductConfig(product.id, "modoManualPDF", isChecked)
+            binding.switchModoManual.setOnCheckedChangeListener { _, checked ->
+                if (checked != product.modoManualPDF) {
+                    viewModel.updateProductConfig(product.id, "modoManualPDF", checked)
                 }
             }
-            // ***** FIN DE LA SOLUCIÓN *****
         }
 
-        private fun addTextWatcher(editText: EditText, onUpdate: (String) -> Unit) {
-            val context = editText.context
+        private fun addCommitListener(editText: EditText, onCommit: (String) -> Unit) {
             editText.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    onUpdate(editText.text.toString())
-                }
+                if (!hasFocus) onCommit(editText.text?.toString().orEmpty())
             }
-
             editText.setOnKeyListener { view, keyCode, event ->
                 if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
-                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.hideSoftInputFromWindow(view.windowToken, 0)
+                    val keyboard = view.context
+                        .getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    keyboard.hideSoftInputFromWindow(view.windowToken, 0)
                     view.clearFocus()
-                    onUpdate(editText.text.toString())
-                    return@setOnKeyListener true
+                    true
+                } else {
+                    false
                 }
-                return@setOnKeyListener false
             }
         }
     }
-}
 
-class ProductDiffCallback : DiffUtil.ItemCallback<Product>() {
-    override fun areItemsTheSame(oldItem: Product, newItem: Product): Boolean = oldItem.id == newItem.id
-    override fun areContentsTheSame(oldItem: Product, newItem: Product): Boolean = oldItem == newItem
+    private fun formatNumber(value: Double): String = DecimalFormat("0.##").format(value)
 }
-

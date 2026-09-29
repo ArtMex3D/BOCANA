@@ -4,12 +4,14 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="8dp"
-    android:layout_marginTop="4dp"
-    android:layout_marginEnd="8dp"
-    android:layout_marginBottom="4dp"
-    app:cardBackgroundColor="#8304B1"
-    app:cardCornerRadius="8dp">
+    android:layout_marginStart="12dp"
+    android:layout_marginTop="5dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginBottom="5dp"
+    app:cardCornerRadius="14dp"
+    app:cardElevation="1dp"
+    app:strokeColor="@color/bocana_divider"
+    app:strokeWidth="1dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,44 +19,70 @@
         android:orientation="vertical">
 
         <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/header_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="12dp">
+            android:foreground="?attr/selectableItemBackground"
+            android:minHeight="60dp"
+            android:paddingStart="10dp"
+            android:paddingTop="9dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="9dp">
+
+            <TextView
+                android:id="@+id/text_view_order"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:background="@drawable/bg_transfer_order_badge"
+                android:gravity="center"
+                android:textColor="@color/bocana_neon_purple"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:text="1" />
 
             <ImageView
                 android:id="@+id/drag_handle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@drawable/mas"
-                app:tint="@color/Letras"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Mantén y arrastra para ordenar"
+                android:padding="11dp"
+                android:src="@drawable/ic_drag_handle"
                 app:layout_constraintBottom_toBottomOf="parent"
-                android:contentDescription="Arrastrar para ordenar" />
-
-            <TextView
-                android:id="@+id/textViewProductName"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="8dp"
-                android:textColor="#010645"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
-                app:layout_constraintStart_toEndOf="@id/drag_handle"
-                app:layout_constraintEnd_toStartOf="@id/arrow_icon"
+                app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent"
-                tools:text="Nombre del Producto" />
+                app:tint="@color/bocana_text_secondary" />
 
             <ImageView
                 android:id="@+id/arrow_icon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:contentDescription="Abrir configuración"
+                android:padding="8dp"
                 android:src="@android:drawable/arrow_down_float"
-                app:tint="@color/ic_launcher_background"
-                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/drag_handle"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent"/>
+                app:tint="@color/bocana_neon_purple" />
+
+            <TextView
+                android:id="@+id/text_view_product_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="8dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
+                android:textColor="@color/bocana_text_primary"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/arrow_icon"
+                app:layout_constraintStart_toEndOf="@id/text_view_order"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:text="Filete de pescado" />
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -69,54 +97,70 @@
             android:visibility="gone"
             tools:visibility="visible">
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginBottom="12dp"
+                android:background="@color/bocana_divider" />
+
             <TextView
-                android:id="@+id/textViewTipoEmpaque"
+                android:id="@+id/text_view_tipo_empaque"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textColor="@color/Letras"
-                android:textAppearance="?attr/textAppearanceCaption"
-                tools:text="Tipo: Caja"/>
+                android:layout_marginBottom="10dp"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                android:textColor="@color/bocana_text_secondary"
+                tools:text="Empaque: granel" />
 
             <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Objetivo habitual C-04 (Kg)"
-                app:boxStrokeColor="@color/Letras"
-                app:hintTextColor="@color/Letras">
+                android:hint="Objetivo habitual C-04 (kg)"
+                app:boxCornerRadiusBottomEnd="10dp"
+                app:boxCornerRadiusBottomStart="10dp"
+                app:boxCornerRadiusTopEnd="10dp"
+                app:boxCornerRadiusTopStart="10dp"
+                app:helperText="Objetivo habitual que debe mantenerse en C-04">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/editTextStockIdeal"
+                    android:id="@+id/edit_text_stock_ideal"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
                     android:inputType="numberDecimal"
-                    android:textColor="@color/Letras"/>
+                    android:selectAllOnFocus="true"
+                    android:textColor="@color/bocana_text_primary" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switchModoManual"
+                android:id="@+id/switch_modo_manual"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Modo Manual en PDF"
-                android:textColor="@color/Letras"/>
+                android:minHeight="48dp"
+                android:text="Captura manual en el PDF"
+                android:textColor="@color/bocana_text_primary" />
 
             <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="Espacios Extra en PDF (ej. 1, 2)"
-                app:boxStrokeColor="@color/Letras"
-                app:hintTextColor="@color/Letras">
+                android:hint="Altura extra de la fila (0 a 10)"
+                app:boxCornerRadiusBottomEnd="10dp"
+                app:boxCornerRadiusBottomStart="10dp"
+                app:boxCornerRadiusTopEnd="10dp"
+                app:boxCornerRadiusTopStart="10dp">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/editTextEspacioExtra"
+                    android:id="@+id/edit_text_espacio_extra"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
                     android:inputType="numberDecimal"
-                    android:textColor="@color/Letras"/>
+                    android:selectAllOnFocus="true"
+                    android:textColor="@color/bocana_text_primary" />
             </com.google.android.material.textfield.TextInputLayout>
 
         </LinearLayout>

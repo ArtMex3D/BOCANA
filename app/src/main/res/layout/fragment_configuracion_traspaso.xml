@@ -1,109 +1,324 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/white"
+    android:background="@color/bocana_screen_background"
     tools:context=".ui.traspasos.config.ConfiguracionTraspasoFragment">
 
-    <androidx.core.widget.NestedScrollView
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <LinearLayout
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingBottom="16dp">
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="5dp"
+            app:cardBackgroundColor="@color/bocana_tint_purple"
+            app:cardCornerRadius="14dp"
+            app:strokeColor="@color/bocana_neon_purple"
+            app:strokeWidth="1dp">
 
-            <TextView
-                android:id="@+id/textViewConfigHeader"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="16dp"
-                android:text="Arrastra para ordenar la lista. Toca para configurar cada producto."
-                android:textAlignment="center"
-                android:textColor="@color/Letras"
-                android:textAppearance="@style/TextAppearance.MaterialComponents.Caption" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="12dp">
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/recyclerViewConfigTraspasos"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false"
-                tools:listitem="@layout/item_configuracion_traspaso"
-                tools:itemCount="4"/>
-
-            <!-- INICIO DE LA NUEVA SECCIÓN DE COLORES -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginTop="16dp"
-                android:layout_marginEnd="8dp"
-                app:cardBackgroundColor="@color/brand_purple"
-                app:cardCornerRadius="8dp">
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:contentDescription="Orden de productos"
+                    android:padding="5dp"
+                    android:src="@drawable/ic_drag_handle"
+                    app:tint="@color/bocana_neon_purple" />
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Colores del PDF"
-                        android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
-                        android:textColor="@android:color/white" />
+                        android:text="Productos y reglas del PDF"
+                        android:textColor="@color/bocana_text_primary"
+                        android:textStyle="bold" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/buttonHeaderBgColor"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:id="@+id/text_view_config_header"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Fondo del Título"
-                        app:icon="@android:drawable/ic_menu_edit"
-                        app:iconTint="#34FF3B"
-                        android:textColor="@android:color/white"/>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/buttonHeaderFontColor"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Texto del Título"
-                        app:icon="@android:drawable/ic_menu_edit"
-                        app:iconTint="@android:color/holo_blue_bright"
-                        android:textColor="@android:color/white"/>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/buttonZebraColor"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Zebra de Filas"
-                        app:icon="@android:drawable/ic_menu_edit"
-                        app:iconTint="@color/ic_launcher_background"
-                        android:textColor="@android:color/white"/>
-
+                        android:layout_marginTop="2dp"
+                        android:text="Arrastra desde ≡. Sólo una tarjeta permanece abierta."
+                        android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                        android:textColor="@color/bocana_text_secondary" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-            <!-- FIN DE LA NUEVA SECCIÓN DE COLORES -->
 
-        </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
+                <TextView
+                    android:id="@+id/text_view_sync_state"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_sync_state"
+                    android:paddingStart="9dp"
+                    android:paddingTop="5dp"
+                    android:paddingEnd="9dp"
+                    android:paddingBottom="5dp"
+                    android:text="Sincronizado"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                    android:textColor="@color/bocana_neon_green" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recycler_view_config_traspasos"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingTop="3dp"
+            android:paddingBottom="8dp"
+            tools:itemCount="5"
+            tools:listitem="@layout/item_configuracion_traspaso" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_pdf_config"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/bocana_surface"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="3dp"
+            app:strokeColor="@color/bocana_divider"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/pdf_config_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:minHeight="62dp"
+                    android:padding="13dp">
+
+                    <ImageView
+                        android:id="@+id/image_pdf_icon"
+                        android:layout_width="34dp"
+                        android:layout_height="34dp"
+                        android:contentDescription="Diseño del PDF"
+                        android:padding="5dp"
+                        android:src="@drawable/pdf"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:tint="@color/bocana_neon_red" />
+
+                    <TextView
+                        android:id="@+id/text_pdf_config_title"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="Diseño global del PDF"
+                        android:textColor="@color/bocana_text_primary"
+                        android:textStyle="bold"
+                        app:layout_constraintEnd_toStartOf="@id/image_pdf_arrow"
+                        app:layout_constraintStart_toEndOf="@id/image_pdf_icon"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginTop="2dp"
+                        android:text="Título y colores compartidos en todos los equipos"
+                        android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                        android:textColor="@color/bocana_text_secondary"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toStartOf="@id/image_pdf_arrow"
+                        app:layout_constraintStart_toEndOf="@id/image_pdf_icon"
+                        app:layout_constraintTop_toBottomOf="@id/text_pdf_config_title" />
+
+                    <ImageView
+                        android:id="@+id/image_pdf_arrow"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:contentDescription="Abrir diseño del PDF"
+                        android:padding="9dp"
+                        android:src="@android:drawable/arrow_down_float"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:tint="@color/bocana_neon_purple" />
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+                <LinearLayout
+                    android:id="@+id/pdf_config_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="14dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.Dense"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Título impreso">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/edit_text_pdf_title"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:imeOptions="actionDone"
+                            android:inputType="textCapSentences"
+                            android:maxLength="80"
+                            android:singleLine="true" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_header_bg_color"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Fondo título"
+                            android:textAllCaps="false" />
+
+                        <View
+                            android:id="@+id/view_header_bg_swatch"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="center_vertical"
+                            android:layout_marginStart="10dp"
+                            android:background="@drawable/bg_color_swatch" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_header_font_color"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Texto título"
+                            android:textAllCaps="false" />
+
+                        <View
+                            android:id="@+id/view_header_text_swatch"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="center_vertical"
+                            android:layout_marginStart="10dp"
+                            android:background="@drawable/bg_color_swatch" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/button_zebra_color"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Filas zebra"
+                            android:textAllCaps="false" />
+
+                        <View
+                            android:id="@+id/view_zebra_swatch"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:layout_gravity="center_vertical"
+                            android:layout_marginStart="10dp"
+                            android:background="@drawable/bg_color_swatch" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="7dp"
+                        android:background="@drawable/bg_pdf_preview"
+                        android:orientation="vertical"
+                        android:padding="8dp">
+
+                        <TextView
+                            android:id="@+id/preview_pdf_title"
+                            android:layout_width="match_parent"
+                            android:layout_height="34dp"
+                            android:gravity="center_vertical"
+                            android:paddingStart="10dp"
+                            android:paddingEnd="10dp"
+                            android:text="Traspaso Matriz a Congelador"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="26dp"
+                            android:gravity="center_vertical"
+                            android:paddingStart="10dp"
+                            android:text="FILETE · 24.50 kg"
+                            android:textColor="#263238"
+                            android:textSize="11sp" />
+
+                        <TextView
+                            android:id="@+id/preview_pdf_zebra"
+                            android:layout_width="match_parent"
+                            android:layout_height="26dp"
+                            android:gravity="center_vertical"
+                            android:paddingStart="10dp"
+                            android:text="PARGO · 18.00 kg"
+                            android:textColor="#263238"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/button_reset_pdf_style"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="2dp"
+                        android:text="Restaurar diseño"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
 
     <ProgressBar
-        android:id="@+id/progressBarConfig"
+        android:id="@+id/progress_bar_config"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:visibility="gone"
         tools:visibility="visible" />
-
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</FrameLayout>
