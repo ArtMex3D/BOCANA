@@ -1,7 +1,6 @@
 package com.cesar.bocana.predictive.v3.data
 
 import android.util.Log
-import com.cesar.bocana.BuildConfig
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockMovement
@@ -26,7 +25,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PredictiveV3HybridDataSource(
     database: AppDatabase,
-    firestore: FirebaseFirestore
+    firestore: FirebaseFirestore,
+    private val debugLogsEnabled: Boolean = false
 ) : PredictiveV3DataSource {
 
     private val room = PredictiveV3RoomDataSource(database)
@@ -114,7 +114,7 @@ class PredictiveV3HybridDataSource(
         val requested = productIds.size * weeks.size
         lastCheckpointSummary = "fuente=$lastCheckpointSource | solicitados=$requested | " +
             "presentes=${values.size} | ausentes=${(requested - values.size).coerceAtLeast(0)}"
-        if (BuildConfig.DEBUG) {
+        if (debugLogsEnabled) {
             Log.d("BocanaCoberturaTrace", "CHECKPOINTS | $lastCheckpointSummary")
             productIds.sorted().forEach { id ->
                 val series = weeks.joinToString(";") { week ->

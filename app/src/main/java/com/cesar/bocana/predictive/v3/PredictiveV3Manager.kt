@@ -1,6 +1,7 @@
 package com.cesar.bocana.predictive.v3
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.cesar.bocana.data.local.AppDatabase
 import com.cesar.bocana.data.model.Product
@@ -9,6 +10,7 @@ import com.cesar.bocana.predictive.v3.data.PredictiveV3HybridDataSource
 import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.predictive.v3.model.PredictiveV3Analysis
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,14 +51,18 @@ class PredictiveV3Manager private constructor(
 
     private data class MemoryEntry(
         val revision: DataRevision,
-        val analysis: PredictiveV3Analysis
+        val analysis: PredictiveV3Analysis,
+        val snapshot: PredictiveV3Snapshot,
+        val relatedFingerprint: Int
     )
 
+    private val debugLogsEnabled =
+        (context.applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
     private val database = AppDatabase.getDatabase(context.applicationContext)
     private val snapshotDao = database.predictiveV3SnapshotDao()
     private val productDao = database.productDao()
     private val configRepository = PredictiveV3ConfigRepository(firestore)
-    private val dataSource = PredictiveV3HybridDataSource(database, firestore)
+    private val dataSource = PredictiveV3HybridDataSource(database, firestore, debugLogsEnabled)
     private val coordinator = PredictiveV3Coordinator(
         firestore = firestore,
         dataSource = dataSource
@@ -70,6 +76,10 @@ class PredictiveV3Manager private constructor(
     suspend fun getSnapshot(productId: String): PredictiveV3Snapshot? =
         snapshotDao.getByProductId(productId)
 
+    /** Sólo detalle que corresponde EXACTAMENTE a la fotografía mostrada. Cero lecturas remotas. */
+    fun getCachedAnalysis(snapshot: PredictiveV3Snapshot): PredictiveV3Analysis? =
+        memoryAnalysis[snapshot.productId]?.takeIf { it.snapshot == snapshot }?.analysis
+
     /**
      * Revisión silenciosa. Si la fotografía sigue vigente, no lee histórico remoto.
      * El cambio de día fuerza una revisión diaria; los cambios operativos sólo invalidan
@@ -81,6 +91,8 @@ class PredictiveV3Manager private constructor(
 
         val config = try {
             configRepository.load()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.w(TAG, "Configuración V3 no disponible; se conservan snapshots existentes.", e)
             return@withLock RefreshResult(products.size, 0, products.size)
@@ -101,6 +113,7 @@ class PredictiveV3Manager private constructor(
         }
 
         if (initiallyStale.isEmpty()) {
+            trace("CACHE_VIGENTE | productos=${products.size} | consultasHistorial=0")
             return@withLock RefreshResult(products.size, 0, 0)
         }
 
@@ -118,27 +131,11 @@ class PredictiveV3Manager private constructor(
         for (productId in staleIds) {
             val product = productsById[productId] ?: continue
             try {
-                val analysis = coordinator.analyzeProduct(productId)
-                val latestProduct = productDao.getProductByIdOnce(productId) ?: product
-                val latestRevision = buildRevision(latestProduct, configFingerprint)
-                val existing = existingById[productId]
-                val snapshot = snapshotFromAnalysis(analysis, latestRevision)
-
-                // Una lectura parcial/fallida jamás reemplaza un buen V3 guardado por ceros.
-                val partial = analysis.smartReasons.any { it.startsWith("Información parcial:") }
-                val degradedToNothing = snapshot.coverageDays == null &&
-                    snapshot.forecastWeeklyKg <= 0.01 &&
-                    existing?.coverageDays != null
-
-                if (partial && degradedToNothing) {
-                    Log.w(TAG, "V3 parcial para $productId; se conserva el snapshot anterior.")
-                    failed++
-                    continue
-                }
-
-                snapshotDao.upsert(snapshot)
-                memoryAnalysis[productId] = MemoryEntry(latestRevision, analysis)
+                calculateAndStore(productId, configFingerprint, config)
                 refreshed++
+            } catch (cancelled: CancellationException) {
+                // Cambiar de pantalla no es un error de cada producto ni un pronóstico vacío.
+                throw cancelled
             } catch (e: Exception) {
                 failed++
                 Log.e(TAG, "Error refrescando V3 para ${product.name} ($productId)", e)
@@ -162,30 +159,91 @@ class PredictiveV3Manager private constructor(
         val revision = buildRevision(product, configFingerprint)
         val persisted = snapshotDao.getByProductId(productId)
         val memory = memoryAnalysis[productId]
+        val related = relatedFingerprint(productId, config)
 
-        if (!force && persisted != null && matches(persisted, revision) && memory?.revision == revision) {
+        if (!force && persisted != null && matches(persisted, revision) &&
+            memory != null && memory.revision == revision && memory.snapshot == persisted &&
+            memory.relatedFingerprint == related) {
+            trace("ANALISIS_RAM | producto=$productId | revision=${persisted.calculatedAtMillis} | consultasHistorial=0")
             return@withLock memory.analysis
         }
 
         // Si el snapshot está vencido, no reutilizar histórico de antes del movimiento/cambio.
-        if (force || persisted == null || !matches(persisted, revision)) {
+        if (force || persisted == null || !matches(persisted, revision) ||
+            (memory != null && memory.relatedFingerprint != related)) {
             dataSource.clearHistoricalCache()
         }
+        calculateAndStore(productId, configFingerprint, config)
+    }
+
+    /** Todos los consumidores publican por esta ruta. No cambia la matemática ni el planificador. */
+    private suspend fun calculateAndStore(
+        productId: String,
+        configFingerprint: Int,
+        config: PredictiveV3ConfigRepository.ConfigBundle
+    ): PredictiveV3Analysis {
+        val beforeProduct = productDao.getProductByIdOnce(productId)
+            ?: error("Producto no encontrado para V3: $productId")
+        val before = buildRevision(beforeProduct, configFingerprint)
+        val relatedBefore = relatedFingerprint(productId, config)
         val analysis = coordinator.analyzeProduct(productId)
-        val latestProduct = productDao.getProductByIdOnce(productId) ?: product
-        val latestRevision = buildRevision(latestProduct, configFingerprint)
-        val snapshot = snapshotFromAnalysis(analysis, latestRevision)
+        val latestProduct = productDao.getProductByIdOnce(productId)
+            ?: error("Producto retirado durante el cálculo V3")
+        val after = buildRevision(latestProduct, configFingerprint)
+        val relatedAfter = relatedFingerprint(productId, config)
+
+        // No etiquetar un análisis viejo con la revisión del stock que llegó durante la descarga.
+        if (before != after || relatedBefore != relatedAfter || analysis.selectedProduct != latestProduct ||
+            fingerprintConfig(configRepository.load()) != configFingerprint) {
+            trace("CONSERVADO | producto=$productId | motivo=DATOS_CAMBIARON_DURANTE_CALCULO")
+            dataSource.clearHistoricalCache()
+            error("Los datos se están sincronizando; se conserva el último resultado guardado")
+        }
 
         val partial = analysis.smartReasons.any { it.startsWith("Información parcial:") }
-        val degradedToNothing = snapshot.coverageDays == null &&
-            snapshot.forecastWeeklyKg <= 0.01 &&
-            persisted?.coverageDays != null
-
-        if (!(partial && degradedToNothing)) {
-            snapshotDao.upsert(snapshot)
+        if (partial || !dataSource.lastCheckpointIsCanonical || dataSource.lastCheckpointCount == 0) {
+            trace("CONSERVADO | producto=$productId | motivo=LECTURA_PARCIAL | " +
+                dataSource.lastCheckpointSummary + " | avisos=${analysis.smartReasons.filter { it.startsWith("Información parcial:") }}")
+            error("No se pudo validar el historial y el inventario; se conserva el último resultado guardado")
         }
-        memoryAnalysis[productId] = MemoryEntry(latestRevision, analysis)
-        analysis
+
+        val snapshot = snapshotFromAnalysis(analysis, after)
+        check(listOf(snapshot.forecastWeeklyKg, snapshot.baselineWeeklyKg, snapshot.primaryTotalStockKg,
+            snapshot.highScenarioWeeklyKg, snapshot.lowScenarioWeeklyKg).all { it.isFinite() && it >= 0.0 }) {
+            "Resultado V3 no válido; no se reemplaza el último resultado guardado"
+        }
+
+        // Poner el detalle antes del upsert permite que el observador Room lo encuentre al emitir.
+        val previousMemory = memoryAnalysis[productId]
+        memoryAnalysis[productId] = MemoryEntry(after, analysis, snapshot, relatedAfter)
+        try {
+            snapshotDao.upsert(snapshot)
+        } catch (e: Exception) {
+            if (previousMemory != null) memoryAnalysis[productId] = previousMemory
+            else memoryAnalysis.remove(productId)
+            throw e
+        }
+        trace("RESULTADO_CENTRAL | producto=$productId | grupo=${snapshot.groupId ?: "INDIVIDUAL"} | " +
+            "matrizIndividual=${latestProduct.stockMatriz} | c04Individual=${latestProduct.stockCongelador04} | " +
+            "stockCobertura=${snapshot.primaryTotalStockKg} | promedioSemanal=${snapshot.baselineWeeklyKg} | " +
+            "demandaSemanal=${snapshot.forecastWeeklyKg} | dias=${snapshot.coverageDays} | " +
+            "revision=${snapshot.calculatedAtMillis} | ${dataSource.lastCheckpointSummary}")
+        return analysis
+    }
+
+    /** Invalida RAM también si cambió un compañero de grupo/servicio, no sólo el producto abierto. */
+    private suspend fun relatedFingerprint(
+        productId: String,
+        config: PredictiveV3ConfigRepository.ConfigBundle
+    ): Int {
+        val products = productDao.getAllActiveProductsOnce()
+        val ids = expandRelatedIds(setOf(productId), products.map { it.id }.toSet(), config)
+        return products.filter { it.id in ids }.sortedBy { it.id }
+            .fold(1) { hash, product -> 31 * hash + product.hashCode() }
+    }
+
+    private fun trace(message: String) {
+        if (debugLogsEnabled) Log.d("BocanaCoberturaTrace", message)
     }
 
     fun clearSessionMemory() {

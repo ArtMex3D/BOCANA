@@ -1,5 +1,6 @@
 package com.cesar.bocana.ui.dialogs
 
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
@@ -12,7 +13,6 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
-import com.cesar.bocana.BuildConfig
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.predictive.v3.PredictiveV3Manager
@@ -71,6 +71,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     private lateinit var tvSeasonInsight: TextView
     private lateinit var v3DeepContainer: LinearLayout
     private lateinit var predictiveManager: PredictiveV3Manager
+    private var debugLogsEnabled = false
     private var displayedSnapshot: PredictiveV3Snapshot? = null
     private var detailedSnapshot: PredictiveV3Snapshot? = null
 
@@ -82,6 +83,8 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        debugLogsEnabled =
+            (requireContext().applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
         view.findViewById<TextView>(R.id.tvPopupProductName).text = product.name
         view.findViewById<TextView>(R.id.tvPopupProductId).text = "ID: ${product.id.takeLast(6).uppercase(Locale.ROOT)}"
@@ -172,7 +175,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
                 accent = "#6D28D9", background = "#FAF5FF"
             )
         }
-        if (BuildConfig.DEBUG) Log.d("BocanaCoberturaTrace",
+        if (debugLogsEnabled) Log.d("BocanaCoberturaTrace",
             "POPUP_CENTRAL | producto=${snapshot.productId} | dias=${snapshot.coverageDays} | " +
                 "demandaSemanal=${snapshot.forecastWeeklyKg} | stockCobertura=${snapshot.primaryTotalStockKg} | " +
                 "revision=${snapshot.calculatedAtMillis} | detalleRAM=${analysis != null}")
@@ -180,7 +183,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
     private fun showCentralFailure(error: Exception) {
         if (!isAdded || view == null) return
-        if (BuildConfig.DEBUG) Log.w("BocanaCoberturaTrace", "POPUP_CONSERVADO | producto=${product.id}", error)
+        if (debugLogsEnabled) Log.w("BocanaCoberturaTrace", "POPUP_CONSERVADO | producto=${product.id}", error)
         val saved = displayedSnapshot
         if (saved != null) {
             renderCentralSnapshot(saved)
