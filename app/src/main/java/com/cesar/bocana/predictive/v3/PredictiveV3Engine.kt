@@ -19,24 +19,33 @@ import kotlin.math.sqrt
  */
 object PredictiveV3Engine {
 
-    const val MODEL_VERSION = 3003
+    const val MODEL_VERSION = 3004
 
     data class Tuning(
         val maxCompleteWeeks: Int = 16,
         val recentWeeks: Int = 8,
         val recencyDecay: Double = 0.84,
-        val priorEquivalentDaysForLivePace: Double = 3.0,
-        val minLiveWeight: Double = 0.12,
-        val maxLiveWeight: Double = 0.52,
-        val seasonalWeightNormal: Double = 0.18,
-        val seasonalWeightSpecial: Double = 0.30,
-        val maxTrendBoost: Double = 1.30,
-        val minTrendFactor: Double = 0.78,
+        // La semana abierta sólo orienta. Diez días equivalentes de historia evitan
+        // convertir una salida grande de lunes/martes en todo un mes excepcional.
+        val priorEquivalentDaysForLivePace: Double = 10.0,
+        val minLiveWeight: Double = 0.05,
+        val maxLiveWeight: Double = 0.15,
+        val seasonalWeightNormal: Double = 0.08,
+        val seasonalWeightSpecial: Double = 0.25,
+        // La pendiente de semanas COMPLETAS corrige con suavidad; no sustituye la base.
+        val maxTrendBoost: Double = 1.10,
+        val minTrendFactor: Double = 0.90,
+        val minLiveRatio: Double = 0.60,
+        val maxLiveRatio: Double = 1.50,
+        val minNormalForecastFactor: Double = 0.88,
+        val maxNormalForecastFactor: Double = 1.12,
+        val minSpecialForecastFactor: Double = 0.65,
+        val maxSpecialForecastFactor: Double = 1.60,
         val surgeRatio: Double = 1.75,
         val risingRatio: Double = 1.20,
         val fallingRatio: Double = 0.78,
         val minScenarioMargin: Double = 0.15,
-        val maxScenarioMargin: Double = 0.55,
+        val maxScenarioMargin: Double = 0.35,
         val minSafetyDays: Double = 0.50,
         val maxSafetyDays: Double = 3.00
     )
@@ -63,13 +72,9 @@ object PredictiveV3Engine {
         val robustHistory = winsorizeByMad(demandInput.completeWeeks)
         val longBaseline = robustHistory.averageOrZero()
         val recentHistory = robustHistory.takeLast(tuning.recentWeeks)
-        val recentBaseline = exponentialAverage(recentHistory, tuning.recencyDecay)
-
-        val baseline = when {
-            recentBaseline > 0.0 && longBaseline > 0.0 -> recentBaseline * 0.68 + longBaseline * 0.32
-            recentBaseline > 0.0 -> recentBaseline
-            else -> longBaseline
-        }
+        // La cifra que se presenta como promedio debe nacer de semanas completas.
+        // La recencia se conserva en la pendiente, no vuelve a redefinir el promedio.
+        val baseline = longBaseline
 
         val elapsedDays = if (context.productionAdvanceMode) {
             // La salida física puede ser producción de varias semanas; no la extrapolamos
@@ -109,22 +114,40 @@ object PredictiveV3Engine {
         var liveWeight = tuning.minLiveWeight +
             (tuning.maxLiveWeight - tuning.minLiveWeight) * (elapsedDays / 7.0)
 
-        if (trendSignal == TrendSignal.SURGE) {
-            liveWeight = min(tuning.maxLiveWeight + 0.10, 0.65)
-        }
+        val boundedLiveWeekly = if (baseline > 0.01) {
+            liveWeekly.coerceIn(
+                baseline * tuning.minLiveRatio,
+                baseline * tuning.maxLiveRatio
+            )
+        } else liveWeekly
 
         val baselineWeight = (1.0 - liveWeight - seasonalWeight).coerceAtLeast(0.15)
         val totalWeight = baselineWeight + liveWeight + seasonalWeight
 
         val blended = if (baseline > 0.0 || liveWeekly > 0.0 || seasonal != null) {
             ((baseline * baselineWeight) +
-                (liveWeekly * liveWeight) +
+                (boundedLiveWeekly * liveWeight) +
                 ((seasonal ?: 0.0) * seasonalWeight)) / totalWeight
         } else {
             0.0
         }
 
-        val forecast = sanitize(blended * slopeFactor * context.regimeMultiplier.coerceIn(0.40, 3.00))
+        val rawForecast = sanitize(
+            blended * slopeFactor * context.regimeMultiplier.coerceIn(0.40, 3.00)
+        )
+        val isNormalRegime = context.regime.name == "NORMAL"
+        val minForecastFactor = if (isNormalRegime) {
+            tuning.minNormalForecastFactor
+        } else tuning.minSpecialForecastFactor
+        val maxForecastFactor = if (isNormalRegime) {
+            tuning.maxNormalForecastFactor
+        } else tuning.maxSpecialForecastFactor
+        val forecast = if (baseline > 0.01) {
+            rawForecast.coerceIn(
+                baseline * minForecastFactor,
+                baseline * maxForecastFactor
+            )
+        } else rawForecast
 
         val variability = robustCoefficientOfVariation(robustHistory)
         val confidence = confidenceLevel(robustHistory.size, variability)
@@ -165,6 +188,7 @@ object PredictiveV3Engine {
 
         val reasons = buildList {
             add("Base robusta: ${format1(baseline)} kg/sem")
+            add("Pronóstico moderado: la semana abierta orienta sin reemplazar el promedio")
             if (context.productionAdvanceMode) {
                 add("Producción adelantada: demanda suavizada en ventanas móviles de 4 semanas")
             }

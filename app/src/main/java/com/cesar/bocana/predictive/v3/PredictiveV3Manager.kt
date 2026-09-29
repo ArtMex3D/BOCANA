@@ -223,9 +223,11 @@ class PredictiveV3Manager private constructor(
             else memoryAnalysis.remove(productId)
             throw e
         }
+        val centralForecast = analysis.groupAnalysis?.forecast ?: analysis.individualForecast
         trace("RESULTADO_CENTRAL | producto=$productId | grupo=${snapshot.groupId ?: "INDIVIDUAL"} | " +
             "matrizIndividual=${latestProduct.stockMatriz} | c04Individual=${latestProduct.stockCongelador04} | " +
             "stockCobertura=${snapshot.primaryTotalStockKg} | promedioSemanal=${snapshot.baselineWeeklyKg} | " +
+            "ritmoVivo=${centralForecast.liveWeeklyPaceKg} | tendencia=${centralForecast.trendSignal} | " +
             "demandaSemanal=${snapshot.forecastWeeklyKg} | dias=${snapshot.coverageDays} | " +
             "revision=${snapshot.calculatedAtMillis} | ${dataSource.lastCheckpointSummary}")
         return analysis
@@ -454,7 +456,7 @@ class PredictiveV3Manager private constructor(
 
     companion object {
         private const val TAG = "PredictiveV3Manager"
-        const val ENGINE_REVISION = 1
+        const val ENGINE_REVISION = 2
 
         @Volatile
         private var INSTANCE: PredictiveV3Manager? = null
