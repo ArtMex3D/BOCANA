@@ -142,13 +142,23 @@ class PlanTraspasoAdapter(
 
             binding.btnDeleteFilaVacia.apply {
                 isVisible = true
-                text = "✕"
-                contentDescription = "Eliminar filas para notas"
-                setTextColor(Color.parseColor("#8B1E1E"))
+                if (count <= 1) {
+                    text = "✕"
+                    contentDescription = "Eliminar fila para notas"
+                    setTextColor(Color.parseColor("#8B1E1E"))
+                } else {
+                    text = "−1"
+                    contentDescription = "Restar una fila para notas"
+                    setTextColor(Color.parseColor("#A16207"))
+                }
             }
 
             binding.btnDeleteFilaVacia.setOnClickListener {
-                viewModel.eliminarFilaVacia()
+                if (count <= 1) {
+                    viewModel.eliminarFilaVacia()
+                } else {
+                    viewModel.actualizarCantidadFilaVacia(count - 1)
+                }
             }
         }
 

@@ -116,6 +116,7 @@ class PredictiveV3ConfigRepository(
                         .orEmpty(),
                     c04GroupTargetKg = doc.getDouble("c04GroupTargetKg") ?: 0.0,
                     primaryMinimumC04Kg = doc.getDouble("primaryMinimumC04Kg") ?: 0.0,
+                    balanceSameReceivedDate = doc.getBoolean("balanceSameReceivedDate") ?: false,
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             }

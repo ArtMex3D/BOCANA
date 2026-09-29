@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -227,15 +226,20 @@ class EmpaqueDialogFragment : DialogFragment() {
                         )
                     }
 
+                    val fechaRecepcion = fechaRecepcion(lotToUpdate) ?: task.receivedAt
+                    val loteOrigenId = lotToUpdate.originalLotId ?: lotToUpdate.id
+
                     if (isVariable) {
-                        // LÓGICA NUEVA: VARIABLE (PROMEDIADOR)
+                        // Al empacar no cambia la antigüedad PEPS: se conserva la fecha real de recepción.
                         val pesoPromedio = lotToUpdate.currentQuantity / cantidadUnidades
-                        val updates = mapOf(
+                        val updates = mutableMapOf<String, Any>(
                             "isPackaged" to true,
                             "unidadDeEmpaque" to unidad,
                             "pesoPorUnidad" to pesoPromedio,
-                            "cantidadInicialUnidades" to cantidadUnidades.toDouble()
+                            "cantidadInicialUnidades" to cantidadUnidades.toDouble(),
+                            "originalLotId" to loteOrigenId
                         )
+                        fechaRecepcion?.let { updates["originalReceivedAt"] = it }
                         transaction.update(originalLotRef, updates)
                     } else {
                         // LÓGICA VIEJA INTACTA: SEMIFIJO (REDONDEO)
@@ -265,7 +269,8 @@ class EmpaqueDialogFragment : DialogFragment() {
                                 id = newLotRefNormal.id, isPackaged = true, unidadDeEmpaque = unidad,
                                 pesoPorUnidad = pesoPromedioReal, initialQuantity = kgLoteNormal,
                                 currentQuantity = kgLoteNormal, cantidadInicialUnidades = cajasNormales.toDouble(),
-                                isDepleted = false
+                                isDepleted = false,
+                                originalLotId = loteOrigenId, originalReceivedAt = fechaRecepcion
                             )
                             transaction.set(newLotRefNormal, newLotNormal)
                         }
@@ -275,7 +280,8 @@ class EmpaqueDialogFragment : DialogFragment() {
                             val newLotSobrante = lotToUpdate.copy(
                                 id = newLotRefSobrante.id, isPackaged = true, unidadDeEmpaque = unidad,
                                 pesoPorUnidad = pesoUltimaCaja, initialQuantity = pesoUltimaCaja,
-                                currentQuantity = pesoUltimaCaja, cantidadInicialUnidades = 1.0, isDepleted = false
+                                currentQuantity = pesoUltimaCaja, cantidadInicialUnidades = 1.0, isDepleted = false,
+                                originalLotId = loteOrigenId, originalReceivedAt = fechaRecepcion
                             )
                             transaction.set(newLotRefSobrante, newLotSobrante)
                         }
@@ -301,6 +307,10 @@ class EmpaqueDialogFragment : DialogFragment() {
             }
         }
     }
+
+    private fun fechaRecepcion(lote: StockLot): Date? =
+        listOfNotNull(lote.receivedAt, lote.originalReceivedAt)
+            .minByOrNull { it.time }
 
     override fun onDestroyView() {
         super.onDestroyView()

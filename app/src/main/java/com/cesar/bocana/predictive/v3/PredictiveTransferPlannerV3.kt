@@ -5,22 +5,29 @@ import com.cesar.bocana.data.model.PendingPackagingTask
 import com.cesar.bocana.data.model.Product
 import com.cesar.bocana.data.model.StockLot
 import com.cesar.bocana.predictive.v3.data.PredictiveV3Time
+import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.predictive.v3.model.DemandEntityType
 import com.cesar.bocana.predictive.v3.model.DemandPoint
+import com.cesar.bocana.predictive.v3.model.ConfidenceLevel
 import com.cesar.bocana.predictive.v3.model.ForecastContext
 import com.cesar.bocana.predictive.v3.model.ForecastResultV3
 import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
 import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
 import com.cesar.bocana.predictive.v3.model.ServiceAllocationInput
+import com.cesar.bocana.predictive.v3.model.TrendSignal
 import com.cesar.bocana.util.StockQuantityPolicy
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 enum class TransferReasonCode {
     C04_COVERED,
+    C04_BELOW_HABITUAL,
     FIFO_OLDEST,
     SAME_COHORT_ABUNDANCE,
     PRIMARY_MINIMUM,
@@ -28,11 +35,20 @@ enum class TransferReasonCode {
     GROUP_DYNAMIC_UP,
     GROUP_DYNAMIC_DOWN,
     SUPPORT_PRODUCT_LOW,
+    SERVICE_SUPPORT_APPLIED,
+    REVERSE_SERVICE_SUPPORT,
     NEXT_COHORT_USED,
     NO_NEARBY_MEMBER,
     PACKAGING_SHORTAGE,
     PACKAGING_PENDING_AVAILABLE,
     MATRIX_RESERVE,
+    LIVE_SPIKE_GUARDED,
+    ROLE_SAME_DAY_BALANCE,
+    SECONDARY_COMPENSATION,
+    OLDER_SUPPORT_LOT,
+    RECTOR_CURSOR_ADVANCED,
+    RECTOR_CURSOR_BACKLOG,
+    NORMAL_TARGET_GUARD,
     USER_OVERRIDE
 }
 
@@ -44,6 +60,15 @@ data class TransferProductPlanV3(
     val pendingPackagingKg: Double,
     val dynamicTargetC04Kg: Double,
     val habitualTargetC04Kg: Double,
+    // Campos diagnósticos: no cambian la sugerencia, sólo explican de dónde salió.
+    val baselineWeeklyKg: Double = 0.0,
+    val forecastWeeklyKg: Double = 0.0,
+    val seasonalReferenceWeeklyKg: Double? = null,
+    val regimeName: String = "NORMAL",
+    val rawDynamicTargetC04Kg: Double = dynamicTargetC04Kg,
+    val serviceSupportExtraKg: Double = 0.0,
+    // Lotes autorizados por el reparto automático. La UI no debe saltar a fechas posteriores.
+    val suggestedLotIds: List<String> = emptyList(),
     val groupId: String? = null,
     val groupName: String? = null,
     val groupHabitualTargetKg: Double? = null,
@@ -65,6 +90,21 @@ data class TransferGroupPlanV3(
     val allocatedIntentKg: Double,
     val remainingKg: Double,
     val primaryProductId: String?,
+    val rawDynamicTargetKg: Double = dynamicTargetKg,
+    // Campos diagnósticos: permiten verificar predicción/estacionalidad sin recalcular.
+    val baselineWeeklyKg: Double = 0.0,
+    val forecastWeeklyKg: Double = 0.0,
+    val effectiveWeeklyKg: Double = 0.0,
+    val seasonalReferenceWeeklyKg: Double? = null,
+    val regimeName: String = "NORMAL",
+    val serviceId: String? = null,
+    val preferredSupportProductId: String? = null,
+    val baseOperationalTargetKg: Double = dynamicTargetKg,
+    val serviceSupportCandidateKg: Double = 0.0,
+    val serviceSupportExtraKg: Double = 0.0,
+    val serviceAnchorResidualKg: Double = 0.0,
+    val reverseSupportKg: Double = 0.0,
+    val allocationTrace: List<String> = emptyList(),
     val reasonCodes: List<TransferReasonCode> = emptyList(),
     val message: String? = null
 )
@@ -95,6 +135,9 @@ object PredictiveTransferPlannerV3 {
         val openLots: List<StockLot>,
         val pendingPackaging: List<PendingPackagingTask>,
         val checkpoints: Map<String, Double>,
+        // Resultado persistente del predictor central, cargado desde Room.
+        // Si está disponible evita releer todo el histórico remoto para abrir Traspasos.
+        val persistedPredictions: Map<String, PredictiveV3Snapshot> = emptyMap(),
         val productionAdvanceProductIds: Set<String> = emptySet(),
         val now: Date = Date()
     )
@@ -137,6 +180,11 @@ object PredictiveTransferPlannerV3 {
         val productPlans = linkedMapOf<String, TransferProductPlanV3>()
         val groupPlans = linkedMapOf<String, TransferGroupPlanV3>()
 
+        // Compensación inversa opcional de una misma relación de equilibrio.
+        // Se calcula una sola vez por grupo y se aplica después a productos individuales,
+        // evitando crear una segunda relación que pudiera formar un bucle.
+        val reverseServiceExtraByProduct = linkedMapOf<String, Double>()
+
         snapshot.groups.filter { it.enabled }.forEach { group ->
             val members = group.memberProductIds.mapNotNull(productsById::get)
             if (members.isEmpty()) return@forEach
@@ -165,7 +213,20 @@ object PredictiveTransferPlannerV3 {
             val groupReserve = members.sumOf(::matrixReserveForCommitment)
             val habitualGroupTarget = group.c04GroupTargetKg.coerceAtLeast(0.0)
 
-            val groupForecast = PredictiveV3Engine.forecast(
+            val persistedGroupPrediction = members
+                .asSequence()
+                .mapNotNull { snapshot.persistedPredictions[it.id] }
+                .firstOrNull { it.groupId == group.id }
+
+            val groupForecast = persistedGroupPrediction?.let {
+                forecastFromPersisted(
+                    persisted = it,
+                    entityId = group.id,
+                    entityType = DemandEntityType.GROUP,
+                    legacyTargetKg = habitualGroupTarget,
+                    targetWindowDays = targetWindowDays
+                )
+            } ?: PredictiveV3Engine.forecast(
                 ForecastContext(
                     entityId = group.id,
                     entityType = DemandEntityType.GROUP,
@@ -187,28 +248,91 @@ object PredictiveTransferPlannerV3 {
             val service = snapshot.services.firstOrNull {
                 it.enabled && it.linkedGroupId == group.id
             }
-            val serviceAdjustedWeekly = service?.let {
-                adjustedGroupWeeklyFromService(
-                    relation = it,
-                    groupForecast = groupForecast,
-                    productsById = productsById,
-                    groupHistoricalIds = historicalIds,
-                    completeWeeks = completeWeeks,
-                    currentWeek = currentWeek,
-                    targetWindowDays = targetWindowDays,
-                    elapsedDays = elapsedDays,
-                    regime = regime,
-                    checkpoints = snapshot.checkpoints,
-                    productionAdvanceProductIds = snapshot.productionAdvanceProductIds
-                )
-            } ?: groupForecast.forecastWeeklyKg
 
-            val groupDynamicTarget = adaptiveTarget(
+            // El forecast semanal del grupo sigue perteneciendo al predictor central.
+            // La relación complementaria de esta fase actúa sobre la NECESIDAD OPERATIVA
+            // del traspaso, no reescribe ni duplica el histórico.
+            val serviceAdjustedWeekly = persistedGroupPrediction?.forecastWeeklyKg
+                ?: service?.let {
+                    adjustedGroupWeeklyFromService(
+                        relation = it,
+                        groupForecast = groupForecast,
+                        productsById = productsById,
+                        groupHistoricalIds = historicalIds,
+                        completeWeeks = completeWeeks,
+                        currentWeek = currentWeek,
+                        targetWindowDays = targetWindowDays,
+                        elapsedDays = elapsedDays,
+                        regime = regime,
+                        checkpoints = snapshot.checkpoints,
+                        productionAdvanceProductIds = snapshot.productionAdvanceProductIds
+                    )
+                }
+                ?: groupForecast.forecastWeeklyKg
+
+            val rawGroupDynamicTarget = persistedGroupPrediction?.dynamicC04TargetKg
+                ?: adaptiveTarget(
+                    habitualKg = habitualGroupTarget,
+                    forecast = groupForecast,
+                    effectiveWeeklyKg = serviceAdjustedWeekly,
+                    targetWindowDays = targetWindowDays
+                )
+
+            // Protección operativa bidireccional:
+            // - no deja que un pico aislado dispare cientos de kg;
+            // - tampoco deja que una bajada reciente hunda de golpe el objetivo habitual.
+            // La caída puede ocurrir, pero exige una señal realmente sostenida.
+            val baseOperationalTarget = prudentGroupTarget(
                 habitualKg = habitualGroupTarget,
-                forecast = groupForecast,
-                effectiveWeeklyKg = serviceAdjustedWeekly,
-                targetWindowDays = targetWindowDays
+                rawTargetKg = rawGroupDynamicTarget,
+                baselineWeeklyKg = groupForecast.baselineWeeklyKg,
+                forecastWeeklyKg = groupForecast.forecastWeeklyKg,
+                targetWindowDays = targetWindowDays,
+                regimeName = regime.name
             )
+
+            // Si el producto directo (ej. Róbalo) no puede cubrir su propia necesidad con
+            // lo físicamente disponible, una fracción prudente del faltante presiona al grupo
+            // relacionado (ej. Pargos). NO es 1:1 y nunca sustituye la predicción propia.
+            val servicePressure = service?.let { relation ->
+                calculateOperationalServicePressure(
+                    relation = relation,
+                    linkedGroupHabitualKg = habitualGroupTarget,
+                    linkedGroupBaseTargetKg = baseOperationalTarget,
+                    productsById = productsById,
+                    persistedPredictions = snapshot.persistedPredictions,
+                    packagedMatrizLots = packagedMatrizLots,
+                    regimeName = regime.name
+                )
+            } ?: OperationalServicePressure.NONE
+
+            val roleAwareGroup = group.primaryProductId
+                ?.takeIf { id -> members.any { it.id == id } && memberEnabled(group, id) } != null
+
+            // Los grupos guiados por rector usan el objetivo habitual como PISO operativo.
+            // La predicción decide cuánto subir; en NORMAL sólo puede apartarse poco del ideal.
+            // Las temporadas especiales abren deliberadamente la banda.
+            val guardedBaseTarget = if (roleAwareGroup && habitualGroupTarget > 0.01) {
+                max(habitualGroupTarget, baseOperationalTarget)
+            } else {
+                baseOperationalTarget
+            }
+
+            val finalTargetCeilingFactor = when (regime.name) {
+                "LENT" -> 1.80
+                "DECEMBER" -> 1.65
+                "HOLIDAY", "HIGH_SEASON" -> 1.70
+                else -> if (roleAwareGroup) 1.10 else 1.50
+            }
+            val finalTargetCeiling = if (habitualGroupTarget > 0.01) {
+                habitualGroupTarget * finalTargetCeilingFactor
+            } else {
+                Double.POSITIVE_INFINITY
+            }
+
+            val candidateWithSupport = guardedBaseTarget + servicePressure.extraGroupKg
+            val groupDynamicTarget = min(candidateWithSupport, finalTargetCeiling)
+            val appliedServiceExtraKg = max(0.0, groupDynamicTarget - guardedBaseTarget)
 
             val primaryMinimumNeed = group.primaryProductId
                 ?.let(productsById::get)
@@ -253,10 +377,39 @@ object PredictiveTransferPlannerV3 {
                         groupCodes += TransferReasonCode.GROUP_DYNAMIC_DOWN
                 }
             }
-            if (serviceAdjustedWeekly > groupForecast.forecastWeeklyKg * 1.01) {
-                groupCodes += TransferReasonCode.SUPPORT_PRODUCT_LOW
+            if (rawGroupDynamicTarget > groupDynamicTarget + 0.10) {
+                groupCodes += TransferReasonCode.LIVE_SPIKE_GUARDED
             }
-            if (allocation.remainingKg > 0.1) {
+            if (appliedServiceExtraKg > 0.10) {
+                groupCodes += TransferReasonCode.SUPPORT_PRODUCT_LOW
+                groupCodes += TransferReasonCode.SERVICE_SUPPORT_APPLIED
+            }
+            if (roleAwareGroup && habitualGroupTarget > 0.01 &&
+                (candidateWithSupport > finalTargetCeiling + 0.10 || baseOperationalTarget < habitualGroupTarget - 0.10)
+            ) {
+                groupCodes += TransferReasonCode.NORMAL_TARGET_GUARD
+            }
+
+            var reverseSupportKg = 0.0
+            if (allocation.remainingKg > 0.10 && service != null) {
+                val reverse = calculateReverseServiceSupport(
+                    relation = service,
+                    unresolvedGroupKg = allocation.remainingKg,
+                    productsById = productsById,
+                    persistedPredictions = snapshot.persistedPredictions,
+                    packagedMatrizLots = packagedMatrizLots
+                )
+                reverse.byAnchorProduct.forEach { (productId, kg) ->
+                    reverseServiceExtraByProduct[productId] =
+                        (reverseServiceExtraByProduct[productId] ?: 0.0) + kg
+                }
+                reverseSupportKg = reverse.totalKg
+                if (reverseSupportKg > 0.10) {
+                    groupCodes += TransferReasonCode.REVERSE_SERVICE_SUPPORT
+                }
+            }
+
+            if (allocation.remainingKg > reverseSupportKg + 0.1) {
                 groupCodes += TransferReasonCode.NO_NEARBY_MEMBER
             }
 
@@ -279,6 +432,42 @@ object PredictiveTransferPlannerV3 {
                 allocatedIntentKg = allocation.byProduct.values.sum(),
                 remainingKg = allocation.remainingKg,
                 primaryProductId = group.primaryProductId,
+                rawDynamicTargetKg = rawGroupDynamicTarget,
+                baselineWeeklyKg = groupForecast.baselineWeeklyKg,
+                forecastWeeklyKg = groupForecast.forecastWeeklyKg,
+                effectiveWeeklyKg = serviceAdjustedWeekly,
+                seasonalReferenceWeeklyKg = seasonalReference,
+                regimeName = regime.name,
+                serviceId = service?.id,
+                preferredSupportProductId = service?.preferredGroupProductId,
+                baseOperationalTargetKg = guardedBaseTarget,
+                serviceSupportCandidateKg = servicePressure.extraGroupKg,
+                serviceSupportExtraKg = appliedServiceExtraKg,
+                serviceAnchorResidualKg = servicePressure.anchorResidualKg,
+                reverseSupportKg = reverseSupportKg,
+                allocationTrace = buildList {
+                    if (roleAwareGroup && habitualGroupTarget > 0.01) {
+                        add(
+                            "Cinturón operativo ${regime.name}: piso=${formatTraceKg(habitualGroupTarget)} kg, " +
+                                "techo=${formatTraceKg(finalTargetCeiling)} kg; " +
+                                "base protegida=${formatTraceKg(guardedBaseTarget)} kg."
+                        )
+                    }
+                    if (servicePressure.extraGroupKg > 0.10) {
+                        add(
+                            "Apoyo complementario: déficit directo=${formatTraceKg(servicePressure.anchorResidualKg)} kg; " +
+                                "presión calculada=${formatTraceKg(servicePressure.extraGroupKg)} kg; " +
+                                "aplicada=${formatTraceKg(appliedServiceExtraKg)} kg después del cinturón operativo."
+                        )
+                    }
+                    addAll(allocation.trace)
+                    if (reverseSupportKg > 0.10) {
+                        add(
+                            "Equilibrio inverso: faltan ${formatTraceKg(allocation.remainingKg)} kg del grupo; " +
+                                "el lado directo puede compensar ${formatTraceKg(reverseSupportKg)} kg."
+                        )
+                    }
+                },
                 reasonCodes = groupCodes.distinct(),
                 message = groupMessage
             )
@@ -295,7 +484,7 @@ object PredictiveTransferPlannerV3 {
 
             orderedMembers.forEachIndexed { index, product ->
                 val desiredKg = allocation.byProduct[product.id] ?: 0.0
-                val packaged = availablePackagedWithinReserve(
+                val packaged = availablePackagedForInternalTransfer(
                     product,
                     packagedMatrizLots[product.id].orEmpty()
                 )
@@ -325,6 +514,14 @@ object PredictiveTransferPlannerV3 {
                     pendingPackagingKg = pending,
                     dynamicTargetC04Kg = groupDynamicTarget,
                     habitualTargetC04Kg = product.stockIdealC04.coerceAtLeast(0.0),
+                    baselineWeeklyKg = groupForecast.baselineWeeklyKg,
+                    forecastWeeklyKg = serviceAdjustedWeekly,
+                    seasonalReferenceWeeklyKg = seasonalReference,
+                    regimeName = regime.name,
+                    rawDynamicTargetC04Kg = rawGroupDynamicTarget,
+                    serviceSupportExtraKg =
+                        if (product.id == service?.preferredGroupProductId) appliedServiceExtraKg else 0.0,
+                    suggestedLotIds = allocation.lotIdsByProduct[product.id].orEmpty(),
                     groupId = group.id,
                     groupName = group.name,
                     groupHabitualTargetKg = habitualGroupTarget,
@@ -353,7 +550,18 @@ object PredictiveTransferPlannerV3 {
         snapshot.products
             .filterNot { groupedIds.contains(it.id) }
             .forEach { product ->
-                val forecast = forecastProduct(
+                val persistedProductPrediction = snapshot.persistedPredictions[product.id]
+                    ?.takeIf { it.groupId.isNullOrBlank() }
+
+                val forecast = persistedProductPrediction?.let {
+                    forecastFromPersisted(
+                        persisted = it,
+                        entityId = product.id,
+                        entityType = DemandEntityType.PRODUCT,
+                        legacyTargetKg = product.stockIdealC04.coerceAtLeast(0.0),
+                        targetWindowDays = targetWindowDays
+                    )
+                } ?: forecastProduct(
                     product = product,
                     completeWeeks = completeWeeks,
                     currentWeek = currentWeek,
@@ -365,21 +573,35 @@ object PredictiveTransferPlannerV3 {
                     productionAdvanceMode = snapshot.productionAdvanceProductIds.contains(product.id)
                 )
 
-                val dynamicTarget = adaptiveTarget(
-                    habitualKg = product.stockIdealC04.coerceAtLeast(0.0),
-                    forecast = forecast,
-                    effectiveWeeklyKg = forecast.forecastWeeklyKg,
-                    targetWindowDays = targetWindowDays
-                )
+                // Piso operativo 4.3 SOLO para productos individuales:
+                // lo configurado manualmente en stockIdealC04 jamás baja por menor demanda.
+                // La predicción persistida puede ser anterior a esta regla, por eso
+                // también se protege DESPUÉS de leer la fotografía de Room.
+                val habitualTarget = product.stockIdealC04.coerceAtLeast(0.0)
+                val rawBaseDynamicTarget = persistedProductPrediction?.dynamicC04TargetKg
+                    ?: adaptiveTarget(
+                        habitualKg = habitualTarget,
+                        forecast = forecast,
+                        effectiveWeeklyKg = forecast.forecastWeeklyKg,
+                        targetWindowDays = targetWindowDays
+                    )
+                val baseDynamicTarget = max(habitualTarget, rawBaseDynamicTarget)
+
+                // Si el grupo relacionado quedó físicamente corto y este producto directo
+                // tiene excedente transferible sobre su propia necesidad, puede ayudar en
+                // sentido inverso. Es una sola relación, sin crear retroalimentación circular.
+                val reverseServiceExtra = reverseServiceExtraByProduct[product.id]
+                    ?.coerceAtLeast(0.0)
+                    ?: 0.0
+                val dynamicTarget = baseDynamicTarget + reverseServiceExtra
                 val need = max(0.0, dynamicTarget - product.stockCongelador04.coerceAtLeast(0.0))
-                val packaged = availablePackagedWithinReserve(
+                val packaged = availablePackagedForInternalTransfer(
                     product,
                     packagedMatrizLots[product.id].orEmpty()
                 )
-                val usableMatriz = max(
-                    0.0,
-                    product.stockMatriz.coerceAtLeast(0.0) - matrixReserveForCommitment(product)
-                )
+                // Matriz -> C04 es un movimiento interno: minStock no desaparece del
+                // inventario total y por eso no debe inmovilizar kilos físicamente transferibles.
+                val usableMatriz = product.stockMatriz.coerceAtLeast(0.0)
                 val intelligentNeed = min(need, usableMatriz)
                 val original = intelligentNeed
                 val requested = manualOverridesKg[product.id]?.coerceAtLeast(0.0) ?: intelligentNeed
@@ -387,15 +609,15 @@ object PredictiveTransferPlannerV3 {
 
                 val codes = mutableListOf<TransferReasonCode>()
                 if (manualOverridesKg.containsKey(product.id)) codes += TransferReasonCode.USER_OVERRIDE
+                if (habitualTarget > 0.01 && product.stockCongelador04 + 0.01 < habitualTarget) {
+                    codes += TransferReasonCode.C04_BELOW_HABITUAL
+                }
+                if (reverseServiceExtra > 0.10) codes += TransferReasonCode.REVERSE_SERVICE_SUPPORT
                 if (need <= 0.01) codes += TransferReasonCode.C04_COVERED
                 if (requested > packaged + 0.1) {
                     codes += TransferReasonCode.PACKAGING_SHORTAGE
                     if (pending > 0.1) codes += TransferReasonCode.PACKAGING_PENDING_AVAILABLE
                 }
-                if (need > packaged + 0.1 && matrixReserveForCommitment(product) > 0.01) {
-                    codes += TransferReasonCode.MATRIX_RESERVE
-                }
-
                 productPlans[product.id] = TransferProductPlanV3(
                     productId = product.id,
                     requestedKg = requested,
@@ -403,7 +625,13 @@ object PredictiveTransferPlannerV3 {
                     availablePackagedKg = packaged,
                     pendingPackagingKg = pending,
                     dynamicTargetC04Kg = dynamicTarget,
-                    habitualTargetC04Kg = product.stockIdealC04.coerceAtLeast(0.0),
+                    habitualTargetC04Kg = habitualTarget,
+                    baselineWeeklyKg = forecast.baselineWeeklyKg,
+                    forecastWeeklyKg = forecast.forecastWeeklyKg,
+                    seasonalReferenceWeeklyKg = averageExisting(product.id, seasonalWeeks, snapshot.checkpoints),
+                    regimeName = persistedProductPrediction?.regime ?: regime.name,
+                    rawDynamicTargetC04Kg = rawBaseDynamicTarget,
+                    serviceSupportExtraKg = reverseServiceExtra,
                     isManualOverride = manualOverridesKg.containsKey(product.id),
                     reasonCodes = codes.distinct(),
                     message = TransferMessageFactory.productMessage(
@@ -413,7 +641,7 @@ object PredictiveTransferPlannerV3 {
                         availablePackagedKg = packaged,
                         currentC04Kg = product.stockCongelador04.coerceAtLeast(0.0),
                         targetC04Kg = dynamicTarget,
-                        habitualC04Kg = product.stockIdealC04.coerceAtLeast(0.0),
+                        habitualC04Kg = habitualTarget,
                         baselineWeeklyKg = forecast.baselineWeeklyKg,
                         forecastWeeklyKg = forecast.forecastWeeklyKg,
                         regimeName = regime.name,
@@ -433,10 +661,314 @@ object PredictiveTransferPlannerV3 {
         val byProduct: Map<String, Double>,
         val originalByProduct: Map<String, Double>,
         val codesByProduct: Map<String, List<TransferReasonCode>>,
-        val remainingKg: Double
+        val remainingKg: Double,
+        val trace: List<String> = emptyList(),
+        val lotIdsByProduct: Map<String, List<String>> = emptyMap()
     )
 
+
+    /**
+     * Selecciona la política del grupo sin depender de nombres visibles.
+     *
+     * - Grupo con principal configurado: roles + PEPS estricto por día.
+     * - Grupo sin principal: conserva el reparto equivalente ya validado.
+     */
     private fun allocateGroupByCohort(
+        group: PredictiveGroupConfig,
+        members: List<Product>,
+        matrizLotsByProduct: Map<String, List<StockLot>>,
+        groupNeedKg: Double,
+        overridesKg: Map<String, Double>
+    ): GroupAllocation {
+        val primaryId = group.primaryProductId
+            ?.takeIf { id -> members.any { it.id == id } && memberEnabled(group, id) }
+
+        return if (primaryId != null) {
+            allocateRoleAwareGroup(
+                group = group,
+                members = members,
+                matrizLotsByProduct = matrizLotsByProduct,
+                groupNeedKg = groupNeedKg,
+                overridesKg = overridesKg
+            )
+        } else {
+            allocateEquivalentGroupByCohort(
+                group = group,
+                members = members,
+                matrizLotsByProduct = matrizLotsByProduct,
+                groupNeedKg = groupNeedKg,
+                overridesKg = overridesKg
+            )
+        }
+    }
+
+    /**
+     * Reparto para grupos con principal/secundarios.
+     *
+     * Reglas:
+     * 1. El mínimo del principal es un PISO operativo, no un máximo.
+     * 2. Después de cubrir el piso, manda PEPS por DÍA exacto; no se mezclan fechas
+     *    sólo por estar dentro de la misma semana.
+     * 3. Si principal y secundarios comparten exactamente el día PEPS, se equilibran
+     *    por disponibilidad: cerca de mitad y mitad, favoreciendo suavemente al que
+     *    tiene más existencia. Un secundario nunca se fuerza sólo por ser secundario.
+     * 4. Un miembro auxiliar más antiguo sí puede salir antes que principal/secundario.
+     *    Si es más nuevo, no entra mientras una fecha anterior alcance.
+     * 5. Las cantidades manuales permanecen exactas y no reciben kilos adicionales.
+     */
+    private fun allocateRoleAwareGroup(
+        group: PredictiveGroupConfig,
+        members: List<Product>,
+        matrizLotsByProduct: Map<String, List<StockLot>>,
+        groupNeedKg: Double,
+        overridesKg: Map<String, Double>
+    ): GroupAllocation {
+        val membersById = members.associateBy { it.id }
+        val primaryId = group.primaryProductId
+            ?.takeIf { id -> membersById.containsKey(id) && memberEnabled(group, id) }
+            ?: return allocateEquivalentGroupByCohort(
+                group, members, matrizLotsByProduct, groupNeedKg, overridesKg
+            )
+
+        val secondaryIds = group.secondaryProductIds
+            .filter { id -> membersById.containsKey(id) && memberEnabled(group, id) }
+            .toSet()
+        val fillerIds = members
+            .map { it.id }
+            .filter { it != primaryId && !secondaryIds.contains(it) && memberEnabled(group, it) }
+            .toSet()
+
+        val allocated = linkedMapOf<String, Double>()
+        val codes = linkedMapOf<String, MutableList<TransferReasonCode>>()
+        val trace = mutableListOf<String>()
+        val lotIds = linkedMapOf<String, MutableList<String>>()
+
+        overridesKg.forEach { (productId, kg) ->
+            if (membersById.containsKey(productId)) {
+                allocated[productId] = kg.coerceAtLeast(0.0)
+                codes.getOrPut(productId) { mutableListOf() } += TransferReasonCode.USER_OVERRIDE
+                trace += "Manual ${membersById[productId]?.name ?: productId}: ${formatTraceKg(kg)} kg."
+            }
+        }
+
+        data class GuidedLot(
+            val productId: String,
+            val lot: StockLot,
+            val date: Date?,
+            var remainingKg: Double
+        )
+
+        fun buildLots(product: Product): MutableList<GuidedLot> {
+            if (overridesKg.containsKey(product.id)) return mutableListOf()
+            var stockCap = product.stockMatriz.coerceAtLeast(0.0)
+            return matrizLotsByProduct[product.id]
+                .orEmpty()
+                .sortedBy { effectiveDate(it)?.time ?: Long.MAX_VALUE }
+                .mapNotNull { lot ->
+                    if (stockCap <= 0.01) return@mapNotNull null
+                    val movable = min(stockCap, movablePackagedKg(lot))
+                    if (movable <= 0.01) return@mapNotNull null
+                    stockCap -= movable
+                    GuidedLot(product.id, lot, effectiveDate(lot), movable)
+                }
+                .toMutableList()
+        }
+
+        val lotsByProduct = members.associate { product -> product.id to buildLots(product) }
+        var remaining = max(0.0, groupNeedKg - allocated.values.sum())
+        var rectorCursor: Date? = null
+
+        fun recordTake(state: GuidedLot, kg: Double, reasonCodes: List<TransferReasonCode>) {
+            if (kg <= 0.01) return
+            allocated[state.productId] = (allocated[state.productId] ?: 0.0) + kg
+            state.remainingKg = max(0.0, state.remainingKg - kg)
+            codes.getOrPut(state.productId) { mutableListOf() }.addAll(reasonCodes)
+            lotIds.getOrPut(state.productId) { mutableListOf() }.apply {
+                if (!contains(state.lot.id)) add(state.lot.id)
+            }
+            remaining = max(0.0, remaining - kg)
+        }
+
+        fun nextRectorLot(): GuidedLot? = lotsByProduct[primaryId]
+            .orEmpty()
+            .firstOrNull { it.remainingKg > 0.01 }
+
+        fun advanceRector(amountWanted: Double, floorMode: Boolean): Double {
+            var wanted = min(amountWanted.coerceAtLeast(0.0), remaining.coerceAtLeast(0.0))
+            var taken = 0.0
+            while (wanted > 0.01) {
+                val state = nextRectorLot() ?: break
+                val kg = min(wanted, state.remainingKg)
+                if (kg <= 0.01) break
+                recordTake(
+                    state,
+                    kg,
+                    buildList {
+                        add(TransferReasonCode.FIFO_OLDEST)
+                        add(TransferReasonCode.RECTOR_CURSOR_ADVANCED)
+                        if (floorMode) add(TransferReasonCode.PRIMARY_MINIMUM)
+                        if (taken > 0.01 || rectorCursor != null) add(TransferReasonCode.NEXT_COHORT_USED)
+                    }
+                )
+                rectorCursor = laterDate(rectorCursor, state.date)
+                wanted -= kg
+                taken += kg
+            }
+            return taken
+        }
+
+        // Si el rector fue editado manualmente, estimamos hasta qué fecha PEPS habría llegado
+        // esa cantidad. Sólo sirve para no permitir que los rellenos salten hacia el futuro.
+        if (overridesKg.containsKey(primaryId)) {
+            var cursorNeed = overridesKg[primaryId]?.coerceAtLeast(0.0) ?: 0.0
+            matrizLotsByProduct[primaryId].orEmpty()
+                .sortedBy { effectiveDate(it)?.time ?: Long.MAX_VALUE }
+                .forEach { lot ->
+                    if (cursorNeed <= 0.01) return@forEach
+                    val movable = movablePackagedKg(lot)
+                    if (movable <= 0.01) return@forEach
+                    val used = min(cursorNeed, movable)
+                    cursorNeed -= used
+                    rectorCursor = laterDate(rectorCursor, effectiveDate(lot))
+                }
+        }
+
+        val primary = membersById.getValue(primaryId)
+        val primaryFloorMissing = max(
+            0.0,
+            group.primaryMinimumC04Kg.coerceAtLeast(0.0) - primary.stockCongelador04.coerceAtLeast(0.0)
+        )
+
+        if (!overridesKg.containsKey(primaryId) && primaryFloorMissing > 0.01 && remaining > 0.01) {
+            val floorTaken = advanceRector(primaryFloorMissing, floorMode = true)
+            if (floorTaken > 0.01) {
+                trace += "Rector ${primary.name}: +${formatTraceKg(floorTaken)} kg para acercarse a su piso; " +
+                    "cursor PEPS=${formatTraceDay(rectorCursor)}."
+            }
+            if (floorTaken + 0.10 < primaryFloorMissing) {
+                codes.getOrPut(primaryId) { mutableListOf() } += TransferReasonCode.PRIMARY_SHORTAGE
+                trace += "Rector ${primary.name}: faltan ${formatTraceKg(primaryFloorMissing - floorTaken)} kg " +
+                    "para el piso por falta de producto físicamente movible."
+            }
+        }
+
+        fun dateAllowed(date: Date?): Boolean {
+            val cursor = rectorCursor ?: return false
+            val candidate = date ?: return false
+            return candidate.time <= endOfOperationalDay(cursor).time
+        }
+
+        fun companionStatesAtOrBehindCursor(): List<GuidedLot> {
+            val fillers = fillerIds.flatMap { lotsByProduct[it].orEmpty() }
+                .filter { it.remainingKg > 0.01 && dateAllowed(it.date) }
+            val secondary = secondaryIds.flatMap { lotsByProduct[it].orEmpty() }
+                .filter { it.remainingKg > 0.01 && dateAllowed(it.date) }
+
+            // PEPS manda entre fechas. Si comparten el mismo día, primero intentamos vaciar
+            // rellenos escasos/atrasados y después usamos al secundario como compensador.
+            return (fillers + secondary).sortedWith(
+                compareBy<GuidedLot> { it.date?.time ?: Long.MAX_VALUE }
+                    .thenBy { if (fillerIds.contains(it.productId)) 0 else 1 }
+                    .thenByDescending { it.remainingKg }
+            )
+        }
+
+        fun drainBacklog(): Double {
+            if (remaining <= 0.01 || rectorCursor == null) return 0.0
+            var total = 0.0
+            for (state in companionStatesAtOrBehindCursor()) {
+                if (remaining <= 0.01) break
+                val kg = min(remaining, state.remainingKg)
+                if (kg <= 0.01) continue
+                val isSecondary = secondaryIds.contains(state.productId)
+                recordTake(
+                    state,
+                    kg,
+                    buildList {
+                        add(TransferReasonCode.FIFO_OLDEST)
+                        add(TransferReasonCode.RECTOR_CURSOR_BACKLOG)
+                        if (isSecondary) add(TransferReasonCode.SECONDARY_COMPENSATION)
+                        else add(TransferReasonCode.OLDER_SUPPORT_LOT)
+                    }
+                )
+                total += kg
+                trace += "Detrás del rector ${formatTraceDay(rectorCursor)}: " +
+                    "${membersById[state.productId]?.name ?: state.productId} +${formatTraceKg(kg)} kg " +
+                    "del ${formatTraceDay(state.date)}."
+            }
+            return total
+        }
+
+        // Con el cursor abierto por el rector, primero vaciamos todo lo viejo que pueda
+        // acompañarlo. Ningún relleno puede abrir una fecha posterior por sí solo.
+        drainBacklog()
+
+        var guard = 0
+        while (remaining > 0.01 && guard++ < 100) {
+            // Si todavía falta, el rector abre/avanza el siguiente tramo. No toma todo el
+            // faltante de golpe: abre como máximo un "bloque rector" para dar oportunidad
+            // a que H.M. y los rellenos atrasados completen la necesidad.
+            val nextPrimary = nextRectorLot()
+            if (nextPrimary != null) {
+                val activationBlock = group.primaryMinimumC04Kg
+                    .takeIf { it > 0.01 }
+                    ?: remaining
+                val beforeCursor = rectorCursor
+                val rectorTaken = advanceRector(min(remaining, activationBlock), floorMode = false)
+                if (rectorTaken > 0.01) {
+                    trace += "Rector abre/continúa ${formatTraceDay(rectorCursor)}: " +
+                        "${primary.name} +${formatTraceKg(rectorTaken)} kg" +
+                        if (beforeCursor != rectorCursor) "; se habilita sólo mercancía igual o anterior." else "."
+                }
+                drainBacklog()
+                continue
+            }
+
+            // Excepción controlada: si ya no existe rector físicamente movible y aún falta
+            // grupo, únicamente el secundario puede adelantarse para compensar. Ese avance
+            // NO habilita rellenos posteriores al último cursor del rector.
+            val secondaryFuture = secondaryIds
+                .flatMap { lotsByProduct[it].orEmpty() }
+                .filter { it.remainingKg > 0.01 && (rectorCursor == null || !dateAllowed(it.date)) }
+                .sortedBy { it.date?.time ?: Long.MAX_VALUE }
+                .firstOrNull()
+
+            if (secondaryFuture != null) {
+                val kg = min(remaining, secondaryFuture.remainingKg)
+                recordTake(
+                    secondaryFuture,
+                    kg,
+                    listOf(
+                        TransferReasonCode.FIFO_OLDEST,
+                        TransferReasonCode.SECONDARY_COMPENSATION,
+                        TransferReasonCode.NEXT_COHORT_USED
+                    )
+                )
+                trace += "Secundario compensa sin rector disponible: " +
+                    "${membersById[secondaryFuture.productId]?.name ?: secondaryFuture.productId} " +
+                    "+${formatTraceKg(kg)} kg del ${formatTraceDay(secondaryFuture.date)}; " +
+                    "no habilita rellenos futuros."
+                continue
+            }
+
+            break
+        }
+
+        if (remaining > 0.10) {
+            trace += "Sin combinación guiada suficiente: quedan ${formatTraceKg(remaining)} kg por cubrir."
+        }
+
+        return GroupAllocation(
+            byProduct = allocated,
+            originalByProduct = allocated.toMap(),
+            codesByProduct = codes.mapValues { it.value.distinct() },
+            remainingKg = remaining.coerceAtLeast(0.0),
+            trace = trace,
+            lotIdsByProduct = lotIds.mapValues { it.value.distinct() }
+        )
+    }
+
+    private fun allocateEquivalentGroupByCohort(
         group: PredictiveGroupConfig,
         members: List<Product>,
         matrizLotsByProduct: Map<String, List<StockLot>>,
@@ -457,10 +989,14 @@ object PredictiveTransferPlannerV3 {
         var remaining = max(0.0, groupNeedKg - allocated.values.sum())
 
         val capacities = members.associate { product ->
-            product.id to availableMatrizWithinReserve(
-                product,
-                matrizLotsByProduct[product.id].orEmpty()
-            )
+            product.id to if (memberEnabled(group, product.id)) {
+                availableMatrizForInternalTransfer(
+                    product,
+                    matrizLotsByProduct[product.id].orEmpty()
+                )
+            } else {
+                0.0
+            }
         }.toMutableMap()
 
         // Una cantidad manual es EXACTA para esta recalculación: el usuario puede volver a
@@ -547,7 +1083,7 @@ object PredictiveTransferPlannerV3 {
             } ?: break
 
             val startTime = first.date?.time
-            val balancedSameDateGroup = isBalancedSameDateGroup(group)
+            val balancedSameDateGroup = group.balanceSameReceivedDate
             val cohort = candidates.filter { candidate ->
                 if (consumedLots.contains(candidate.lot.id)) return@filter false
                 if ((capacities[candidate.productId] ?: 0.0) <= 0.01) return@filter false
@@ -591,10 +1127,10 @@ object PredictiveTransferPlannerV3 {
             var roundTaken = 0.0
 
             if (balancedSameDateGroup && availableByProduct.size > 1) {
-                // FILETES: si la fecha efectiva es la misma, no hay razón PEPS para cargar
-                // todo a Lengua o todo a Curvina. Repartimos lo más parejo posible y sólo
-                // dejamos que la disponibilidad rompa el equilibrio. Si las fechas difieren,
-                // el bucle de cohortes ya hace que mande primero la fecha más antigua.
+                // Modo configurado por el usuario: con la misma fecha efectiva no existe
+                // ventaja PEPS entre miembros, así que repartimos lo más parejo posible.
+                // La disponibilidad física puede romper el equilibrio. Con fechas distintas,
+                // el bucle de cohortes mantiene PEPS y usa primero la fecha más antigua.
                 val cohortCaps = availableByProduct.toMutableMap()
                 val activeIds = cohortCaps.keys.toMutableList()
                 var leftInCohort = takeThisCohort
@@ -635,7 +1171,7 @@ object PredictiveTransferPlannerV3 {
                         group.secondaryProductIds.contains(productId) -> 1.06
                         else -> 1.0
                     }
-                    kg * role
+                    kg * role * memberPriorityWeight(group, productId)
                 }
                 val scoreTotal = weighted.values.sum().takeIf { it > 0.0 } ?: 1.0
 
@@ -714,6 +1250,187 @@ object PredictiveTransferPlannerV3 {
                 regime = regime,
                 productionAdvanceMode = productionAdvanceMode
             )
+        )
+    }
+
+
+    private data class OperationalServicePressure(
+        val extraGroupKg: Double,
+        val anchorResidualKg: Double,
+        val anchorTargetKg: Double,
+        val anchorCurrentC04Kg: Double,
+        val anchorTransferableKg: Double,
+        val supportFraction: Double
+    ) {
+        companion object {
+            val NONE = OperationalServicePressure(
+                extraGroupKg = 0.0,
+                anchorResidualKg = 0.0,
+                anchorTargetKg = 0.0,
+                anchorCurrentC04Kg = 0.0,
+                anchorTransferableKg = 0.0,
+                supportFraction = 0.0
+            )
+        }
+    }
+
+    private data class ReverseServiceSupport(
+        val totalKg: Double,
+        val byAnchorProduct: Map<String, Double>
+    ) {
+        companion object {
+            val NONE = ReverseServiceSupport(0.0, emptyMap())
+        }
+    }
+
+    /**
+     * Presión OPERATIVA de una relación complementaria.
+     *
+     * Ejemplo Róbalo -> Pargos:
+     * 1) Róbalo conserva su objetivo propio.
+     * 2) Se calcula cuánto de ese objetivo puede cubrir con C04 + mercancía empacada transferible.
+     * 3) Sólo el faltante residual genera presión sobre Pargos.
+     * 4) La presión nunca es 1:1: usa una fracción moderada dependiente de la severidad.
+     *
+     * No toca histórico ni inventario; sólo ajusta la cobertura sugerida del grupo.
+     */
+    private fun calculateOperationalServicePressure(
+        relation: PredictiveServiceRelation,
+        linkedGroupHabitualKg: Double,
+        linkedGroupBaseTargetKg: Double,
+        productsById: Map<String, Product>,
+        persistedPredictions: Map<String, PredictiveV3Snapshot>,
+        packagedMatrizLots: Map<String, List<StockLot>>,
+        regimeName: String
+    ): OperationalServicePressure {
+        val anchors = relation.effectiveAnchorProductIds()
+            .mapNotNull(productsById::get)
+        if (anchors.isEmpty()) return OperationalServicePressure.NONE
+
+        var totalTarget = 0.0
+        var totalCurrent = 0.0
+        var totalTransferable = 0.0
+        var totalResidual = 0.0
+
+        anchors.forEach { product ->
+            val predictedTarget = persistedPredictions[product.id]
+                ?.dynamicC04TargetKg
+                ?.coerceAtLeast(0.0)
+                ?: product.stockIdealC04.coerceAtLeast(0.0)
+
+            val current = product.stockCongelador04.coerceAtLeast(0.0)
+            val transferable = availablePackagedForInternalTransfer(
+                product,
+                packagedMatrizLots[product.id].orEmpty()
+            )
+            val ownNeed = max(0.0, predictedTarget - current)
+            val physicallyCoverable = min(ownNeed, transferable)
+            val residual = max(0.0, ownNeed - physicallyCoverable)
+
+            totalTarget += predictedTarget
+            totalCurrent += current
+            totalTransferable += transferable
+            totalResidual += residual
+        }
+
+        if (totalResidual <= 0.10 || totalTarget <= 0.10) {
+            return OperationalServicePressure.NONE
+        }
+
+        val severity = (totalResidual / totalTarget).coerceIn(0.0, 1.0)
+
+        // Si el directo apenas está corto, el apoyo es pequeño.
+        // Si prácticamente no puede abastecerse, el grupo puede absorber hasta ~44%.
+        val normalFraction = (0.20 + severity * 0.24).coerceIn(0.20, 0.44)
+        val seasonalBoost = when (regimeName) {
+            "LENT" -> 1.15
+            "DECEMBER" -> 1.10
+            "HOLIDAY", "HIGH_SEASON" -> 1.12
+            else -> 1.0
+        }
+        val supportFraction = (normalFraction * seasonalBoost).coerceIn(0.20, 0.50)
+
+        val candidateExtra = totalResidual * supportFraction
+
+        // El complemento también tiene freno propio. Una relación no puede por sí sola
+        // duplicar el objetivo del grupo en una sola sugerencia.
+        val relationCeiling = max(
+            linkedGroupHabitualKg.coerceAtLeast(0.0) * 0.65,
+            linkedGroupBaseTargetKg.coerceAtLeast(0.0) * 0.55
+        ).coerceAtLeast(0.0)
+
+        val extra = min(candidateExtra, relationCeiling)
+
+        return OperationalServicePressure(
+            extraGroupKg = extra.coerceAtLeast(0.0),
+            anchorResidualKg = totalResidual,
+            anchorTargetKg = totalTarget,
+            anchorCurrentC04Kg = totalCurrent,
+            anchorTransferableKg = totalTransferable,
+            supportFraction = supportFraction
+        )
+    }
+
+    /**
+     * Sentido inverso de la MISMA relación.
+     *
+     * Sólo se usa si el grupo realmente quedó sin mercancía empacada suficiente.
+     * Un producto directo puede ayudar únicamente con disponibilidad que le sobra
+     * después de cubrir su propia necesidad. De esta forma no existe doble presión.
+     */
+    private fun calculateReverseServiceSupport(
+        relation: PredictiveServiceRelation,
+        unresolvedGroupKg: Double,
+        productsById: Map<String, Product>,
+        persistedPredictions: Map<String, PredictiveV3Snapshot>,
+        packagedMatrizLots: Map<String, List<StockLot>>
+    ): ReverseServiceSupport {
+        if (unresolvedGroupKg <= 0.10) return ReverseServiceSupport.NONE
+
+        data class Spare(val productId: String, val kg: Double)
+
+        val spares = relation.effectiveAnchorProductIds()
+            .mapNotNull(productsById::get)
+            .mapNotNull { product ->
+                val target = persistedPredictions[product.id]
+                    ?.dynamicC04TargetKg
+                    ?.coerceAtLeast(0.0)
+                    ?: product.stockIdealC04.coerceAtLeast(0.0)
+                val current = product.stockCongelador04.coerceAtLeast(0.0)
+                val transferable = availablePackagedForInternalTransfer(
+                    product,
+                    packagedMatrizLots[product.id].orEmpty()
+                )
+                val ownNeed = max(0.0, target - current)
+                val spare = max(0.0, transferable - ownNeed)
+                spare.takeIf { it > 0.10 }?.let { Spare(product.id, it) }
+            }
+
+        val totalSpare = spares.sumOf { it.kg }
+        if (totalSpare <= 0.10) return ReverseServiceSupport.NONE
+
+        // Inverso aún más conservador: el directo sólo cubre una parte del faltante grupal.
+        val wanted = min(unresolvedGroupKg * 0.35, totalSpare)
+        if (wanted <= 0.10) return ReverseServiceSupport.NONE
+
+        val byProduct = linkedMapOf<String, Double>()
+        var remaining = wanted
+        spares.forEachIndexed { index, spare ->
+            if (remaining <= 0.01) return@forEachIndexed
+            val take = if (index == spares.lastIndex) {
+                min(spare.kg, remaining)
+            } else {
+                min(spare.kg, wanted * (spare.kg / totalSpare))
+            }
+            if (take > 0.01) {
+                byProduct[spare.productId] = take
+                remaining -= take
+            }
+        }
+
+        return ReverseServiceSupport(
+            totalKg = byProduct.values.sum(),
+            byAnchorProduct = byProduct
         )
     }
 
@@ -808,6 +1525,121 @@ object PredictiveTransferPlannerV3 {
         return (low / normal - 1.0).coerceIn(0.0, 0.60)
     }
 
+    private fun forecastFromPersisted(
+        persisted: PredictiveV3Snapshot,
+        entityId: String,
+        entityType: DemandEntityType,
+        legacyTargetKg: Double,
+        targetWindowDays: Double
+    ): ForecastResultV3 {
+        val baseline = persisted.baselineWeeklyKg.coerceAtLeast(0.0)
+        val forecast = persisted.forecastWeeklyKg.coerceAtLeast(0.0)
+        val ratio = if (baseline > 0.01) forecast / baseline else 1.0
+        val trend = when {
+            ratio >= 1.75 -> TrendSignal.SURGE
+            ratio >= 1.20 -> TrendSignal.RISING
+            ratio <= 0.78 -> TrendSignal.FALLING
+            else -> TrendSignal.STABLE
+        }
+        val derivedSafetyDays = if (forecast > 0.01) {
+            (persisted.dynamicC04TargetKg * 7.0 / forecast - targetWindowDays)
+                .coerceIn(0.50, 3.00)
+        } else {
+            1.0
+        }
+
+        return ForecastResultV3(
+            entityId = entityId,
+            entityType = entityType,
+            baselineWeeklyKg = baseline,
+            liveWeeklyPaceKg = forecast,
+            forecastWeeklyKg = forecast,
+            lowScenarioWeeklyKg = persisted.lowScenarioWeeklyKg.coerceAtLeast(0.0),
+            highScenarioWeeklyKg = persisted.highScenarioWeeklyKg.coerceAtLeast(0.0),
+            trendSignal = trend,
+            confidence = ConfidenceLevel.MEDIUM,
+            variability = 0.0,
+            coverageDays = persisted.coverageDays?.toDouble(),
+            safetyDays = derivedSafetyDays,
+            dynamicC04TargetKg = persisted.dynamicC04TargetKg.coerceAtLeast(0.0),
+            suggestedTransferKg = persisted.suggestedTransferKg.coerceAtLeast(0.0),
+            limitedByMatrizReserve = false,
+            legacyC04ReferenceKg = legacyTargetKg.coerceAtLeast(0.0),
+            reasons = emptyList()
+        )
+    }
+
+    /**
+     * Capa de prudencia exclusiva de Traspasos.
+     *
+     * Conserva el pronóstico crudo para análisis, pero evita que un pico vivo aislado
+     * multiplique de golpe un objetivo grupal estable. En temporada especial permite
+     * una expansión mayor; fuera de temporada el crecimiento es deliberadamente gradual.
+     */
+    private fun prudentGroupTarget(
+        habitualKg: Double,
+        rawTargetKg: Double,
+        baselineWeeklyKg: Double,
+        forecastWeeklyKg: Double,
+        targetWindowDays: Double,
+        regimeName: String
+    ): Double {
+        val raw = rawTargetKg.coerceAtLeast(0.0)
+        val habitual = habitualKg.coerceAtLeast(0.0)
+        if (raw <= 0.01 || habitual <= 0.01) return raw
+
+        val targetFactor = when (regimeName) {
+            "LENT" -> 1.70
+            "DECEMBER" -> 1.55
+            "HOLIDAY", "HIGH_SEASON" -> 1.60
+            else -> 1.20
+        }
+
+        val historicalWindowFactor = when (regimeName) {
+            "LENT" -> 1.65
+            "DECEMBER" -> 1.50
+            "HOLIDAY", "HIGH_SEASON" -> 1.55
+            else -> 1.25
+        }
+
+        val baselineWindow = if (baselineWeeklyKg > 0.01) {
+            baselineWeeklyKg / 7.0 * (targetWindowDays.coerceAtLeast(0.0) + 1.5)
+        } else {
+            0.0
+        }
+
+        val ceiling = max(
+            habitual * targetFactor,
+            baselineWindow * historicalWindowFactor
+        )
+
+        val cappedUp = min(raw, ceiling.coerceAtLeast(habitual * 0.60))
+        if (raw >= habitual) return cappedUp
+
+        // Descenso amortiguado: una caída sí es válida, pero cuanto más parecida siga
+        // siendo la demanda prevista al histórico, menos permitimos hundir el objetivo
+        // en una sola semana.
+        val demandRatio = if (baselineWeeklyKg > 0.01) {
+            (forecastWeeklyKg.coerceAtLeast(0.0) / baselineWeeklyKg).coerceIn(0.0, 2.0)
+        } else {
+            1.0
+        }
+
+        val lowerFactor = when (regimeName) {
+            "LENT" -> 1.00
+            "DECEMBER" -> 0.98
+            "HOLIDAY", "HIGH_SEASON" -> 0.98
+            else -> when {
+                demandRatio >= 0.90 -> 0.90
+                demandRatio >= 0.75 -> 0.82
+                demandRatio >= 0.60 -> 0.72
+                else -> 0.60
+            }
+        }
+
+        return max(cappedUp, habitual * lowerFactor)
+    }
+
     private fun adaptiveTarget(
         habitualKg: Double,
         forecast: ForecastResultV3,
@@ -831,10 +1663,43 @@ object PredictiveTransferPlannerV3 {
         }
 
         val adaptiveHabitual = habitualKg * factor
-        return max(windowTarget, adaptiveHabitual)
+        // Piso operativo C04: la predicción puede aumentar, pero no reducir la
+        // cantidad habitual configurada por la persona.
+        return max(habitualKg, max(windowTarget, adaptiveHabitual))
     }
 
-    private fun availableMatrizWithinReserve(
+    /**
+     * Cantidad físicamente movible de un lote.
+     * Si el lote trabaja por cajas/costales, los residuos menores a una unidad completa
+     * NO deben abrir PEPS ni provocar que la UI salte a un lote posterior para "completarlos".
+     */
+    private fun movablePackagedKg(lot: StockLot): Double {
+        val current = lot.currentQuantity.coerceAtLeast(0.0)
+        val weight = lot.pesoPorUnidad
+        val unit = lot.unidadDeEmpaque
+        if (weight != null && weight > 0.0 && !unit.isNullOrBlank()) {
+            val units = kotlin.math.floor(current / weight).toInt()
+            return (units * weight).coerceAtMost(current)
+        }
+        return current
+    }
+
+    private fun laterDate(first: Date?, second: Date?): Date? = when {
+        first == null -> second
+        second == null -> first
+        second.after(first) -> second
+        else -> first
+    }
+
+    private fun endOfOperationalDay(date: Date): Date = Calendar.getInstance().apply {
+        time = date
+        set(Calendar.HOUR_OF_DAY, 23)
+        set(Calendar.MINUTE, 59)
+        set(Calendar.SECOND, 59)
+        set(Calendar.MILLISECOND, 999)
+    }.time
+
+    private fun availableMatrizForInternalTransfer(
         product: Product,
         matrizLots: List<StockLot>
     ): Double {
@@ -842,14 +1707,12 @@ object PredictiveTransferPlannerV3 {
             .filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
             .sumOf { it.currentQuantity.coerceAtLeast(0.0) }
 
-        val usableMatriz = max(
-            0.0,
-            product.stockMatriz.coerceAtLeast(0.0) - matrixReserveForCommitment(product)
-        )
-        return min(lotKg, usableMatriz)
+        // minStock sigue siendo referencia de cobertura/compra. No es una reserva física
+        // de Matriz durante un traspaso interno porque el stock total no disminuye.
+        return min(lotKg, product.stockMatriz.coerceAtLeast(0.0))
     }
 
-    private fun availablePackagedWithinReserve(
+    private fun availablePackagedForInternalTransfer(
         product: Product,
         packagedLots: List<StockLot>
     ): Double {
@@ -857,11 +1720,9 @@ object PredictiveTransferPlannerV3 {
             .filter { StockQuantityPolicy.isUsable(it.currentQuantity) }
             .sumOf { it.currentQuantity.coerceAtLeast(0.0) }
 
-        val usableMatriz = max(
-            0.0,
-            product.stockMatriz.coerceAtLeast(0.0) - matrixReserveForCommitment(product)
-        )
-        return min(packagedKg, usableMatriz)
+        // Traspasos sólo puede usar mercancía empacada y realmente existente en Matriz.
+        // El mínimo general NO reduce esta cantidad.
+        return min(packagedKg, product.stockMatriz.coerceAtLeast(0.0))
     }
 
     private fun matrixReserveForCommitment(product: Product): Double =
@@ -925,10 +1786,43 @@ object PredictiveTransferPlannerV3 {
         return values.takeIf { it.isNotEmpty() }?.average()
     }
 
-    private fun isBalancedSameDateGroup(group: PredictiveGroupConfig): Boolean {
-        val key = "${group.id} ${group.name}".uppercase()
-        return key.contains("FILETE")
+    private fun memberEnabled(
+        group: PredictiveGroupConfig,
+        productId: String
+    ): Boolean {
+        return group.memberRules
+            .firstOrNull { it.productId == productId }
+            ?.enabled
+            ?: true
     }
+
+    private fun memberPriorityWeight(
+        group: PredictiveGroupConfig,
+        productId: String
+    ): Double {
+        return group.memberRules
+            .firstOrNull { it.productId == productId && it.enabled }
+            ?.priorityWeight
+            ?.coerceIn(0.25, 4.0)
+            ?: 1.0
+    }
+
+    private fun roleRank(
+        group: PredictiveGroupConfig,
+        productId: String
+    ): Int = when {
+        productId == group.primaryProductId -> 0
+        group.secondaryProductIds.contains(productId) -> 1
+        else -> 2
+    }
+
+    private fun formatTraceDay(date: Date?): String =
+        date?.let {
+            SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(it)
+        } ?: "sin fecha"
+
+    private fun formatTraceKg(value: Double): String =
+        String.format(Locale.getDefault(), "%.1f", value.coerceAtLeast(0.0))
 
     private fun sameOperationalDay(first: Date?, second: Date?): Boolean {
         if (first == null || second == null) return false
@@ -938,8 +1832,10 @@ object PredictiveTransferPlannerV3 {
             a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
     }
 
+    /** PEPS se basa en la llegada original más antigua conocida. */
     private fun effectiveDate(lot: StockLot): Date? =
-        lot.originalReceivedAt ?: lot.receivedAt
+        listOfNotNull(lot.receivedAt, lot.originalReceivedAt)
+            .minByOrNull { it.time }
 
     private fun median(values: List<Double>): Double {
         if (values.isEmpty()) return 0.0
@@ -995,16 +1891,29 @@ object TransferMessageFactory {
             set.contains(TransferReasonCode.PRIMARY_MINIMUM) ->
                 "$productName está bajo su mínimo operativo en C04; por eso se prioriza su reposición."
 
+            set.contains(TransferReasonCode.C04_BELOW_HABITUAL) && current != null -> {
+                val habitual = habitualC04Kg?.coerceAtLeast(0.0) ?: 0.0
+                val base = "C04 tiene ${format1(current)} kg: está por debajo del objetivo habitual de ${format1(habitual)} kg. " +
+                    "Objetivo actual ${format1(target ?: habitual)} kg; se prioriza su reposición."
+                if (set.contains(TransferReasonCode.PACKAGING_SHORTAGE)) {
+                    "$base Empacado disponible: ${format1(availablePackagedKg)} kg; revisa empaque y disponibilidad."
+                } else base
+            }
+
             deficit != null && deficit > 0.10 && specialSeason -> {
-                val season = when (regimeName) {
-                    "LENT" -> "Cuaresma"
-                    "DECEMBER" -> "diciembre"
-                    "HOLIDAY" -> "periodo festivo"
-                    "HIGH_SEASON" -> "temporada alta"
-                    else -> "temporada especial"
-                }
                 val scope = groupName?.let { "El grupo $it" } ?: "C04"
-                "$season está activa. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+                when (regimeName) {
+                    "LENT" ->
+                        "Cuaresma elevó la demanda esperada. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual subió a ${format1(target ?: 0.0)} kg."
+                    "DECEMBER" ->
+                        "Fiestas decembrinas elevan la demanda esperada. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+                    "HOLIDAY" ->
+                        "El periodo festivo elevó la demanda esperada. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+                    "HIGH_SEASON" ->
+                        "Temporada alta elevó la demanda esperada. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+                    else ->
+                        "La referencia estacional elevó la demanda esperada. $scope tiene ${format1(current ?: 0.0)} kg y el objetivo actual es ${format1(target ?: 0.0)} kg."
+                }
             }
 
             deficit != null && deficit > 0.10 && demandHigh -> {
@@ -1022,11 +1931,23 @@ object TransferMessageFactory {
                 }
             }
 
+            set.contains(TransferReasonCode.REVERSE_SERVICE_SUPPORT) ->
+                "$productName puede apoyar al grupo relacionado porque conserva disponibilidad transferible después de cubrir su propia necesidad."
+
             set.contains(TransferReasonCode.USER_OVERRIDE) ->
                 "Cantidad modificada. Se conserva tu decisión."
 
             set.contains(TransferReasonCode.C04_COVERED) ->
                 "C04 ya cubre la necesidad estimada hasta el próximo traspaso."
+
+            set.contains(TransferReasonCode.ROLE_SAME_DAY_BALANCE) ->
+                "PEPS: comparte la fecha activa con otro producto principal/secundario; se equilibró según la existencia disponible."
+
+            set.contains(TransferReasonCode.SECONDARY_COMPENSATION) ->
+                "$productName apoya la cobertura del grupo por PEPS y disponibilidad; no se fuerza al secundario si otra opción anterior puede cubrirla."
+
+            set.contains(TransferReasonCode.OLDER_SUPPORT_LOT) ->
+                "PEPS: este producto tiene mercancía más antigua que los productos principales, por eso se aprovecha primero."
 
             set.contains(TransferReasonCode.NEXT_COHORT_USED) ->
                 "PEPS: el lote más antiguo no alcanzó y se completó con la siguiente fecha disponible."
@@ -1047,6 +1968,18 @@ object TransferMessageFactory {
     ): String? {
         val set = codes.toSet()
         return when {
+            set.contains(TransferReasonCode.SERVICE_SUPPORT_APPLIED) ->
+                "$groupName aumenta su cobertura porque el producto relacionado no puede cubrir toda su necesidad con la mercancía disponible."
+
+            set.contains(TransferReasonCode.REVERSE_SERVICE_SUPPORT) ->
+                "El grupo no alcanza a cubrir toda su necesidad; el producto relacionado puede compensar una parte con disponibilidad sobrante."
+
+            set.contains(TransferReasonCode.NORMAL_TARGET_GUARD) ->
+                "La demanda cambió, pero el objetivo operativo se mantuvo dentro de una banda estable. Los saltos grandes se reservan para temporada especial."
+
+            set.contains(TransferReasonCode.LIVE_SPIKE_GUARDED) ->
+                "El ritmo reciente subió con fuerza. La sugerencia se moderó con el histórico para evitar reaccionar de más a un pico aislado."
+
             set.contains(TransferReasonCode.SUPPORT_PRODUCT_LOW) ->
                 "$groupName necesita más apoyo porque el producto directo está por debajo de su nivel habitual."
 
@@ -1060,7 +1993,7 @@ object TransferMessageFactory {
                 "No hay suficiente mercancía empacada de las fechas disponibles para completar el objetivo del grupo."
 
             primaryName != null && habitualKg > 0.0 ->
-                "$primaryName rige el equilibrio; el resto se distribuye respetando PEPS y disponibilidad."
+                "$primaryName marca el piso operativo del grupo; después el reparto respeta PEPS, fecha y disponibilidad real."
 
             else -> null
         }

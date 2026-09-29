@@ -1,8 +1,8 @@
 package com.cesar.bocana.ui.dialogs
 
-import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,9 +12,11 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
+import com.cesar.bocana.BuildConfig
 import com.cesar.bocana.R
 import com.cesar.bocana.data.model.Product
-import com.cesar.bocana.predictive.v3.PredictiveV3Coordinator
+import com.cesar.bocana.predictive.v3.PredictiveV3Manager
+import com.cesar.bocana.predictive.v3.data.PredictiveV3Snapshot
 import com.cesar.bocana.predictive.v3.model.BacktestSignal
 import com.cesar.bocana.predictive.v3.model.ConfidenceLevel
 import com.cesar.bocana.predictive.v3.model.GroupAnalysisV3
@@ -27,8 +29,10 @@ import com.cesar.bocana.util.PredictiveConsumptionEngine
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.card.MaterialCardView
-import com.google.firebase.FirebaseApp
-import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -46,7 +50,6 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
     companion object {
         const val TAG = "ConsumoPredictivoBottomSheet"
-        private const val DEV_PROJECT_ID = "testserver-89"
     }
 
     private lateinit var progressGauge: ProgressBar
@@ -67,6 +70,9 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
     private lateinit var tvLowDemandScenario: TextView
     private lateinit var tvSeasonInsight: TextView
     private lateinit var v3DeepContainer: LinearLayout
+    private lateinit var predictiveManager: PredictiveV3Manager
+    private var displayedSnapshot: PredictiveV3Snapshot? = null
+    private var detailedSnapshot: PredictiveV3Snapshot? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -107,40 +113,132 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             isFillViewport = true
         }
 
-        val projectId = runCatching { FirebaseApp.getInstance().options.projectId }.getOrNull()
-        if (projectId == DEV_PROJECT_ID) {
-            // En DEV no mostramos primero una predicción V2 que luego cambie a V3.
-            // Mientras V3 analiza, la UI queda en estado neutro para evitar datos contradictorios.
-            renderV3LoadingState()
-            addLoadingCard()
-            viewLifecycleOwner.lifecycleScope.launch {
-                try {
-                    // El popup vuelve a usar la fuente V3 probada para conservar
-                    // el historial/checkpoints completos. La única diferencia visual
-                    // es que V2 ya no aparece antes: queda sólo como respaldo si V3 falla.
-                    val analysis = PredictiveV3Coordinator(
-                        FirebaseFirestore.getInstance()
-                    ).analyzeProduct(product.id)
-                    if (!isAdded) return@launch
-                    renderV3(analysis)
-                } catch (e: Exception) {
-                    if (!isAdded) return@launch
+        // Mismo resultado Room que tarjeta y PDF. Abrir el popup no crea otro motor.
+        predictiveManager = PredictiveV3Manager.getInstance(requireContext().applicationContext)
+        displayedSnapshot = null
+        detailedSnapshot = null
+        renderV3LoadingState()
+        addLoadingCard()
 
-                    // V2 se conserva únicamente como respaldo real si V3 falla.
-                    renderLegacyFallback()
-                    v3DeepContainer.removeAllViews()
-                    addSectionCard(
-                        title = "Análisis avanzado no disponible",
-                        subtitle = "Se muestran datos de respaldo. Detalle: ${e.message ?: "error desconocido"}",
-                        accent = "#B91C1C",
-                        background = "#FFF7F7"
-                    )
-                }
+        // Este observador puede mostrar la fotografía guardada mientras el gestor está ocupado.
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                predictiveManager.observeSnapshots()
+                    .map { snapshots -> snapshots.firstOrNull { it.productId == product.id } }
+                    .distinctUntilChanged()
+                    .collect { snapshot ->
+                        if (snapshot != null) showCentralResult(snapshot)
+                    }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                showCentralFailure(e)
             }
-        } else {
-            // Mientras V3 siga validándose en DEV, producción conserva el comportamiento V2 actual.
-            renderLegacyFallback()
         }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                predictiveManager.getSnapshot(product.id)?.let(::showCentralResult)
+                // RAM si es vigente; si falta detalle o cambiaron datos, el gestor lo calcula UNA vez.
+                predictiveManager.getAnalysis(product.id)
+                predictiveManager.getSnapshot(product.id)?.let(::showCentralResult)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                showCentralFailure(e)
+            }
+        }
+    }
+
+    private fun showCentralResult(snapshot: PredictiveV3Snapshot) {
+        if (!isAdded || view == null) return
+        val previous = displayedSnapshot
+        if (previous != null && previous.calculatedAtMillis > snapshot.calculatedAtMillis) return
+        displayedSnapshot = snapshot
+        renderCentralSnapshot(snapshot)
+        val analysis = predictiveManager.getCachedAnalysis(snapshot)
+        if (analysis != null) {
+            if (detailedSnapshot != snapshot) {
+                renderV3(analysis, snapshot)
+                detailedSnapshot = snapshot
+            }
+        } else if (previous != snapshot) {
+            detailedSnapshot = null
+            v3DeepContainer.removeAllViews()
+            addSectionCard(
+                title = "Resultado central guardado",
+                subtitle = "La cobertura coincide con tarjeta y PDF. El detalle avanzado se recupera por separado.",
+                note = "Último cálculo: ${snapshotDate(snapshot)}. No se inventa otro pronóstico al abrir.",
+                accent = "#6D28D9", background = "#FAF5FF"
+            )
+        }
+        if (BuildConfig.DEBUG) Log.d("BocanaCoberturaTrace",
+            "POPUP_CENTRAL | producto=${snapshot.productId} | dias=${snapshot.coverageDays} | " +
+                "demandaSemanal=${snapshot.forecastWeeklyKg} | stockCobertura=${snapshot.primaryTotalStockKg} | " +
+                "revision=${snapshot.calculatedAtMillis} | detalleRAM=${analysis != null}")
+    }
+
+    private fun showCentralFailure(error: Exception) {
+        if (!isAdded || view == null) return
+        if (BuildConfig.DEBUG) Log.w("BocanaCoberturaTrace", "POPUP_CONSERVADO | producto=${product.id}", error)
+        val saved = displayedSnapshot
+        if (saved != null) {
+            renderCentralSnapshot(saved)
+            tvSeasonInsight.text = "No se pudo actualizar. Se conserva el cálculo del ${snapshotDate(saved)}; puede estar desactualizado."
+        } else {
+            renderCoverage(null, "Sin resultado central disponible", "No se calcula otra cobertura en esta pantalla")
+            tvForecastWeekly.text = "—"
+            tvForecast30Days.text = "—"
+            tvAverageWeekly.text = "—"
+            tvAverageMonthly.text = "—"
+            cardHighDemandScenario.visibility = View.GONE
+            cardLowDemandScenario.visibility = View.GONE
+            tvSeasonInsight.text = "Espera a que termine la sincronización y vuelve a abrir. No borres datos ni checkpoints."
+        }
+        detailedSnapshot = null
+        v3DeepContainer.removeAllViews()
+        addSectionCard(
+            title = "Actualización pendiente",
+            subtitle = "No se reemplazó el resultado central por datos parciales.",
+            note = "Comprueba la conexión y permite que termine la sincronización. Si persiste, conserva el log de diagnóstico.",
+            accent = "#B45309", background = "#FFFBEB"
+        )
+    }
+
+    private fun snapshotDate(snapshot: PredictiveV3Snapshot): String =
+        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(snapshot.calculatedAtMillis))
+
+    /** Presentación, no decisión: duración, demanda y rango vienen de la misma fila Room. */
+    private fun renderCentralSnapshot(snapshot: PredictiveV3Snapshot) {
+        val days = snapshot.coverageDays
+        val groupName = snapshot.groupId?.let { groupDisplayName(it, snapshot.groupName.orEmpty()) }
+        val duration = days?.let { PredictiveConsumptionEngine.formatDuration(it) }
+        val title = when {
+            days == null -> "Cobertura no calculable con el resultado disponible"
+            groupName != null -> "Cobertura conjunta de $groupName\nStock estimado para $duration"
+            days == 0 -> "El stock está agotado"
+            else -> "Stock estimado para $duration"
+        }
+        val min = snapshot.probableMinDays
+        val max = snapshot.probableMaxDays
+        renderCoverage(days, title, if (min != null && max != null) {
+            "Rango probable: ${PredictiveConsumptionEngine.formatDuration(min)} a ${PredictiveConsumptionEngine.formatDuration(max)}"
+        } else "Rango probable no disponible")
+        tvForecastWeekly.text = formatQuantity(snapshot.forecastWeeklyKg, product.unit)
+        tvForecast30Days.text = formatQuantity(snapshot.forecastWeeklyKg * 30.0 / 7.0, product.unit)
+        tvAverageWeekly.text = formatQuantity(snapshot.baselineWeeklyKg, product.unit)
+        tvAverageMonthly.text = formatQuantity(snapshot.baselineWeeklyKg * 30.0 / 7.0, product.unit)
+        cardHighDemandScenario.visibility = if (min != null) View.VISIBLE else View.GONE
+        cardLowDemandScenario.visibility = if (max != null) View.VISIBLE else View.GONE
+        tvHighDemandScenario.text = min?.let {
+            "Escenario de menor duración: aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
+        } ?: "Sin escenario disponible"
+        tvLowDemandScenario.text = max?.let {
+            "Escenario de mayor duración: aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
+        } ?: "Sin escenario disponible"
+        val season = runCatching { SeasonRegime.valueOf(snapshot.regime) }.getOrNull()
+        tvSeasonInsight.text = (season?.let(::seasonExplanation) ?: "Resultado predictivo guardado.") +
+            "\nÚltimo cálculo: ${snapshotDate(snapshot)}. Fuente: resultado central de Room."
     }
 
     override fun onStart() {
@@ -171,7 +269,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         progressGauge.progress = 0
 
         cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F1F5F9"))
-        tvStatusBadge.setTextColor(uiTextColor(primary = false))
+        tvStatusBadge.setTextColor(Color.parseColor("#64748B"))
         tvStatusBadge.text = "Analizando inventario"
 
         tvMainPrediction.text = "Calculando cobertura…"
@@ -187,6 +285,8 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         tvSeasonInsight.text = "Preparando análisis predictivo…"
     }
 
+    // Se conserva la referencia V2, pero no se invoca como reemplazo silencioso de la cobertura central.
+    @Suppress("unused")
     private fun renderLegacyFallback() {
         val weekly = product.demandaSemanalPrevista
         val average = product.consumoSemanalPromedio
@@ -214,76 +314,12 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         tvSeasonInsight.text = "Referencia inicial mientras V3 termina de analizar los datos reales."
     }
 
-    private fun renderV3(analysis: PredictiveV3Analysis) {
-        val individualForecast = analysis.individualForecast
+    private fun renderV3(analysis: PredictiveV3Analysis, snapshot: PredictiveV3Snapshot) {
         val group = analysis.groupAnalysis
-
-        val primaryForecast = group?.forecast ?: individualForecast
-        val primaryOperational = group?.operational ?: analysis.individualOperational
-        val groupStocks = groupStockTotals(analysis)
-        val primaryTotalStock = if (group != null) {
-            groupStocks?.let { it.first + it.second }
-                ?: group.forecast.coverageDays?.let { days ->
-                    if (primaryOperational.effectiveWeeklyKg > 0.01) {
-                        days * (primaryOperational.effectiveWeeklyKg / 7.0)
-                    } else 0.0
-                }
-                ?: 0.0
-        } else {
-            product.totalStock
-        }
-
-        val coverage = if (group != null) {
-            coverageDaysDouble(primaryTotalStock, primaryOperational.effectiveWeeklyKg)
-                ?: group.forecast.coverageDays
-        } else {
-            analysis.effectiveCoverageDays
-        }
-        val coverageInt = coverage?.coerceAtLeast(0.0)?.roundToInt()
-
-        // Si pertenece a un grupo de cobertura conjunta, el GRUPO manda en la parte principal.
-        tvForecastWeekly.text = formatQuantity(primaryOperational.effectiveWeeklyKg, product.unit)
-        tvForecast30Days.text = formatQuantity(primaryOperational.effectiveWeeklyKg * 30.0 / 7.0, product.unit)
-        tvAverageWeekly.text = formatQuantity(primaryForecast.baselineWeeklyKg, product.unit)
-        tvAverageMonthly.text = formatQuantity(primaryForecast.baselineWeeklyKg * 30.0 / 7.0, product.unit)
-
-        val highDays = coverageDays(primaryTotalStock, primaryForecast.highScenarioWeeklyKg)
-        val lowDays = coverageDays(primaryTotalStock, primaryForecast.lowScenarioWeeklyKg)
-        val probableMin = listOfNotNull(highDays, coverageInt, lowDays).minOrNull()
-        val probableMax = listOfNotNull(highDays, coverageInt, lowDays).maxOrNull()
-
-        val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
-        val coverageTitle = if (groupName != null) {
-            "Cobertura conjunta de $groupName"
-        } else {
-            coverageInt?.let { "Stock estimado para ${PredictiveConsumptionEngine.formatDuration(it)}" }
-                ?: "Cobertura no calculable"
-        }
-
-        renderCoverage(
-            days = coverageInt,
-            mainText = if (groupName != null && coverageInt != null) {
-                "$coverageTitle\nStock estimado para ${PredictiveConsumptionEngine.formatDuration(coverageInt)}"
-            } else {
-                coverageTitle
-            },
-            rangeText = if (probableMin != null && probableMax != null) {
-                "Rango probable: ${PredictiveConsumptionEngine.formatDuration(probableMin)} a ${PredictiveConsumptionEngine.formatDuration(probableMax)}"
-            } else "Rango probable no disponible"
-        )
-
-        tvHighDemandScenario.text = highDays?.let {
-            "Si aumenta el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
-        } ?: "No hay suficiente información para el escenario de mayor consumo."
-
-        tvLowDemandScenario.text = lowDays?.let {
-            "Si baja el consumo, podría alcanzar aproximadamente ${PredictiveConsumptionEngine.formatDuration(it)}."
-        } ?: "No hay suficiente información para el escenario de menor consumo."
-
-        tvSeasonInsight.text = seasonExplanation(analysis.regime)
+        renderCentralSnapshot(snapshot)
 
         v3DeepContainer.removeAllViews()
-        addOperationalCard(analysis)
+        addOperationalCard(analysis, snapshot)
         group?.let { addGroupCard(it, analysis) }
 
         analysis.serviceAnalysis?.let { service ->
@@ -317,57 +353,37 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         addAdvancedCard(analysis)
     }
 
-    private fun addOperationalCard(analysis: PredictiveV3Analysis) {
+    private fun addOperationalCard(analysis: PredictiveV3Analysis, snapshot: PredictiveV3Snapshot) {
         val group = analysis.groupAnalysis
         val groupName = group?.let { groupDisplayName(it.config.id, it.config.name) }
-        val groupStocks = groupStockTotals(analysis)
-
-        val operational = group?.operational ?: analysis.individualOperational
-        val c04Current = if (group != null) {
-            groupStocks?.second ?: 0.0
-        } else {
-            analysis.selectedProduct.stockCongelador04
-        }
-        val totalStock = if (group != null) {
-            groupStocks?.let { it.first + it.second } ?: 0.0
-        } else {
-            analysis.selectedProduct.totalStock
-        }
-        val coverage = if (group != null) {
-            coverageDaysDouble(totalStock, operational.effectiveWeeklyKg)
-                ?: group.forecast.coverageDays
-        } else {
-            analysis.effectiveCoverageDays
-        }
 
         val rows = buildList {
             add("Temporada" to seasonLabel(analysis.regime))
             add("Próximo traspaso a C04" to formatNextTransfer(analysis.targetWindowDays))
-            add("Demanda estimada" to "${format1(operational.effectiveWeeklyKg)} kg/semana")
+            add("Demanda estimada" to "${format1(snapshot.forecastWeeklyKg)} kg/semana")
             add(
                 (if (group != null) "Cobertura conjunta" else "Cobertura total") to
-                    (coverage?.let { "${format0(it)} días" } ?: "Sin dato")
+                    (snapshot.coverageDays?.let { "$it días" } ?: "Sin dato")
             )
             if (group == null) {
                 add("Comportamiento" to (analysis.consumptionPattern?.title ?: "Sin clasificar"))
             }
-            add("C04 actual" to "${format1(c04Current)} kg")
-            add("Objetivo C04" to "${format1(operational.dynamicC04TargetKg)} kg")
+            add("C04 actual" to "${format1(snapshot.c04CurrentKg)} kg")
+            add("Objetivo C04" to "${format1(snapshot.dynamicC04TargetKg)} kg")
             add(
-                "Traspaso sugerido" to
-                    "${format1(group?.allocation?.allocatedKg ?: operational.suggestedTransferKg)} kg"
+                "Referencia matemática" to "${format1(snapshot.suggestedTransferKg)} kg"
             )
             if (groupName != null) add("Grupo" to groupName)
         }
 
         addSectionCard(
             title = "Resumen operativo",
-            badge = "DEV · SOLO SUGIERE",
+            badge = "SOLO SUGIERE",
             rows = rows,
             note = if (group != null) {
-                "El grupo manda para cobertura y traspaso. El producto abierto se muestra abajo como detalle."
+                "La cobertura es del grupo. Traspasos determina el envío final respetando mínimos, PEPS y cajas/costales."
             } else {
-                analysis.consumptionPattern?.explanation
+                "${analysis.consumptionPattern?.explanation.orEmpty()}\nTraspasos determina el envío final con mínimos y paquetes físicos."
             },
             accent = "#6D28D9",
             background = "#FAF5FF"
@@ -551,7 +567,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             cardElevation = 0f
             strokeWidth = dp(1)
             strokeColor = Color.parseColor("#CBD5E1")
-            setCardBackgroundColor(if (isNightMode()) Color.parseColor("#0B1220") else Color.WHITE)
+            setCardBackgroundColor(Color.WHITE)
             layoutParams = sectionLayoutParams(top = 12)
         }
         val wrapper = LinearLayout(requireContext()).apply {
@@ -560,14 +576,14 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         }
         val header = TextView(requireContext()).apply {
             text = "Información avanzada  ▾"
-            setTextColor(uiTextColor(primary = true))
+            setTextColor(Color.parseColor("#334155"))
             textSize = 14f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(4))
         }
         val body = TextView(requireContext()).apply {
             text = bodyLines.joinToString("\n") { "• $it" }
-            setTextColor(uiTextColor(primary = false))
+            setTextColor(Color.parseColor("#475569"))
             textSize = 12f
             setLineSpacing(0f, 1.12f)
             setPadding(0, dp(10), 0, 0)
@@ -599,7 +615,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         addSectionCard(
             title = "Análisis predictivo",
             subtitle = "Revisando consumo, lotes, compras, grupos y pendientes...",
-            badge = "DEV · SOLO SUGIERE",
+            badge = "SOLO SUGIERE",
             accent = "#6D28D9",
             background = "#FAF5FF"
         )
@@ -621,8 +637,8 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             radius = dp(16).toFloat()
             cardElevation = 0f
             strokeWidth = dp(1)
-            strokeColor = if (isNightMode()) Color.parseColor(accent) else Color.parseColor(lightenStroke(accent))
-            setCardBackgroundColor(if (isNightMode()) Color.parseColor("#0B1220") else Color.parseColor(background))
+            strokeColor = Color.parseColor(lightenStroke(accent))
+            setCardBackgroundColor(Color.parseColor(background))
             layoutParams = sectionLayoutParams(top = 12)
         }
 
@@ -662,7 +678,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
 
         val arrow = if (collapsible) {
             TextView(requireContext()).apply {
-                setTextColor(uiTextColor(primary = false))
+                setTextColor(Color.parseColor("#64748B"))
                 textSize = 13f
                 setPadding(dp(8), 0, 0, 0)
             }.also(titleRow::addView)
@@ -677,7 +693,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         subtitle?.let {
             body.addView(TextView(requireContext()).apply {
                 text = it
-                setTextColor(uiTextColor(primary = false))
+                setTextColor(Color.parseColor("#64748B"))
                 textSize = 12f
                 setPadding(0, dp(5), 0, 0)
             })
@@ -692,7 +708,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             body.addView(spacer(dp(8)))
             body.addView(TextView(requireContext()).apply {
                 text = bullets.joinToString("\n") { "• $it" }
-                setTextColor(uiTextColor(primary = false))
+                setTextColor(Color.parseColor("#475569"))
                 textSize = 11.5f
                 setLineSpacing(0f, 1.1f)
             })
@@ -701,7 +717,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         note?.takeIf { it.isNotBlank() }?.let {
             body.addView(TextView(requireContext()).apply {
                 text = it
-                setTextColor(uiTextColor(primary = false))
+                setTextColor(Color.parseColor("#64748B"))
                 textSize = 10.5f
                 setPadding(0, dp(8), 0, 0)
             })
@@ -730,28 +746,17 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             setPadding(0, dp(4), 0, dp(4))
             addView(TextView(requireContext()).apply {
                 text = label
-                setTextColor(uiTextColor(primary = false))
+                setTextColor(Color.parseColor("#64748B"))
                 textSize = 11.5f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(requireContext()).apply {
                 text = value
-                setTextColor(uiTextColor(primary = true))
+                setTextColor(Color.parseColor("#0F172A"))
                 textSize = 12.5f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 gravity = android.view.Gravity.END
             })
-        }
-    }
-
-    private fun isNightMode(): Boolean =
-        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-
-    private fun uiTextColor(primary: Boolean): Int {
-        return if (isNightMode()) {
-            Color.parseColor(if (primary) "#F5F7FF" else "#A8B3C7")
-        } else {
-            Color.parseColor(if (primary) "#0F172A" else "#64748B")
         }
     }
 
@@ -766,7 +771,7 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
             progressGauge.progressDrawable.setTint(gray)
             progressGauge.progress = 0
             cardStatusBadge.setCardBackgroundColor(Color.parseColor("#F1F5F9"))
-            tvStatusBadge.setTextColor(uiTextColor(primary = false))
+            tvStatusBadge.setTextColor(Color.parseColor("#64748B"))
             tvStatusBadge.text = "Historial insuficiente"
             tvMainPrediction.text = mainText
             tvProbableRange.text = rangeText
@@ -912,4 +917,3 @@ class ConsumoPredictivoBottomSheet(private val product: Product) : BottomSheetDi
         else -> "#CBD5E1"
     }
 }
-

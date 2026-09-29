@@ -1,4 +1,3 @@
-
 package com.cesar.bocana.ui.dialogs
 
 import android.app.Dialog
@@ -182,7 +181,7 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                         }
                         stockLot
                     }
-                }.awaitAll().sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
+                }.awaitAll().sortedBy { fechaRecepcion(it)?.time ?: Long.MAX_VALUE }
 
                 val totalDisponible = lotesOrigenMatriz.sumOf { it.currentQuantity }
                 if (quantityToTraspasarTotal > totalDisponible + StockQuantityPolicy.FLOAT_EPSILON) {
@@ -247,7 +246,7 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
                             idsDestinoAfectados.add("${subloteRef.id.takeLast(4)}:${String.format("%.2f", cantDeEsteLote)} (Exist.)")
                         } else {
                             val newLotRef = firestore.collection("inventoryLots").document()
-                            val fechaOriginal = loteOrigen.originalReceivedAt ?: loteOrigen.receivedAt
+                            val fechaOriginal = fechaRecepcion(loteOrigen)
                             val nuevoSublote = StockLot(
                                 id = newLotRef.id,
                                 productId = loteOrigen.productId,
@@ -330,6 +329,10 @@ class TraspasoMatrizC04DialogFragment : DialogFragment() {
             }
         }
     }
+
+    private fun fechaRecepcion(lote: StockLot): Date? =
+        listOfNotNull(lote.receivedAt, lote.originalReceivedAt)
+            .minByOrNull { it.time }
 
 }
 

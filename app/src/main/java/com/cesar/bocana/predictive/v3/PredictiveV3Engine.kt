@@ -169,7 +169,16 @@ object PredictiveV3Engine {
                 add("Producción adelantada: demanda suavizada en ventanas móviles de 4 semanas")
             }
             if (elapsedDays > 0.0) add("Ritmo vivo: ${format1(liveWeekly)} kg/sem")
-            if (seasonal != null) add("Referencia estacional activa: ${format1(seasonal)} kg/sem")
+            if (seasonal != null) {
+                val seasonalLabel = when (context.regime.name) {
+                    "LENT" -> "Referencia equivalente de Cuaresma del año anterior"
+                    "DECEMBER" -> "Referencia de fiestas decembrinas del año anterior"
+                    "HOLIDAY" -> "Referencia del periodo festivo comparable"
+                    "HIGH_SEASON" -> "Referencia comparable de temporada alta"
+                    else -> "Referencia del mismo periodo del año anterior"
+                }
+                add("$seasonalLabel: ${format1(seasonal)} kg/sem")
+            }
             if (trendSignal == TrendSignal.SURGE) add("Aceleración fuerte detectada")
             if (trendSignal == TrendSignal.RISING) add("Consumo reciente al alza")
             if (trendSignal == TrendSignal.FALLING) add("Consumo reciente por debajo de la base")

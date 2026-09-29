@@ -204,7 +204,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
         val inputLayout = dialogView.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.textField_layout_cantidad_edit)
 
         val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-        val fecha = dateFormat.format(lote.originalReceivedAt ?: lote.receivedAt ?: Date())
+        val fecha = dateFormat.format(fechaRecepcion(lote) ?: Date())
         val proveedor = lote.supplierName ?: "S/P"
         loteInfoTextView.text = "Editando: $fecha ($proveedor)"
 
@@ -302,7 +302,7 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
                             !it.isDepleted &&
                             StockQuantityPolicy.isUsable(it.currentQuantity)
                     }
-                    .sortedBy { (it.originalReceivedAt ?: it.receivedAt)?.time ?: Long.MAX_VALUE }
+                    .sortedBy { fechaRecepcion(it)?.time ?: Long.MAX_VALUE }
 
                 updateAdapterList()
             } catch (e: Exception) {
@@ -318,6 +318,11 @@ class SeleccionarLotesDialogFragment : DialogFragment(), LoteAdapterListener {
             }
         }
     }
+
+    /** Fecha de compra/recepción usada por PEPS, no fecha de empaque ni traspaso. */
+    private fun fechaRecepcion(lote: StockLot): Date? =
+        listOfNotNull(lote.receivedAt, lote.originalReceivedAt)
+            .minByOrNull { it.time }
 
     override fun onDestroyView() {
         super.onDestroyView()

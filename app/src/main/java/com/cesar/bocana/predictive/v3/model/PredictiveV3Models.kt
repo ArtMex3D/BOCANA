@@ -119,6 +119,12 @@ data class PredictiveGroupConfig(
      * No sustituye Product.minStock, que sigue siendo una reserva GENERAL.
      */
     val primaryMinimumC04Kg: Double = 0.0,
+    /**
+     * Si está activo, cuando dos o más miembros tienen la misma fecha PEPS efectiva,
+     * el reparto intenta ser equilibrado entre ellos. Con fechas distintas, PEPS manda.
+     * Es configuración funcional; no depende del nombre del grupo ni de sus productos.
+     */
+    val balanceSameReceivedDate: Boolean = false,
     val enabled: Boolean = true
 )
 

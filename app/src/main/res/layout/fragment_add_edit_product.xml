@@ -116,45 +116,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
-        <!-- INICIO: CAMPOS DE CATEGORÍA (FASE 1 - TITÁN V1) -->
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutCategoria"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Categoría del Producto"
-            app:layout_constraintTop_toBottomOf="@id/helperTextProductionAdvance"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent">
 
-            <AutoCompleteTextView
-                android:id="@+id/autoCompleteCategoria"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="none" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/textFieldLayoutProductoRector"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="Producto Rector (si aplica)"
-            android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/textFieldLayoutCategoria"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            tools:visibility="visible">
-
-            <AutoCompleteTextView
-                android:id="@+id/autoCompleteProductoRector"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="none" />
-        </com.google.android.material.textfield.TextInputLayout>
-        <!-- FIN: CAMPOS DE CATEGORÍA -->
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchActive"
@@ -165,7 +127,7 @@
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
             android:checked="true"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@+id/textFieldLayoutProductoRector"
+            app:layout_constraintTop_toBottomOf="@id/helperTextProductionAdvance"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             tools:visibility="visible"/>

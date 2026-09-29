@@ -14,8 +14,9 @@ import com.cesar.bocana.data.model.DetalleTraspasoPlan
 import com.cesar.bocana.data.model.TraspasoSugerenciaItem
 import com.cesar.bocana.predictive.v3.PredictiveTransferPlannerV3
 import com.cesar.bocana.predictive.v3.TransferPlanV3
+import com.cesar.bocana.predictive.v3.TransferPlannerDiagnostics
 import com.cesar.bocana.predictive.v3.data.PredictiveV3ConfigRepository
-import com.cesar.bocana.predictive.v3.data.PredictiveV3RoomDataSource
+import com.cesar.bocana.predictive.v3.data.PredictiveV3HybridDataSource
 import com.cesar.bocana.predictive.v3.data.PredictiveV3Time
 import com.cesar.bocana.util.StockQuantityPolicy
 import com.cesar.bocana.utils.FirestoreCollections
@@ -100,8 +101,11 @@ class PlanificarTraspasoViewModel(
     private val productDao = localDb.productDao()
     private val lotDao = localDb.stockLotDao()
     private val packagingDao = localDb.packagingDao()
+    private val predictiveSnapshotDao = localDb.predictiveV3SnapshotDao()
 
-    private val localSource = PredictiveV3RoomDataSource(localDb)
+    // Respaldo histórico: sólo se usa si todavía no existe una fotografía local completa.
+    // Firestore consumption_history -> respaldo Room -> caché RAM.
+    private val historySource = PredictiveV3HybridDataSource(localDb, firestore)
     private val configRepository = PredictiveV3ConfigRepository(firestore)
 
     private val _uiState = MutableStateFlow(PlanTraspasoUiState())
@@ -178,10 +182,16 @@ class PlanificarTraspasoViewModel(
         manualSelectedLots.clear()
         manualExactBreakdowns.clear()
         TraspasoPlanCache.limpiar()
-        cargarPlanDeTraspaso(descartarCache = false)
+        // Regenerar recalcula con stock/lotes locales frescos.
+        // El histórico no se vuelve a descargar: el arranque de la app ya mantiene
+        // actualizada la fotografía predictiva persistente en Room.
+        cargarPlanDeTraspaso(descartarCache = false, forceConfigRefresh = false)
     }
 
-    fun cargarPlanDeTraspaso(descartarCache: Boolean) {
+    fun cargarPlanDeTraspaso(
+        descartarCache: Boolean,
+        forceConfigRefresh: Boolean = false
+    ) {
         if (descartarCache) {
             manualOverridesKg.clear()
             manualRequestedUnits.clear()
@@ -218,7 +228,7 @@ class PlanificarTraspasoViewModel(
 
                 allLotesEnMatriz = packagedMatriz.groupBy { it.productId }
 
-                val config = configRepository.load()
+                val config = configRepository.load(forceRefresh = forceConfigRefresh)
                 val pendingPackaging = packagingDao.getAllPackagingTasksOnce()
 
                 val now = Date()
@@ -228,9 +238,56 @@ class PlanificarTraspasoViewModel(
                         PredictiveV3Time.seasonalWeeks(now)
                     ).distinctBy { it.key }
 
-                val checkpoints = localSource.loadCheckpointValues(
-                    productIds = products.map { it.id }.toSet(),
-                    weeks = weeks
+                // Regla local-first:
+                // el arranque/retorno de la app ya comprueba cambios y guarda el resultado
+                // predictivo en Room. Traspasos consume esa fotografía inmediatamente.
+                val roomPredictionStart = System.currentTimeMillis()
+                val persistedPredictions = predictiveSnapshotDao
+                    .getAllOnce()
+                    .associateBy { it.productId }
+
+                val activeIds = products.mapTo(linkedSetOf()) { it.id }
+                val missingActiveSnapshots = activeIds.filterNot(persistedPredictions::containsKey)
+
+                // Sólo si una instalación todavía no tiene fotografías locales completas
+                // usamos el histórico remoto como red de seguridad.
+                val historyProductIds = buildSet {
+                    addAll(products.map { it.id })
+                    config.groups.forEach { group ->
+                        addAll(group.memberProductIds)
+                        addAll(group.historicalProductIds)
+                    }
+                    config.services.forEach { relation ->
+                        addAll(relation.allHistoricalAnchorIds())
+                    }
+                }.filter { it.isNotBlank() }.toSet()
+
+                val checkpoints: Map<String, Double>
+                val historySourceLabel: String
+                val historyCount: Int
+
+                if (persistedPredictions.isNotEmpty() && missingActiveSnapshots.isEmpty()) {
+                    checkpoints = emptyMap()
+                    historySourceLabel = "ROOM_PREDICTIVE_SNAPSHOT"
+                    historyCount = persistedPredictions.size
+                } else {
+                    checkpoints = historySource.loadCheckpointValues(
+                        productIds = historyProductIds,
+                        weeks = weeks
+                    )
+                    historySourceLabel = historySource.lastCheckpointSource
+                    historyCount = checkpoints.size
+                }
+
+                val roomPredictionElapsed = System.currentTimeMillis() - roomPredictionStart
+
+                val historyTrace = TransferPlannerDiagnostics.HistoryTrace(
+                    source = historySourceLabel,
+                    checkpointCount = historyCount,
+                    requestedProductCount = historyProductIds.size,
+                    requestedWeekCount = weeks.size,
+                    loadMillis = roomPredictionElapsed,
+                    missingLocalPredictions = missingActiveSnapshots.size
                 )
 
                 val snapshot = PredictiveTransferPlannerV3.Snapshot(
@@ -240,6 +297,7 @@ class PlanificarTraspasoViewModel(
                     openLots = allOpenLots,
                     pendingPackaging = pendingPackaging,
                     checkpoints = checkpoints,
+                    persistedPredictions = persistedPredictions,
                     productionAdvanceProductIds = config.productionAdvanceProductIds,
                     now = now
                 )
@@ -254,6 +312,18 @@ class PlanificarTraspasoViewModel(
                 )
                 baselinePlanV3 = baseline
 
+                // Traza del plan BASE antes de cualquier edición humana.
+                // Filtra Logcat por: BocanaTraspasoTrace
+                val diagnostics = TransferPlannerDiagnostics.inspect(
+                    snapshot = snapshot,
+                    plan = baseline,
+                    history = historyTrace
+                )
+                Log.i(TransferPlannerDiagnostics.LOG_TAG, diagnostics.text)
+                diagnostics.warnings.forEach { warning ->
+                    Log.w(TransferPlannerDiagnostics.LOG_TAG, warning)
+                }
+
                 val plan = if (manualOverridesKg.isEmpty()) {
                     baseline
                 } else {
@@ -265,6 +335,7 @@ class PlanificarTraspasoViewModel(
                 lastPlanV3 = plan
 
                 val sugerencias = buildSuggestionItems(plan)
+                logAutomaticPackageTrace(sugerencias, plan)
 
                 _uiState.update {
                     it.copy(
@@ -406,7 +477,7 @@ class PlanificarTraspasoViewModel(
                 .thenBy { it.name.lowercase(Locale.getDefault()) }
         )
 
-        return orderedProducts.map { product ->
+        val rawItems = orderedProducts.map { product ->
             val meta = plan.products[product.id]
             val baselineMeta = baselinePlanV3?.products?.get(product.id) ?: meta
             val lots = allLotesEnMatriz[product.id].orEmpty()
@@ -414,7 +485,22 @@ class PlanificarTraspasoViewModel(
                 ?.filter { selected -> lots.any { it.id == selected.id } }
                 ?.takeIf { it.isNotEmpty() }
 
-            val physicalLots = selectedLots ?: lots
+            val plannedLotIds = meta?.suggestedLotIds.orEmpty().toSet()
+            val plannerRestrictedLots = if (
+                selectedLots == null &&
+                meta?.isManualOverride != true &&
+                plannedLotIds.isNotEmpty()
+            ) {
+                lots.filter { plannedLotIds.contains(it.id) }
+            } else {
+                emptyList()
+            }
+
+            // En grupos guiados, la UI respeta exactamente la ventana PEPS autorizada por
+            // el planificador. Ya no puede saltar a junio/julio para completar residuos viejos.
+            val physicalLots = selectedLots
+                ?: plannerRestrictedLots.takeIf { it.isNotEmpty() }
+                ?: lots
             val requestedKg = meta?.requestedKg?.coerceAtLeast(0.0)
                 ?: legacyNeed(product)
 
@@ -442,42 +528,63 @@ class PlanificarTraspasoViewModel(
             } else if (isFixed) {
                 physicalUnit = getUnidadReal(product, lots)
 
-                val autoUnitsRaw = convertirKgAUnidades(
-                    kg = requestedKg,
-                    lotesDisponibles = lots
-                ).first
-
-                // Margen inteligente de empaque: una diferencia mínima contra el objetivo
-                // no debe obligar a mover una caja completa. Sólo aplica a sugerencia automática;
-                // una edición humana siempre se respeta exactamente.
-                val kgPerUnit = representativeKgPerUnit(lots)
-                val tinyAutomaticGap =
-                    meta?.isManualOverride != true &&
-                    manualRequestedUnits[product.id] == null &&
-                    product.stockCongelador04 > 0.10 &&
-                    requestedKg > 0.01 &&
-                    kgPerUnit > 0.0 &&
-                    requestedKg < kgPerUnit * 0.50
-
-                val autoUnits = if (tinyAutomaticGap) 0 else autoUnitsRaw
-
-                val desiredUnits = manualRequestedUnits[product.id]
-                    ?: autoUnits
-
+                // La tolerancia automática ya no depende de un peso promedio.
+                // El optimizador compara 0, 1, 2... paquetes REALES de los lotes PEPS autorizados.
+                val isManualUnitRequest = manualRequestedUnits.containsKey(product.id)
                 val available = totalUnitsAvailable(physicalLots)
-                val actualDesired = min(desiredUnits, available)
 
-                val result = desglosarLotesParaCantidadUnidades(
-                    unidadesNecesarias = actualDesired,
-                    lotesDisponibles = physicalLots
-                )
+                if (isManualUnitRequest) {
+                    val desiredUnits = manualRequestedUnits[product.id]
+                        ?.coerceAtLeast(0)
+                        ?: 0
+                    val actualDesired = min(desiredUnits, available)
+                    val result = desglosarLotesParaCantidadUnidades(
+                        unidadesNecesarias = actualDesired,
+                        lotesDisponibles = physicalLots
+                    )
 
-                breakdown = result.first
-                actualKg = result.second
-                actualUnits = breakdown.sumOf {
-                    (it.cantidadATomarUnidades ?: 0.0).toInt()
+                    breakdown = result.first
+                    actualKg = result.second
+                    actualUnits = breakdown.sumOf {
+                        (it.cantidadATomarUnidades ?: 0.0).toInt()
+                    }
+                    // Manual conserva intención aunque hoy falten unidades.
+                    requestedUnits = desiredUnits
+                } else if (requestedKg <= 0.01) {
+                    breakdown = emptyList()
+                    actualKg = 0.0
+                    actualUnits = 0
+                    requestedUnits = 0
+                } else {
+                    // Sugerencia automática por paquetes reales:
+                    // no convierte kg con un ceil genérico. Recorre las unidades en PEPS
+                    // y escoge el corte físico que mejor aproxima la necesidad.
+                    val preferCoverage =
+                        meta?.reasonCodes.orEmpty().any {
+                            it == com.cesar.bocana.predictive.v3.TransferReasonCode.PRIMARY_MINIMUM ||
+                                it == com.cesar.bocana.predictive.v3.TransferReasonCode.SERVICE_SUPPORT_APPLIED ||
+                                it == com.cesar.bocana.predictive.v3.TransferReasonCode.SUPPORT_PRODUCT_LOW
+                        }
+
+                    val strictFloor = meta?.reasonCodes.orEmpty().contains(
+                        com.cesar.bocana.predictive.v3.TransferReasonCode.PRIMARY_MINIMUM
+                    )
+
+                    val optimized = optimizeAutomaticPackageBreakdown(
+                        targetKg = requestedKg,
+                        lotesDisponibles = physicalLots,
+                        preferCoverage = preferCoverage,
+                        strictFloor = strictFloor
+                    )
+
+                    breakdown = optimized.first
+                    actualKg = optimized.second
+                    actualUnits = breakdown.sumOf {
+                        (it.cantidadATomarUnidades ?: 0.0).toInt()
+                    }
+                    requestedUnits = actualUnits
                 }
-                requestedUnits = desiredUnits
+
                 availableUnits = totalUnitsAvailable(lots)
             } else {
                 physicalUnit = "Kg"
@@ -506,10 +613,15 @@ class PlanificarTraspasoViewModel(
 
             val originalKg = baselineMeta?.requestedKg ?: requestedKg
             val originalPhysicalText = if (isFixed) {
-                val units = convertirKgAUnidades(
-                    kg = originalKg,
-                    lotesDisponibles = lots
-                ).first
+                val units = optimizeAutomaticPackageBreakdown(
+                    targetKg = originalKg,
+                    lotesDisponibles = lots,
+                    preferCoverage = baselineMeta?.reasonCodes.orEmpty().contains(
+                        com.cesar.bocana.predictive.v3.TransferReasonCode.PRIMARY_MINIMUM
+                    )
+                ).first.sumOf {
+                    (it.cantidadATomarUnidades ?: 0.0).toInt()
+                }
                 "$units ${pluralUnit(physicalUnit, units)}"
             } else {
                 "${format1(originalKg)} kg"
@@ -568,6 +680,8 @@ class PlanificarTraspasoViewModel(
                 v3ManualOverride = manual || meta?.isManualOverride == true
             )
         }
+
+        return reconcileAutomaticGroupPackages(rawItems, plan)
     }
 
     fun actualizarInclusionEnPdf(
@@ -750,6 +864,7 @@ class PlanificarTraspasoViewModel(
 
         lastPlanV3 = plan
         val recalculated = buildSuggestionItems(plan)
+        logAutomaticPackageTrace(recalculated, plan)
         val focused = recalculated.firstOrNull { it.product.id == focusedProductId }
 
         val previous = _uiState.value.sugerencias
@@ -815,6 +930,55 @@ class PlanificarTraspasoViewModel(
 
         return loteEmpacado?.unidadDeEmpaque
             ?: product.unit
+    }
+
+
+    private fun logAutomaticPackageTrace(
+        items: List<TraspasoSugerenciaItem>,
+        plan: TransferPlanV3
+    ) {
+        items.asSequence()
+            .filter { it.product.id != "FILA_VACIA" }
+            .filter { !it.v3ManualOverride }
+            .filter { it.cantidadEditadaUnidades > 0 }
+            .forEach { item ->
+                val intentKg = plan.products[item.product.id]?.requestedKg ?: item.v3RequestedKg
+                val physicalKg = item.lotesParaTraspaso.sumOf { it.cantidadATomarKg }
+                Log.i(
+                    TransferPlannerDiagnostics.LOG_TAG,
+                    "PAQUETE ${item.product.name}: intención=${String.format(Locale.getDefault(), "%.1f", intentKg)}kg | " +
+                        "físico=${String.format(Locale.getDefault(), "%.1f", physicalKg)}kg | " +
+                        "unidades=${item.cantidadEditadaUnidades} ${item.unidadDeEmpaqueEditada}"
+                )
+            }
+
+        plan.groups.values.forEach { group ->
+            val memberIds = plan.products.values
+                .asSequence()
+                .filter { it.groupId == group.groupId }
+                .map { it.productId }
+                .toSet()
+            if (memberIds.isEmpty()) return@forEach
+
+            val physicalMovement = items
+                .asSequence()
+                .filter { it.product.id in memberIds }
+                .sumOf { it.sugerenciaKg.coerceAtLeast(0.0) }
+            val mathematicalMovement = group.allocatedIntentKg.coerceAtLeast(0.0)
+            val targetMovement = group.requestedTransferKg.coerceAtLeast(0.0)
+            val physicalC04 = group.currentC04Kg.coerceAtLeast(0.0) + physicalMovement
+            val deviation = physicalMovement - targetMovement
+
+            Log.i(
+                TransferPlannerDiagnostics.LOG_TAG,
+                "GRUPO_FISICO ${group.groupName}: objetivoMovimiento=${String.format(Locale.getDefault(), "%.1f", targetMovement)}kg | " +
+                    "matemático=${String.format(Locale.getDefault(), "%.1f", mathematicalMovement)}kg | " +
+                    "físico=${String.format(Locale.getDefault(), "%.1f", physicalMovement)}kg | " +
+                    "desviación=${String.format(Locale.getDefault(), "%+.1f", deviation)}kg | " +
+                    "objetivoC04=${String.format(Locale.getDefault(), "%.1f", group.dynamicTargetKg)}kg | " +
+                    "C04físico=${String.format(Locale.getDefault(), "%.1f", physicalC04)}kg"
+            )
+        }
     }
 
     private fun totalUnitsAvailable(
@@ -898,6 +1062,327 @@ class PlanificarTraspasoViewModel(
         return result to accumulated
     }
 
+
+    /**
+     * Selección automática de cajas/costales/unidades respetando PEPS.
+     *
+     * La capa predictiva decide CUÁNTOS kg conviene acercar a C04. Esta función sólo
+     * resuelve la realidad física: con las cajas/costales reales disponibles, ¿qué
+     * prefijo PEPS deja el movimiento más cerca de esos kg?
+     *
+     * Ejemplo: faltan 20 kg y las cajas pesan 15 kg.
+     * - 1 caja = 15 kg, error 5 kg.
+     * - 2 cajas = 30 kg, error 10 kg.
+     * => se sugiere 1 caja. No se usa ceil().
+     *
+     * También se considera 0 unidades como candidato. Así, si sólo faltan 3-5 kg y
+     * una caja completa provocaría un exceso mayor, el sistema espera al siguiente
+     * traspaso en lugar de sobreabastecer.
+     *
+     * En empate (o diferencia casi idéntica) se prefiere quedar ligeramente arriba.
+     * Manual sigue siendo exacto y nunca pasa por esta decisión.
+     */
+    private fun optimizeAutomaticPackageBreakdown(
+        targetKg: Double,
+        lotesDisponibles: List<StockLot>,
+        preferCoverage: Boolean,
+        strictFloor: Boolean = false
+    ): Pair<List<LoteDesglosado>, Double> {
+        val target = targetKg.coerceAtLeast(0.0)
+        if (target <= StockQuantityPolicy.FLOAT_EPSILON) {
+            return emptyList<LoteDesglosado>() to 0.0
+        }
+
+        data class UnitLot(
+            val lot: StockLot,
+            val weight: Double,
+            val availableUnits: Int
+        )
+
+        val unitLots = sortLotsFifo(lotesDisponibles)
+            .mapNotNull { lot ->
+                val weight = lot.pesoPorUnidad ?: return@mapNotNull null
+                if (weight <= 0.0 || lot.unidadDeEmpaque.isNullOrBlank()) return@mapNotNull null
+                val units = Math.floor(lot.currentQuantity / weight).toInt()
+                if (units <= 0) null else UnitLot(lot, weight, units)
+            }
+
+        if (unitLots.isEmpty()) return emptyList<LoteDesglosado>() to 0.0
+
+        // IMPORTANTE: 0 unidades también compite. Ésta es la banda de reposición
+        // natural que antes conseguíamos con el sistema sencillo.
+        val currentCounts = IntArray(unitLots.size)
+        var bestCounts = IntArray(unitLots.size)
+        var accumulated = 0.0
+        var bestKg = 0.0
+        var bestDistance = target
+
+        // Sólo rompe empates muy pequeños; nunca convierte "faltan 20" en 2 cajas
+        // si 1 caja deja el objetivo físicamente más cerca.
+        val nearTieKg = if (preferCoverage || strictFloor) 0.50 else 0.10
+
+        fun shouldReplaceBest(candidateKg: Double): Boolean {
+            val candidateDistance = kotlin.math.abs(target - candidateKg)
+            if (candidateDistance < bestDistance - nearTieKg) return true
+
+            if (kotlin.math.abs(candidateDistance - bestDistance) <= nearTieKg) {
+                val candidateCovers = candidateKg + StockQuantityPolicy.FLOAT_EPSILON >= target
+                val bestCovers = bestKg + StockQuantityPolicy.FLOAT_EPSILON >= target
+                if (candidateCovers && !bestCovers) return true
+
+                // Si ambos están del mismo lado, el más cercano sigue ganando.
+                if (candidateDistance + 0.0001 < bestDistance) return true
+            }
+            return false
+        }
+
+        var visitedUnits = 0
+        val maxVisitedUnits = 5000
+        val largestUnit = unitLots.maxOf { it.weight }
+
+        selection@ for (index in unitLots.indices) {
+            val unitLot = unitLots[index]
+            for (ignored in 0 until unitLot.availableUnits) {
+                if (visitedUnits >= maxVisitedUnits) break@selection
+
+                currentCounts[index] += 1
+                accumulated += unitLot.weight
+                visitedUnits += 1
+
+                if (shouldReplaceBest(accumulated)) {
+                    bestKg = accumulated
+                    bestDistance = kotlin.math.abs(target - accumulated)
+                    bestCounts = currentCounts.copyOf()
+                }
+
+                // Como sólo permitimos prefijos PEPS, una vez que ya estamos más de una
+                // unidad completa por encima y seguimos alejándonos, avanzar no ayudará.
+                if (
+                    accumulated > target + largestUnit &&
+                    kotlin.math.abs(accumulated - target) > bestDistance + largestUnit * 0.50
+                ) {
+                    break@selection
+                }
+            }
+        }
+
+        if (bestKg <= StockQuantityPolicy.FLOAT_EPSILON) {
+            return emptyList<LoteDesglosado>() to 0.0
+        }
+
+        val result = mutableListOf<LoteDesglosado>()
+        var actualKg = 0.0
+
+        unitLots.forEachIndexed { index, unitLot ->
+            val count = bestCounts[index]
+            if (count <= 0) return@forEachIndexed
+
+            val requestedKg = count * unitLot.weight
+            val withdrawal = StockQuantityPolicy.withdrawFromLot(
+                unitLot.lot.currentQuantity,
+                requestedKg
+            )
+            if (withdrawal.actualTakenKg <= StockQuantityPolicy.FLOAT_EPSILON) {
+                return@forEachIndexed
+            }
+
+            result += LoteDesglosado(
+                loteId = unitLot.lot.id,
+                cantidadATomarKg = withdrawal.actualTakenKg,
+                cantidadATomarUnidades = count.toDouble(),
+                lote = unitLot.lot,
+                loteFecha = effectiveDate(unitLot.lot),
+                loteProveedor = unitLot.lot.supplierName ?: unitLot.lot.originalSupplierName,
+                loteUnidad = unitLot.lot.unidadDeEmpaque,
+                lotePesoPorUnidad = unitLot.lot.pesoPorUnidad
+            )
+            actualKg += withdrawal.actualTakenKg
+        }
+
+        return result to actualKg
+    }
+
+    /**
+     * Segundo pase físico para GRUPOS.
+     *
+     * El planificador ya decidió rector/secundario/rellenos y la ventana PEPS válida.
+     * Aquí NO volvemos a decidir productos ni fechas. Sólo evitamos que el redondeo
+     * independiente de varias tarjetas acumule un exceso absurdo sobre el objetivo del grupo.
+     *
+     * Regla conservadora:
+     * - parte de las cajas que cada producto eligió por cercanía;
+     * - sólo intenta quitar la unidad física MÁS NUEVA del conjunto;
+     * - únicamente la quita si el total del grupo queda más cerca del objetivo;
+     * - nunca toca decisiones manuales;
+     * - si esa unidad pertenece al rector, respeta su piso con tolerancia física basada
+     *   en el tamaño real de la caja/costal.
+     *
+     * No añade unidades nuevas en este pase. Quedarse un poco abajo es preferible a
+     * sobreabastecer por una caja indivisible, exactamente como en la operación real.
+     */
+    private fun reconcileAutomaticGroupPackages(
+        items: List<TraspasoSugerenciaItem>,
+        plan: TransferPlanV3
+    ): List<TraspasoSugerenciaItem> {
+        var result = items
+
+        plan.groups.values.forEach { groupPlan ->
+            val memberIds = plan.products.values
+                .asSequence()
+                .filter { it.groupId == groupPlan.groupId }
+                .map { it.productId }
+                .toSet()
+
+            if (memberIds.isEmpty()) return@forEach
+
+            // Una decisión humana congela el grupo para este pase automático.
+            if (result.any { it.product.id in memberIds && it.v3ManualOverride }) {
+                return@forEach
+            }
+
+            val targetMovementKg = groupPlan.requestedTransferKg.coerceAtLeast(0.0)
+            if (targetMovementKg <= StockQuantityPolicy.FLOAT_EPSILON) return@forEach
+
+            fun physicalTotal(): Double = result
+                .asSequence()
+                .filter { it.product.id in memberIds }
+                .sumOf { it.sugerenciaKg.coerceAtLeast(0.0) }
+
+            var currentTotal = physicalTotal()
+            var guard = 0
+
+            while (guard++ < 100 && currentTotal > targetMovementKg + 0.10) {
+                data class Removable(
+                    val itemIndex: Int,
+                    val breakdownIndex: Int,
+                    val unitWeight: Double,
+                    val effectiveTime: Long
+                )
+
+                val removable = mutableListOf<Removable>()
+
+                for (itemIndex in result.indices) {
+                    val item = result[itemIndex]
+                    if (item.product.id !in memberIds || item.v3ManualOverride) continue
+                    if (item.cantidadEditadaUnidades <= 0) continue
+
+                    for (breakdownIndex in item.lotesParaTraspaso.indices) {
+                        val row = item.lotesParaTraspaso[breakdownIndex]
+                        val count = (row.cantidadATomarUnidades ?: 0.0).toInt()
+                        if (count <= 0) continue
+                        val weight = row.lotePesoPorUnidad
+                            ?: if (count > 0) row.cantidadATomarKg / count else 0.0
+                        if (weight <= 0.0) continue
+
+                        removable += Removable(
+                            itemIndex = itemIndex,
+                            breakdownIndex = breakdownIndex,
+                            unitWeight = weight,
+                            effectiveTime = row.loteFecha?.time ?: Long.MAX_VALUE
+                        )
+                    }
+                }
+
+                if (removable.isEmpty()) break
+
+                // Para no romper PEPS sólo se puede recortar desde la frontera física más nueva.
+                val newestTime = removable.maxOf { it.effectiveTime }
+                val newestCandidates = removable.filter { it.effectiveTime == newestTime }
+
+                val currentDistance = kotlin.math.abs(targetMovementKg - currentTotal)
+                val choice = newestCandidates
+                    .mapNotNull { candidate ->
+                        val item = result[candidate.itemIndex]
+                        val afterItemKg = (item.sugerenciaKg - candidate.unitWeight).coerceAtLeast(0.0)
+
+                        if (
+                            item.v3IsGroupPrimary &&
+                            !primaryFloorAllowsPhysicalTolerance(
+                                item = item,
+                                resultingTransferKg = afterItemKg,
+                                removedPackageKg = candidate.unitWeight,
+                                groupId = groupPlan.groupId
+                            )
+                        ) {
+                            return@mapNotNull null
+                        }
+
+                        val afterTotal = (currentTotal - candidate.unitWeight).coerceAtLeast(0.0)
+                        val afterDistance = kotlin.math.abs(targetMovementKg - afterTotal)
+                        if (afterDistance + 0.0001 >= currentDistance) return@mapNotNull null
+
+                        Triple(candidate, afterTotal, afterDistance)
+                    }
+                    .minByOrNull { it.third }
+                    ?: break
+
+                result = result.toMutableList().also { mutable ->
+                    mutable[choice.first.itemIndex] = removeOnePackage(
+                        mutable[choice.first.itemIndex],
+                        choice.first.breakdownIndex,
+                        choice.first.unitWeight
+                    )
+                }
+                currentTotal = choice.second
+            }
+        }
+
+        return result
+    }
+
+    private fun primaryFloorAllowsPhysicalTolerance(
+        item: TraspasoSugerenciaItem,
+        resultingTransferKg: Double,
+        removedPackageKg: Double,
+        groupId: String
+    ): Boolean {
+        val groupConfig = lastSnapshot?.groups?.firstOrNull { it.id == groupId } ?: return true
+        val floorKg = groupConfig.primaryMinimumC04Kg.coerceAtLeast(0.0)
+        if (floorKg <= 0.01) return true
+
+        val resultingC04 = item.product.stockCongelador04.coerceAtLeast(0.0) +
+            resultingTransferKg.coerceAtLeast(0.0)
+        if (resultingC04 + StockQuantityPolicy.FLOAT_EPSILON >= floorKg) return true
+
+        val shortage = floorKg - resultingC04
+        val tolerance = min(
+            removedPackageKg.coerceAtLeast(0.0) * 0.50,
+            floorKg * 0.15
+        )
+        return shortage <= tolerance + StockQuantityPolicy.FLOAT_EPSILON
+    }
+
+    private fun removeOnePackage(
+        item: TraspasoSugerenciaItem,
+        breakdownIndex: Int,
+        unitWeight: Double
+    ): TraspasoSugerenciaItem {
+        val nextBreakdown = item.lotesParaTraspaso.toMutableList()
+        val row = nextBreakdown[breakdownIndex]
+        val oldUnits = (row.cantidadATomarUnidades ?: 0.0).toInt()
+
+        if (oldUnits <= 1) {
+            nextBreakdown.removeAt(breakdownIndex)
+        } else {
+            nextBreakdown[breakdownIndex] = row.copy(
+                cantidadATomarKg = (row.cantidadATomarKg - unitWeight).coerceAtLeast(0.0),
+                cantidadATomarUnidades = (oldUnits - 1).toDouble()
+            )
+        }
+
+        val nextKg = nextBreakdown.sumOf { it.cantidadATomarKg }
+        val nextUnits = nextBreakdown.sumOf { (it.cantidadATomarUnidades ?: 0.0).toInt() }
+
+        return item.copy(
+            sugerenciaKg = nextKg,
+            lotesParaTraspaso = nextBreakdown,
+            impactoStockMatriz = (item.product.stockMatriz - nextKg).coerceAtLeast(0.0),
+            incluidoEnPdf = nextKg > 0.0,
+            cantidadEditadaUnidades = nextUnits,
+            cantidadSolicitadaUnidades = nextUnits
+        )
+    }
+
     private fun desglosarLotesParaCantidadUnidades(
         unidadesNecesarias: Int,
         lotesDisponibles: List<StockLot>
@@ -954,8 +1439,10 @@ class PlanificarTraspasoViewModel(
             .sortedBy { effectiveDate(it)?.time ?: Long.MAX_VALUE }
             .toList()
 
+    /** Fecha real de llegada para PEPS: nunca usa empaque/traspaso como si fuera recepción. */
     private fun effectiveDate(lot: StockLot): Date? =
-        lot.originalReceivedAt ?: lot.receivedAt
+        listOfNotNull(lot.receivedAt, lot.originalReceivedAt)
+            .minByOrNull { it.time }
 
     private fun legacyNeed(product: Product): Double {
         val need = max(

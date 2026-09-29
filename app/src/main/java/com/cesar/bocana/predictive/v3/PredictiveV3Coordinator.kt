@@ -32,6 +32,7 @@ import com.cesar.bocana.predictive.v3.model.ServiceAnalysisV3
 import com.cesar.bocana.util.StockQuantityPolicy
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CancellationException
 import java.util.Calendar
 import java.util.Date
 import kotlin.math.max
@@ -64,6 +65,8 @@ class PredictiveV3Coordinator(
         suspend fun <T> safeRead(label: String, fallback: T, block: suspend () -> T): T {
             return try {
                 block()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 dataWarnings += "$label no disponible temporalmente"
                 fallback
@@ -132,8 +135,7 @@ class PredictiveV3Coordinator(
             checkpoints = checkpoints,
             targetWindowDays = targetWindowDays,
             elapsedDays = elapsedDays,
-            regime = regime,
-            productionAdvanceMode = config.productionAdvanceProductIds.contains(selected.id)
+            regime = regime
         )
 
         var individualOperational = operationalFromForecast(
@@ -158,8 +160,7 @@ class PredictiveV3Coordinator(
                 targetWindowDays = targetWindowDays,
                 elapsedDays = elapsedDays,
                 regime = regime,
-                effectiveWeeklyOverride = null,
-                productionAdvanceProductIds = config.productionAdvanceProductIds
+                effectiveWeeklyOverride = null
             )
         }
 
@@ -175,8 +176,7 @@ class PredictiveV3Coordinator(
                 checkpoints = checkpoints,
                 targetWindowDays = targetWindowDays,
                 elapsedDays = elapsedDays,
-                regime = regime,
-                productionAdvanceProductIds = config.productionAdvanceProductIds
+                regime = regime
             )
         }
 
@@ -199,8 +199,7 @@ class PredictiveV3Coordinator(
                     targetWindowDays = targetWindowDays,
                     elapsedDays = elapsedDays,
                     regime = regime,
-                    effectiveWeeklyOverride = serviceAnalysis.allocation.linkedGroupWeeklyKg,
-                    productionAdvanceProductIds = config.productionAdvanceProductIds
+                    effectiveWeeklyOverride = serviceAnalysis.allocation.linkedGroupWeeklyKg
                 )
             }
         }
@@ -326,8 +325,7 @@ class PredictiveV3Coordinator(
         checkpoints: Map<String, Double>,
         targetWindowDays: Double,
         elapsedDays: Double,
-        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
-        productionAdvanceMode: Boolean
+        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
     ) = PredictiveV3Engine.forecast(
         ForecastContext(
             entityId = product.id,
@@ -342,8 +340,7 @@ class PredictiveV3Coordinator(
             generalReserveKg = matrixReserveForCommitment(product),
             legacyC04ReferenceKg = product.stockIdealC04,
             seasonalReferenceWeeklyKg = averageExisting(product.id, seasonalWeeks, checkpoints),
-            regime = regime,
-            productionAdvanceMode = productionAdvanceMode
+            regime = regime
         )
     )
 
@@ -358,8 +355,7 @@ class PredictiveV3Coordinator(
         targetWindowDays: Double,
         elapsedDays: Double,
         regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
-        effectiveWeeklyOverride: Double?,
-        productionAdvanceProductIds: Set<String>
+        effectiveWeeklyOverride: Double?
     ): GroupAnalysisV3 {
         val members = group.memberProductIds.mapNotNull { productsById[it] }
         val memberSeries = members.associate { product ->
@@ -393,8 +389,7 @@ class PredictiveV3Coordinator(
                 generalReserveKg = matrixReserve,
                 legacyC04ReferenceKg = legacyC04,
                 seasonalReferenceWeeklyKg = averageGroupExisting(historicalGroupIds, seasonalWeeks, checkpoints),
-                regime = regime,
-                productionAdvanceMode = historicalGroupIds.any(productionAdvanceProductIds::contains)
+                regime = regime
             )
         )
 
@@ -460,8 +455,7 @@ class PredictiveV3Coordinator(
         checkpoints: Map<String, Double>,
         targetWindowDays: Double,
         elapsedDays: Double,
-        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime,
-        productionAdvanceProductIds: Set<String>
+        regime: com.cesar.bocana.predictive.v3.model.SeasonRegime
     ): ServiceAnalysisV3? {
         val anchors = relation.effectiveAnchorProductIds().mapNotNull { productsById[it] }
         val groupMembers = linkedGroup.memberProductIds.mapNotNull { productsById[it] }
@@ -501,8 +495,7 @@ class PredictiveV3Coordinator(
                 stockTotalKg = anchors.sumOf { it.totalStock },
                 generalReserveKg = anchors.sumOf(::matrixReserveForCommitment),
                 seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime,
-                productionAdvanceMode = anchorHistoryIds.any(productionAdvanceProductIds::contains)
+                regime = regime
             )
         )
 
@@ -521,8 +514,7 @@ class PredictiveV3Coordinator(
                 legacyC04ReferenceKg = linkedGroup.c04GroupTargetKg.takeIf { it > 0.0 }
                     ?: groupMembers.sumOf { it.stockIdealC04 },
                 seasonalReferenceWeeklyKg = averageGroupExisting(groupHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime,
-                productionAdvanceMode = groupHistoryIds.any(productionAdvanceProductIds::contains)
+                regime = regime
             )
         )
 
@@ -542,8 +534,7 @@ class PredictiveV3Coordinator(
                 generalReserveKg = anchors.sumOf(::matrixReserveForCommitment) +
                     groupMembers.sumOf(::matrixReserveForCommitment),
                 seasonalReferenceWeeklyKg = averageGroupExisting(anchorHistoryIds + groupHistoryIds, seasonalWeeks, checkpoints),
-                regime = regime,
-                productionAdvanceMode = (anchorHistoryIds + groupHistoryIds).any(productionAdvanceProductIds::contains)
+                regime = regime
             )
         )
 
@@ -675,7 +666,11 @@ class PredictiveV3Coordinator(
         extraReason: String? = null
     ): OperationalRecommendation {
         val safeWeekly = weeklyKg.coerceAtLeast(0.0)
-        val target = safeWeekly / 7.0 * (targetWindowDays + forecast.safetyDays)
+        val predictiveTarget = safeWeekly / 7.0 * (targetWindowDays + forecast.safetyDays)
+        val habitualFloor = forecast.legacyC04ReferenceKg.coerceAtLeast(0.0)
+        // Regla operativa 4.3: la inteligencia puede subir el objetivo C04,
+        // pero nunca bajarlo por debajo del objetivo habitual configurado.
+        val target = max(predictiveTarget, habitualFloor)
         val need = max(0.0, target - stockC04Kg.coerceAtLeast(0.0))
         val usableMatriz = max(0.0, stockMatrizKg.coerceAtLeast(0.0) - matrixReserveKg.coerceAtLeast(0.0))
         val suggestion = min(need, usableMatriz)
@@ -687,8 +682,12 @@ class PredictiveV3Coordinator(
             source = source,
             reasons = buildList {
                 if (extraReason != null) add(extraReason)
-                add("Objetivo calculado por consumo esperado + seguridad, no por mínimo fijo")
-                if (need <= 0.01) add("El stock actual de C04 ya cubre la ventana")
+                if (habitualFloor > 0.01) {
+                    add("Objetivo por consumo esperado + seguridad, respetando el objetivo habitual C04 como piso")
+                } else {
+                    add("Objetivo calculado por consumo esperado + seguridad")
+                }
+                if (need <= 0.01) add("El stock actual de C04 ya cubre el objetivo operativo")
                 if (need > usableMatriz + 0.01) add("La sugerencia se limita para respetar la reserva general")
             }
         )

@@ -13,7 +13,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.cesar.bocana.R
@@ -24,6 +23,7 @@ import com.cesar.bocana.predictive.v3.model.PredictiveGroupConfig
 import com.cesar.bocana.predictive.v3.model.PredictiveServiceRelation
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
@@ -155,6 +155,9 @@ class PredictiveGroupsFragment : Fragment() {
                     if (secondary.isNotEmpty()) {
                         append("\nSecundarios: ${secondary.joinToString(", ")}")
                     }
+                    if (item.group.balanceSameReceivedDate) {
+                        append("\nReparto misma fecha: activo")
+                    }
                 }
             }
 
@@ -184,7 +187,7 @@ class PredictiveGroupsFragment : Fragment() {
             cardElevation = dp(1).toFloat()
             strokeWidth = dp(1)
             strokeColor = Color.parseColor("#D7DCEF")
-            setCardBackgroundColor(ContextCompat.getColor(requireContext(), R.color.bocana_surface))
+            setCardBackgroundColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -342,6 +345,13 @@ class PredictiveGroupsFragment : Fragment() {
         val primarySummary = editorSummary()
         val secondarySummary = editorSummary()
 
+        val balanceSameDateSwitch = SwitchMaterial(requireContext()).apply {
+            text = "Repartir si comparten la misma fecha de recepción"
+            textSize = 14f
+            isChecked = existing?.balanceSameReceivedDate == true
+            setPadding(0, dp(12), 0, 0)
+        }
+
         fun refresh() {
             val selectedNames = availableProducts
                 .filter { selectedIds.contains(it.id) }
@@ -440,10 +450,18 @@ class PredictiveGroupsFragment : Fragment() {
         view.addView(secondarySummary)
 
         view.addView(TextView(requireContext()).apply {
-            text = "El principal tiene preferencia suave. FIFO, stock disponible y necesidad C04 siguen mandando."
+            text = "El principal tiene preferencia suave. PEPS, stock disponible y necesidad C04 siguen mandando."
             textSize = 11f
             setTextColor(Color.parseColor("#64748B"))
             setPadding(0, dp(10), 0, 0)
+        })
+
+        view.addView(balanceSameDateSwitch)
+        view.addView(TextView(requireContext()).apply {
+            text = "Si varios miembros tienen la misma fecha PEPS más antigua, reparte la necesidad entre ellos. Si las fechas son distintas, sale primero la mercancía más antigua."
+            textSize = 11f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(dp(4), dp(4), dp(4), 0)
         })
 
         refresh()
@@ -475,7 +493,8 @@ class PredictiveGroupsFragment : Fragment() {
                             name = name,
                             memberProductIds = selectedIds.toList(),
                             primaryProductId = primaryId,
-                            secondaryProductIds = secondaryIds.toList()
+                            secondaryProductIds = secondaryIds.toList(),
+                            balanceSameReceivedDate = balanceSameDateSwitch.isChecked
                         )
                         dialog.dismiss()
                         loadData(cleanInactive = false)

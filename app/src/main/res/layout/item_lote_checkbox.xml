@@ -58,7 +58,7 @@
                 android:paddingTop="2dp"
                 android:paddingEnd="7dp"
                 android:paddingBottom="2dp"
-                android:text="FIFO"
+                android:text="PEPS"
                 android:textColor="#3047A5"
                 android:textSize="9.5sp"
                 android:textStyle="bold" />

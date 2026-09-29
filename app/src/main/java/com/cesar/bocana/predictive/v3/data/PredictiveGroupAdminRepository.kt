@@ -172,7 +172,8 @@ class PredictiveGroupAdminRepository(
         name: String,
         memberProductIds: List<String>,
         primaryProductId: String?,
-        secondaryProductIds: List<String>
+        secondaryProductIds: List<String>,
+        balanceSameReceivedDate: Boolean
     ): String {
         require(name.isNotBlank()) { "El grupo necesita un nombre." }
 
@@ -221,6 +222,7 @@ class PredictiveGroupAdminRepository(
             "memberRules" to rules,
             "primaryProductId" to primary,
             "secondaryProductIds" to secondaries,
+            "balanceSameReceivedDate" to balanceSameReceivedDate,
             "enabled" to true,
             "updatedAt" to FieldValue.serverTimestamp()
         )
@@ -429,6 +431,7 @@ class PredictiveGroupAdminRepository(
                         .orEmpty(),
                     c04GroupTargetKg = doc.getDouble("c04GroupTargetKg") ?: 0.0,
                     primaryMinimumC04Kg = doc.getDouble("primaryMinimumC04Kg") ?: 0.0,
+                    balanceSameReceivedDate = doc.getBoolean("balanceSameReceivedDate") ?: false,
                     enabled = doc.getBoolean("enabled") ?: true
                 )
             }

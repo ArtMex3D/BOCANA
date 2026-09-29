@@ -58,7 +58,7 @@ class LoteCheckboxAdapter(
         fun bind(item: Pair<StockLot, Double?>) {
             val (lote, cantidadAsignada) = item
 
-            val fecha = dateFormat.format(lote.originalReceivedAt ?: lote.receivedAt ?: Date())
+            val fecha = dateFormat.format(fechaRecepcion(lote) ?: Date())
             val proveedor = lote.supplierName ?: lote.originalSupplierName ?: "S/P"
 
             val esGranel = isBulkProduct
@@ -123,6 +123,10 @@ class LoteCheckboxAdapter(
             }
         }
     }
+
+    private fun fechaRecepcion(lote: StockLot): Date? =
+        listOfNotNull(lote.receivedAt, lote.originalReceivedAt)
+            .minByOrNull { it.time }
 
     class LotDiffCallback : DiffUtil.ItemCallback<Pair<StockLot, Double?>>() {
         override fun areItemsTheSame(oldItem: Pair<StockLot, Double?>, newItem: Pair<StockLot, Double?>): Boolean {
